@@ -15,5 +15,10 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./finance.db"
     app_name: str = "Finance Platform API"
 
+    # LLM categorization (Phase 2). Optional: with no key set, the app falls
+    # back to deterministic rule-based categorization automatically.
+    anthropic_api_key: str | None = None
+    llm_model: str = "claude-sonnet-4-6"
+
 
 settings = Settings()

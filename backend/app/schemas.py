@@ -27,6 +27,22 @@ class CategoryTotal(BaseModel):
     count: int
 
 
+class Overview(BaseModel):
+    """High-level money summary for a user."""
+
+    total_income_cents: int
+    total_spending_cents: int   # stored as a positive magnitude
+    net_cents: int
+    transaction_count: int
+
+
+class MonthTotal(BaseModel):
+    month: str                  # 'YYYY-MM'
+    income_cents: int
+    spending_cents: int         # positive magnitude
+    net_cents: int
+
+
 class UserCreate(BaseModel):
     email: EmailStr
 

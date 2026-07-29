@@ -1,11 +1,11 @@
-[![CI](https://github.com/badrinath888/finsigh/actions/workflows/ci.yml/badge.svg)](https://github.com/badrinath888/finsigh/actions/workflows/ci.yml)
 # FinSight — AI-Powered Personal Finance Platform
 
 Upload your bank transactions, see where your money goes, and ask an AI
 assistant questions about your spending in plain English.
 
-> **Status:** Phase 1 complete — backend spine (transaction ingestion +
-> categorization + spending summaries) with a full test suite and CI.
+> **Status:** Phase 2 complete — backend spine + LLM-powered categorization
+> (batched, cached, with a deterministic fallback) and richer spending
+> summaries. 51 tests, green CI.
 
 ## Why this project
 
@@ -21,7 +21,7 @@ logic. This repo is built to production practices, not tutorial shortcuts.
 | Database   | PostgreSQL + pgvector (SQLite for local/tests)     |
 | ORM        | SQLAlchemy 2.0                                     |
 | Validation | Pydantic v2                                        |
-| Tests      | pytest (43 tests)                                  |
+| Tests      | pytest (51 tests)                                  |
 | CI         | GitHub Actions                                     |
 | Container  | Docker                                            |
 | Frontend   | Next.js + TypeScript + Tailwind *(Phase 3)*        |
@@ -35,9 +35,11 @@ logic. This repo is built to production practices, not tutorial shortcuts.
 - **Uploads never crash on bad data.** `app/ingestion.py` validates every row,
   imports the good ones, and reports the bad ones with row numbers — no silent
   drops.
-- **Categorization has a clean seam.** Deterministic keyword rules today
-  (fast, free, unit-tested); an LLM categorizer drops in behind the same
-  `categorize()` signature in Phase 2 without touching callers.
+- **LLM categorization is cost-aware.** `app/llm_categorization.py` categorizes
+  with an LLM when `ANTHROPIC_API_KEY` is set, but sends all uncategorized
+  descriptions in **one batched request** and **caches** results, so the same
+  merchant is never billed twice. With no key it falls back to deterministic
+  rules — so tests and CI need no secret and stay fast and free.
 - **Per-user ownership from day one.** Every transaction belongs to a user;
   the schema is the isolation boundary auth will enforce in Phase 3.
 
@@ -84,12 +86,14 @@ pytest
 | POST   | `/users/{id}/transactions/upload`        | Upload a CSV of transactions   |
 | GET    | `/users/{id}/transactions`               | List a user's transactions     |
 | GET    | `/users/{id}/summary/by-category`        | Spending totals by category    |
+| GET    | `/users/{id}/summary/overview`           | Income, spending, net totals   |
+| GET    | `/users/{id}/summary/by-month`           | Income/spending/net per month  |
 | GET    | `/health`                                | Health check                   |
 
 ## Roadmap
 
 - [x] **Phase 1** — Backend spine: ingestion, categorization, summaries, tests, CI
-- [ ] **Phase 2** — LLM categorization + richer summary endpoints
+- [x] **Phase 2** — LLM categorization (batched + cached, rule fallback) + overview/by-month summaries
 - [ ] **Phase 3** — Next.js/TypeScript frontend: auth, upload, dashboard
 - [ ] **Phase 4** — AI assistant (RAG over transactions with pgvector)
 - [ ] **Phase 5** — Dispute-letter agent + evaluation harness

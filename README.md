@@ -1,3 +1,4 @@
+[![CI](https://github.com/badrinath888/finsigh/actions/workflows/ci.yml/badge.svg)](https://github.com/badrinath888/finsigh/actions/workflows/ci.yml)
 # FinSight — AI-Powered Personal Finance Platform
 
 Upload your bank transactions, see where your money goes, and ask an AI

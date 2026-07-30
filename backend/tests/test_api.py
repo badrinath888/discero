@@ -1,54 +1,195 @@
 import io
 
-
-def test_health(client):
-    assert client.get("/health").json() == {"status": "ok"}
+from fastapi.testclient import TestClient
 
 
-def test_create_and_get_user(client):
-    resp = client.post("/users", json={"email": "a@b.com"})
-    assert resp.status_code == 201
-    uid = resp.json()["id"]
-    assert client.get(f"/users/{uid}").json()["email"] == "a@b.com"
+PASSWORD = "TestPassword123!"
 
 
-def test_duplicate_email_rejected(client):
-    client.post("/users", json={"email": "dup@b.com"})
-    resp = client.post("/users", json={"email": "dup@b.com"})
-    assert resp.status_code == 409
+def register_and_login(
+    client: TestClient,
+    email: str,
+) -> tuple[int, dict[str, str]]:
+    create_response = client.post(
+        "/users",
+        json={
+            "email": email,
+            "password": PASSWORD,
+        },
+    )
+
+    assert create_response.status_code == 201
+
+    login_response = client.post(
+        "/users/login",
+        json={
+            "email": email,
+            "password": PASSWORD,
+        },
+    )
+
+    assert login_response.status_code == 200
+
+    token = login_response.json()["access_token"]
+
+    return create_response.json()["id"], {
+        "Authorization": f"Bearer {token}",
+    }
 
 
-def test_upload_flow_and_summary(client, user_id):
+def test_health(client: TestClient) -> None:
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_create_and_get_user(client: TestClient) -> None:
+    user_id, headers = register_and_login(
+        client,
+        "a@b.com",
+    )
+
+    response = client.get(
+        f"/users/{user_id}",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["email"] == "a@b.com"
+
+
+def test_duplicate_email_rejected(
+    client: TestClient,
+) -> None:
+    payload = {
+        "email": "dup@b.com",
+        "password": PASSWORD,
+    }
+
+    first = client.post("/users", json=payload)
+    second = client.post("/users", json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+
+
+def test_upload_flow_and_summary(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
     csv_bytes = (
         "date,description,amount\n"
         "2026-01-05,Whole Foods,-52.10\n"
         "2026-01-06,Starbucks,-6.25\n"
         "2026-01-06,ACME Payroll,2000.00\n"
     ).encode()
-    files = {"file": ("txns.csv", io.BytesIO(csv_bytes), "text/csv")}
 
-    resp = client.post(f"/users/{user_id}/transactions/upload", files=files)
-    assert resp.status_code == 200
-    body = resp.json()
+    files = {
+        "file": (
+            "txns.csv",
+            io.BytesIO(csv_bytes),
+            "text/csv",
+        )
+    }
+
+    response = client.post(
+        f"/users/{user_id}/transactions/upload",
+        files=files,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
     assert body["imported"] == 3
     assert body["rejected"] == 0
 
-    txns = client.get(f"/users/{user_id}/transactions").json()
-    assert len(txns) == 3
+    transactions_response = client.get(
+        f"/users/{user_id}/transactions",
+        headers=auth_headers,
+    )
 
-    summary = client.get(f"/users/{user_id}/summary/by-category").json()
-    cats = {row["category"]: row["total_cents"] for row in summary}
-    assert cats["Groceries"] == -5210
-    assert cats["Income"] == 200000
+    assert transactions_response.status_code == 200
+    assert len(transactions_response.json()) == 3
+
+    summary_response = client.get(
+        f"/users/{user_id}/summary/by-category",
+        headers=auth_headers,
+    )
+
+    assert summary_response.status_code == 200
+
+    categories = {
+        row["category"]: row["total_cents"]
+        for row in summary_response.json()
+    }
+
+    assert categories["Groceries"] == -5210
+    assert categories["Income"] == 200000
 
 
-def test_upload_rejects_non_csv(client, user_id):
-    files = {"file": ("data.txt", io.BytesIO(b"hello"), "text/plain")}
-    resp = client.post(f"/users/{user_id}/transactions/upload", files=files)
-    assert resp.status_code == 400
+def test_upload_rejects_non_csv(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    files = {
+        "file": (
+            "data.txt",
+            io.BytesIO(b"hello"),
+            "text/plain",
+        )
+    }
+
+    response = client.post(
+        f"/users/{user_id}/transactions/upload",
+        files=files,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
 
 
-def test_upload_for_missing_user_404(client):
-    files = {"file": ("t.csv", io.BytesIO(b"date,description,amount\n"), "text/csv")}
-    resp = client.post("/users/9999/transactions/upload", files=files)
-    assert resp.status_code == 404
+def test_upload_requires_authentication(
+    client: TestClient,
+) -> None:
+    files = {
+        "file": (
+            "t.csv",
+            io.BytesIO(b"date,description,amount\n"),
+            "text/csv",
+        )
+    }
+
+    response = client.post(
+        "/users/9999/transactions/upload",
+        files=files,
+    )
+
+    assert response.status_code == 401
+
+
+def test_cross_user_access_rejected(
+    client: TestClient,
+) -> None:
+    first_user_id, first_headers = register_and_login(
+        client,
+        "first@example.com",
+    )
+
+    second_user_id, _ = register_and_login(
+        client,
+        "second@example.com",
+    )
+
+    assert first_user_id != second_user_id
+
+    response = client.get(
+        f"/users/{second_user_id}/transactions",
+        headers=first_headers,
+    )
+
+    assert response.status_code == 403

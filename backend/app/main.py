@@ -1,17 +1,29 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import Base, engine
-from app.routers import transactions, users
-
-# For Phase 1 we create tables on startup. When the schema stabilizes, swap
-# this for Alembic migrations (a good "production maturity" upgrade later).
-Base.metadata.create_all(bind=engine)
+from app.routers import (
+    accounts,
+    budgets,
+    plaid,
+    transactions,
+    users,
+)
 
 app = FastAPI(title=settings.app_name)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(users.router)
 app.include_router(transactions.router)
+app.include_router(budgets.router)
+app.include_router(plaid.router)
+app.include_router(accounts.router)
 
 
 @app.get("/health", tags=["meta"])

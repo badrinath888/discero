@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+import AppSidebar from "../components/AppSidebar";
 import ConnectBankButton from "../components/ConnectBankButton";
 import {
   api,
@@ -146,7 +147,7 @@ export default function AccountsPage() {
 
   return (
     <main
-      className="relative min-h-screen overflow-hidden bg-[#050d18] px-5 py-8 text-white"
+      className="relative min-h-screen overflow-hidden bg-[#050d18] text-white"
       style={{
         backgroundImage: `
           radial-gradient(circle at 10% 5%, rgba(16,185,129,0.20), transparent 28%),
@@ -161,7 +162,10 @@ export default function AccountsPage() {
     >
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#050d18]/20 to-[#050d18]" />
 
-      <div className="relative mx-auto max-w-6xl">
+      <AppSidebar />
+
+      <div className="relative px-5 pb-10 pt-20 sm:px-8 lg:ml-72 lg:px-10 lg:pt-8">
+        <div className="mx-auto max-w-6xl">
         <header className="flex flex-col gap-6 rounded-3xl border border-white/10 bg-white/[0.05] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
@@ -180,14 +184,6 @@ export default function AccountsPage() {
           </div>
 
           <div className="flex flex-wrap items-start gap-3">
-            <button
-              type="button"
-              onClick={() => router.push("/dashboard")}
-              className="rounded-xl border border-white/10 bg-white/[0.06] px-5 py-3 text-sm font-medium text-slate-200 transition hover:bg-white/10"
-            >
-              Back to dashboard
-            </button>
-
             {userId && accounts.length > 0 && (
               <button
                 type="button"
@@ -283,6 +279,7 @@ export default function AccountsPage() {
             ))}
           </section>
         )}
+        </div>
       </div>
     </main>
   );

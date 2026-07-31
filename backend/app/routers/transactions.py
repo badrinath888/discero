@@ -1,6 +1,8 @@
+from calendar import monthrange
 from collections import defaultdict
+from datetime import date
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -9,14 +11,18 @@ from app.database import get_db
 from app.deps import get_categorizer
 from app.ingestion import parse_csv
 from app.llm_categorization import LLMCategorizer
-from app.models import FinancialAccount, Transaction, User
+from app.models import FinancialAccount, PlaidItem, Transaction, User
 from app.recurring import detect_recurring
 from app.schemas import (
     CategoryTotal,
+    CashFlowForecastOut,
+    FinancialInsightOut,
     MonthTotal,
+    MonthlyInsightsOut,
     Overview,
     RecurringPaymentOut,
     TransactionOut,
+    UpcomingCashFlowOut,
     TransactionUpdate,
     UploadSummary,
 )
@@ -366,3 +372,361 @@ def summary_recurring(
             _user_transactions(user_id, db)
         )
     ]
+
+@router.get(
+    "/summary/insights",
+    response_model=MonthlyInsightsOut,
+)
+def monthly_insights(
+    user_id: int,
+    month: str = Query(
+        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MonthlyInsightsOut:
+    _authorize_user(user_id, current_user)
+
+    previous_month = _shift_month(month, -1)
+
+    transactions = _user_transactions(user_id, db)
+
+    current = [
+        transaction
+        for transaction in transactions
+        if transaction.posted_on.strftime("%Y-%m") == month
+    ]
+
+    previous = [
+        transaction
+        for transaction in transactions
+        if transaction.posted_on.strftime("%Y-%m")
+        == previous_month
+    ]
+
+    current_income = sum(
+        transaction.amount_cents
+        for transaction in current
+        if transaction.amount_cents > 0
+    )
+
+    current_spending = sum(
+        -transaction.amount_cents
+        for transaction in current
+        if transaction.amount_cents < 0
+    )
+
+    previous_spending = sum(
+        -transaction.amount_cents
+        for transaction in previous
+        if transaction.amount_cents < 0
+    )
+
+    spending_change = current_spending - previous_spending
+
+    spending_change_percent = (
+        round(
+            spending_change / previous_spending * 100,
+            1,
+        )
+        if previous_spending > 0
+        else None
+    )
+
+    savings_rate = (
+        round(
+            (current_income - current_spending)
+            / current_income
+            * 100,
+            1,
+        )
+        if current_income > 0
+        else 0.0
+    )
+
+    category_spending: dict[str, int] = defaultdict(int)
+    previous_category_spending: dict[str, int] = defaultdict(int)
+
+    for transaction in current:
+        if transaction.amount_cents < 0:
+            category_spending[transaction.category] += (
+                -transaction.amount_cents
+            )
+
+    for transaction in previous:
+        if transaction.amount_cents < 0:
+            previous_category_spending[transaction.category] += (
+                -transaction.amount_cents
+            )
+
+    insights: list[FinancialInsightOut] = []
+
+    if category_spending:
+        highest_category, highest_amount = max(
+            category_spending.items(),
+            key=lambda item: item[1],
+        )
+
+        insights.append(
+            FinancialInsightOut(
+                kind="highest_category",
+                title="Highest spending category",
+                description=(
+                    f"{highest_category} was your largest "
+                    f"expense category this month."
+                ),
+                severity="info",
+                category=highest_category,
+                amount_cents=highest_amount,
+            )
+        )
+
+    if spending_change_percent is not None:
+        direction = (
+            "increased"
+            if spending_change > 0
+            else "decreased"
+        )
+
+        insights.append(
+            FinancialInsightOut(
+                kind="monthly_spending_change",
+                title=f"Spending {direction}",
+                description=(
+                    f"Your spending {direction} by "
+                    f"{abs(spending_change_percent)}% "
+                    f"compared with {previous_month}."
+                ),
+                severity=(
+                    "warning"
+                    if spending_change > 0
+                    else "positive"
+                ),
+                amount_cents=abs(spending_change),
+                percentage=spending_change_percent,
+            )
+        )
+
+    for category, amount in category_spending.items():
+        previous_amount = previous_category_spending.get(
+            category,
+            0,
+        )
+
+        if previous_amount <= 0:
+            continue
+
+        change_percent = round(
+            (amount - previous_amount)
+            / previous_amount
+            * 100,
+            1,
+        )
+
+        if change_percent >= 20:
+            insights.append(
+                FinancialInsightOut(
+                    kind="category_increase",
+                    title=f"{category} spending increased",
+                    description=(
+                        f"{category} spending increased by "
+                        f"{change_percent}% from last month."
+                    ),
+                    severity="warning",
+                    category=category,
+                    amount_cents=amount - previous_amount,
+                    percentage=change_percent,
+                )
+            )
+
+    if savings_rate >= 20:
+        insights.append(
+            FinancialInsightOut(
+                kind="savings_rate",
+                title="Strong savings rate",
+                description=(
+                    f"You saved approximately "
+                    f"{savings_rate}% of your income."
+                ),
+                severity="positive",
+                percentage=savings_rate,
+            )
+        )
+    elif current_income > 0 and savings_rate < 10:
+        insights.append(
+            FinancialInsightOut(
+                kind="savings_rate",
+                title="Low savings rate",
+                description=(
+                    f"You saved approximately "
+                    f"{savings_rate}% of your income."
+                ),
+                severity="warning",
+                percentage=savings_rate,
+            )
+        )
+
+    if not insights:
+        insights.append(
+            FinancialInsightOut(
+                kind="insufficient_data",
+                title="More data needed",
+                description=(
+                    "Add more transactions to generate "
+                    "meaningful monthly insights."
+                ),
+                severity="info",
+            )
+        )
+
+    return MonthlyInsightsOut(
+        month=month,
+        previous_month=previous_month,
+        income_cents=current_income,
+        spending_cents=current_spending,
+        net_cents=current_income - current_spending,
+        savings_rate_percent=savings_rate,
+        spending_change_cents=spending_change,
+        spending_change_percent=spending_change_percent,
+        insights=insights,
+    )
+
+
+def _shift_month(month: str, offset: int) -> str:
+    year, month_number = map(int, month.split("-"))
+    absolute_month = year * 12 + month_number - 1 + offset
+
+    next_year, next_month = divmod(absolute_month, 12)
+
+    return f"{next_year}-{next_month + 1:02d}"
+
+
+@router.get(
+    "/summary/cash-flow-forecast",
+    response_model=CashFlowForecastOut,
+)
+def cash_flow_forecast(
+    user_id: int,
+    as_of: date = Query(default_factory=date.today),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CashFlowForecastOut:
+    _authorize_user(user_id, current_user)
+
+    month_start = as_of.replace(day=1)
+    month_end = as_of.replace(
+        day=monthrange(as_of.year, as_of.month)[1]
+    )
+
+    days_elapsed = as_of.day
+    days_remaining = max(
+        (month_end - as_of).days,
+        0,
+    )
+
+    transactions = _user_transactions(user_id, db)
+
+    month_transactions = [
+        transaction
+        for transaction in transactions
+        if month_start
+        <= transaction.posted_on
+        <= as_of
+    ]
+
+    income_received = sum(
+        transaction.amount_cents
+        for transaction in month_transactions
+        if transaction.amount_cents > 0
+    )
+
+    expected_income = (
+        round(
+            income_received
+            / days_elapsed
+            * days_remaining
+        )
+        if days_elapsed > 0
+        else 0
+    )
+
+    account_rows = db.execute(
+        select(FinancialAccount)
+        .join(
+            PlaidItem,
+            FinancialAccount.plaid_item_id
+            == PlaidItem.id,
+        )
+        .where(
+            PlaidItem.user_id == user_id,
+            FinancialAccount.account_type
+            == "depository",
+        )
+    ).scalars()
+
+    liquid_balance = sum(
+        (
+            account.available_balance_cents
+            if account.available_balance_cents is not None
+            else account.current_balance_cents
+        )
+        or 0
+        for account in account_rows
+    )
+
+    recurring = detect_recurring(
+        transactions,
+        as_of=as_of,
+    )
+
+    upcoming_cash_flows: list[UpcomingCashFlowOut] = []
+
+    for payment in recurring:
+        next_payment = payment["next_payment"]
+        confidence = float(payment["confidence_score"])
+
+        if (
+            not isinstance(next_payment, date)
+            or next_payment < as_of
+            or next_payment > month_end
+            or confidence < 60
+        ):
+            continue
+
+        upcoming_cash_flows.append(
+            UpcomingCashFlowOut(
+                merchant=str(payment["merchant"]),
+                amount_cents=int(payment["amount_cents"]),
+                expected_date=next_payment,
+                kind="expense",
+                confidence_score=confidence,
+            )
+        )
+
+    upcoming_bills = sum(
+        item.amount_cents
+        for item in upcoming_cash_flows
+        if item.kind == "expense"
+    )
+
+    projected_end_balance = (
+        liquid_balance
+        + expected_income
+        - upcoming_bills
+    )
+
+    return CashFlowForecastOut(
+        as_of=as_of,
+        month_end=month_end,
+        days_remaining=days_remaining,
+        liquid_balance_cents=liquid_balance,
+        income_received_cents=income_received,
+        expected_income_cents=expected_income,
+        upcoming_bills_cents=upcoming_bills,
+        projected_end_balance_cents=projected_end_balance,
+        low_balance_risk=projected_end_balance < 0,
+        upcoming_cash_flows=sorted(
+            upcoming_cash_flows,
+            key=lambda item: item.expected_date,
+        ),
+    )

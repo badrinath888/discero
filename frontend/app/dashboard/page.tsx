@@ -10,17 +10,19 @@ import { useRouter } from "next/navigation";
 import {
   api,
   Budget,
+  CashFlowForecast,
   CategoryTotal,
   formatCents,
   MonthTotal,
+  MonthlyInsights,
   Overview,
-  RecurringPayment,
+  SavingsGoal,
   session,
   Transaction,
 } from "../lib/api";
+import AppSidebar from "../components/AppSidebar";
 import BudgetProgress from "../components/BudgetProgress";
 import MonthlyTrend from "../components/MonthlyTrend";
-import RecurringPayments from "../components/RecurringPayments";
 import {
   Bar,
   BarChart,
@@ -69,9 +71,11 @@ export default function Dashboard() {
   const [transactions, setTransactions] = useState<
     Transaction[]
   >([]);
-  const [recurring, setRecurring] = useState<
-    RecurringPayment[]
-  >([]);
+  const [goals, setGoals] = useState<SavingsGoal[]>([]);
+  const [insights, setInsights] =
+    useState<MonthlyInsights | null>(null);
+  const [cashFlow, setCashFlow] =
+    useState<CashFlowForecast | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
@@ -89,14 +93,18 @@ export default function Dashboard() {
           monthData,
           budgetData,
           transactionData,
-          recurringData,
+          goalData,
+          insightData,
+          cashFlowData,
         ] = await Promise.all([
           api.overview(id),
           api.byCategory(id),
           api.byMonth(id),
           api.getBudgets(id, budgetMonth),
           api.getTransactions(id),
-          api.getRecurringPayments(id),
+          api.getSavingsGoals(id),
+          api.getMonthlyInsights(id, budgetMonth),
+          api.getCashFlowForecast(id),
         ]);
 
         setOverview(overviewData);
@@ -104,7 +112,9 @@ export default function Dashboard() {
         setMonths(monthData);
         setBudgets(budgetData);
         setTransactions(transactionData);
-        setRecurring(recurringData);
+        setGoals(goalData);
+        setInsights(insightData);
+        setCashFlow(cashFlowData);
       } catch (err) {
         setError(
           err instanceof Error
@@ -192,6 +202,35 @@ export default function Dashboard() {
       );
   }, [transactions, budgetMonth]);
 
+  const goalSummary = useMemo(
+    () =>
+      goals.reduce(
+        (summary, goal) => ({
+          target: summary.target + goal.target_cents,
+          saved: summary.saved + goal.saved_cents,
+          completed:
+            summary.completed +
+            (goal.status === "completed" ? 1 : 0),
+        }),
+        {
+          target: 0,
+          saved: 0,
+          completed: 0,
+        }
+      ),
+    [goals]
+  );
+
+  const goalProgress =
+    goalSummary.target > 0
+      ? Math.min(
+          Math.round(
+            (goalSummary.saved / goalSummary.target) * 100
+          ),
+          100
+        )
+      : 0;
+
   const spendingData = useMemo(
     () =>
       categories
@@ -261,11 +300,6 @@ export default function Dashboard() {
     }
   }
 
-  function signOut() {
-    session.clear();
-    router.replace("/");
-  }
-
   return (
     <main
       className="relative min-h-screen overflow-hidden bg-[#07111f] text-white"
@@ -282,7 +316,10 @@ export default function Dashboard() {
     >
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#07111f]/40 to-[#07111f]" />
 
-      <div className="relative mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:px-10">
+      <AppSidebar />
+
+      <div className="relative px-5 pb-8 pt-20 sm:px-8 lg:ml-72 lg:px-10 lg:pt-8">
+        <div className="mx-auto max-w-7xl">
         <header className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
@@ -301,45 +338,7 @@ export default function Dashboard() {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/transactions")
-              }
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
-            >
-              Transactions
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/budgets")
-              }
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
-            >
-              Budgets
-            </button>
-
-            <button
-             type="button"
-              onClick={() =>
-            router.push("/accounts")
-            }
-            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
-     >
-  Accounts
-</button>
-
-            <button
-              type="button"
-              onClick={signOut}
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
-            >
-              Sign out
-            </button>
-
+          <div className="flex items-center gap-3">
             <label className="cursor-pointer rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400">
               {uploading
                 ? "Uploading..."
@@ -415,6 +414,98 @@ export default function Dashboard() {
             }
             loading={loading}
           />
+        </section>
+
+        <section className="mt-6 rounded-3xl border border-violet-400/20 bg-gradient-to-br from-violet-500/10 via-white/[0.05] to-cyan-500/10 p-5 shadow-xl shadow-black/20 backdrop-blur-xl sm:p-6">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-400/15 text-lg text-violet-300">
+                  ↗
+                </span>
+
+                <div>
+                  <p className="font-semibold text-white">
+                    Cash-flow forecast
+                  </p>
+
+                  <p className="mt-1 text-sm text-slate-400">
+                    Estimated balance at the end of this month
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="h-14 w-full animate-pulse rounded-xl bg-white/5 lg:w-96" />
+            ) : cashFlow ? (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="rounded-xl border border-white/10 bg-slate-950/35 px-4 py-3">
+                  <p className="text-xs text-slate-500">
+                    Projected
+                  </p>
+
+                  <p
+                    className={`mt-1 font-bold ${
+                      cashFlow.projected_end_balance_cents < 0
+                        ? "text-rose-300"
+                        : "text-violet-300"
+                    }`}
+                  >
+                    {formatCents(
+                      cashFlow.projected_end_balance_cents
+                    )}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-slate-950/35 px-4 py-3">
+                  <p className="text-xs text-slate-500">
+                    Expected income
+                  </p>
+
+                  <p className="mt-1 font-bold text-emerald-300">
+                    {formatCents(
+                      cashFlow.expected_income_cents
+                    )}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-slate-950/35 px-4 py-3">
+                  <p className="text-xs text-slate-500">
+                    Upcoming bills
+                  </p>
+
+                  <p className="mt-1 font-bold text-rose-300">
+                    {formatCents(
+                      -cashFlow.upcoming_bills_cents
+                    )}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-slate-950/35 px-4 py-3">
+                  <p className="text-xs text-slate-500">
+                    Status
+                  </p>
+
+                  <p
+                    className={`mt-1 font-bold ${
+                      cashFlow.low_balance_risk
+                        ? "text-rose-300"
+                        : "text-emerald-300"
+                    }`}
+                  >
+                    {cashFlow.low_balance_risk
+                      ? "At risk"
+                      : "On track"}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">
+                Forecast unavailable
+              </p>
+            )}
+          </div>
         </section>
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[1.7fr_0.8fr]">
@@ -636,10 +727,201 @@ export default function Dashboard() {
           />
         </section>
 
-        <div className="mt-6">
-          <RecurringPayments
-            payments={recurring}
-          />
+        <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/20 backdrop-blur-xl sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-300">
+                ✦ Smart analysis
+              </div>
+
+              <h2 className="mt-3 text-lg font-semibold">
+                Financial insights
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-400">
+                Key observations for {formatMonth(budgetMonth)}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => router.push("/insights")}
+              className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-2.5 text-sm font-medium text-cyan-300 transition hover:bg-cyan-400/20"
+            >
+              View all insights
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="h-24 animate-pulse rounded-2xl bg-white/5"
+                />
+              ))}
+            </div>
+          ) : insights ? (
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              {insights.insights
+                .slice(0, 3)
+                .map((insight, index) => (
+                  <article
+                    key={`${insight.kind}-${
+                      insight.category ?? index
+                    }`}
+                    className={`rounded-2xl border p-4 ${
+                      insight.severity === "positive"
+                        ? "border-emerald-400/20 bg-emerald-400/[0.06]"
+                        : insight.severity === "warning"
+                        ? "border-amber-400/20 bg-amber-400/[0.06]"
+                        : "border-cyan-400/20 bg-cyan-400/[0.06]"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${
+                          insight.severity === "positive"
+                            ? "bg-emerald-400/15 text-emerald-300"
+                            : insight.severity === "warning"
+                            ? "bg-amber-400/15 text-amber-300"
+                            : "bg-cyan-400/15 text-cyan-300"
+                        }`}
+                      >
+                        {insight.severity === "positive"
+                          ? "↑"
+                          : insight.severity === "warning"
+                          ? "!"
+                          : "i"}
+                      </span>
+
+                      <div>
+                        <h3 className="text-sm font-medium text-slate-100">
+                          {insight.title}
+                        </h3>
+
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">
+                          {insight.description}
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+            </div>
+          ) : (
+            <p className="mt-5 rounded-2xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-slate-500">
+              Financial insights are unavailable.
+            </p>
+          )}
+        </section>
+
+        <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/20 backdrop-blur-xl sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
+                ◇ Savings progress
+              </div>
+
+              <h2 className="mt-3 text-lg font-semibold">
+                Savings goals
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-400">
+                Progress across your financial milestones
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => router.push("/goals")}
+              className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2.5 text-sm font-medium text-emerald-300 transition hover:bg-emerald-400/20"
+            >
+              Manage goals
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="mt-5 h-24 animate-pulse rounded-2xl bg-white/5" />
+          ) : goals.length > 0 ? (
+            <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_1.5fr] lg:items-center">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-xl border border-white/10 bg-slate-950/35 p-3">
+                  <p className="text-xs text-slate-500">
+                    Saved
+                  </p>
+
+                  <p className="mt-1 font-bold text-emerald-300">
+                    {formatCents(goalSummary.saved)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-slate-950/35 p-3">
+                  <p className="text-xs text-slate-500">
+                    Target
+                  </p>
+
+                  <p className="mt-1 font-bold text-cyan-300">
+                    {formatCents(goalSummary.target)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-slate-950/35 p-3">
+                  <p className="text-xs text-slate-500">
+                    Completed
+                  </p>
+
+                  <p className="mt-1 font-bold text-slate-200">
+                    {goalSummary.completed}/{goals.length}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500">
+                    Overall progress
+                  </span>
+
+                  <span className="font-medium text-emerald-300">
+                    {goalProgress}%
+                  </span>
+                </div>
+
+                <div className="mt-2 h-3 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all"
+                    style={{ width: `${goalProgress}%` }}
+                  />
+                </div>
+
+                <p className="mt-2 text-xs text-slate-500">
+                  {formatCents(
+                    Math.max(
+                      goalSummary.target - goalSummary.saved,
+                      0
+                    )
+                  )}{" "}
+                  remaining across all goals
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-dashed border-white/10 px-5 py-7 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-slate-500">
+                No savings goals have been created yet.
+              </p>
+
+              <button
+                type="button"
+                onClick={() => router.push("/goals")}
+                className="text-left text-sm font-medium text-emerald-300 transition hover:text-emerald-200"
+              >
+                Create your first goal →
+              </button>
+            </div>
+          )}
+        </section>
+
         </div>
       </div>
     </main>

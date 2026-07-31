@@ -46,6 +46,11 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
+    savings_goals: Mapped[list["SavingsGoal"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
     plaid_items: Mapped[list["PlaidItem"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -182,6 +187,50 @@ class Budget(Base):
 
     user: Mapped["User"] = relationship(
         back_populates="budgets",
+    )
+
+
+class SavingsGoal(Base):
+    __tablename__ = "savings_goals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(120),
+        index=True,
+    )
+
+    target_cents: Mapped[int] = mapped_column(Integer)
+
+    saved_cents: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+    )
+
+    target_date: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utcnow,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utcnow,
+        onupdate=_utcnow,
+    )
+
+    user: Mapped["User"] = relationship(
+        back_populates="savings_goals",
     )
 
 

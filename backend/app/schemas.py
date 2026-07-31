@@ -55,7 +55,12 @@ class RecurringPaymentOut(BaseModel):
     amount_cents: int
     frequency: str
     last_payment: date
+    next_payment: date
+    days_until_due: int
     occurrences: int
+    confidence_score: float
+    price_change_percent: float
+    price_change_warning: bool
 
 
 class BudgetCreate(BaseModel):
@@ -165,3 +170,118 @@ class PlaidSyncOut(BaseModel):
     removed: int
     items_synced: int
     synced_at: datetime
+
+
+class BudgetProgressOut(BaseModel):
+    category: str
+    month: str
+    limit_cents: int
+    spent_cents: int
+    remaining_cents: int
+    percent_used: float
+    over_budget_cents: int
+
+
+class SavingsGoalCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    target_cents: int = Field(gt=0)
+    saved_cents: int = Field(default=0, ge=0)
+    target_date: date | None = None
+
+
+class SavingsGoalUpdate(BaseModel):
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=120,
+    )
+    target_cents: int | None = Field(default=None, gt=0)
+    saved_cents: int | None = Field(default=None, ge=0)
+    target_date: date | None = None
+
+
+class SavingsGoalOut(BaseModel):
+    id: int
+    name: str
+    target_cents: int
+    saved_cents: int
+    remaining_cents: int
+    progress_percent: float
+    target_date: date | None
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class SavingsGoalCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    target_cents: int = Field(gt=0)
+    saved_cents: int = Field(default=0, ge=0)
+    target_date: date | None = None
+
+
+class SavingsGoalUpdate(BaseModel):
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=120,
+    )
+    target_cents: int | None = Field(default=None, gt=0)
+    saved_cents: int | None = Field(default=None, ge=0)
+    target_date: date | None = None
+
+
+class SavingsGoalOut(BaseModel):
+    id: int
+    name: str
+    target_cents: int
+    saved_cents: int
+    remaining_cents: int
+    progress_percent: float
+    target_date: date | None
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class FinancialInsightOut(BaseModel):
+    kind: str
+    title: str
+    description: str
+    severity: str
+    category: str | None = None
+    amount_cents: int | None = None
+    percentage: float | None = None
+
+
+class MonthlyInsightsOut(BaseModel):
+    month: str
+    previous_month: str
+    income_cents: int
+    spending_cents: int
+    net_cents: int
+    savings_rate_percent: float
+    spending_change_cents: int
+    spending_change_percent: float | None
+    insights: list[FinancialInsightOut]
+
+
+class UpcomingCashFlowOut(BaseModel):
+    merchant: str
+    amount_cents: int
+    expected_date: date
+    kind: str
+    confidence_score: float
+
+
+class CashFlowForecastOut(BaseModel):
+    as_of: date
+    month_end: date
+    days_remaining: int
+    liquid_balance_cents: int
+    income_received_cents: int
+    expected_income_cents: int
+    upcoming_bills_cents: int
+    projected_end_balance_cents: int
+    low_balance_risk: bool
+    upcoming_cash_flows: list[UpcomingCashFlowOut]

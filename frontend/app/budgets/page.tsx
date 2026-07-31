@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, Budget, formatCents, session } from "../lib/api";
+import AppSidebar from "../components/AppSidebar";
+import {
+  api,
+  Budget,
+  BudgetProgress,
+  formatCents,
+  session,
+} from "../lib/api";
 
 const CATEGORIES = [
   "Dining",
@@ -41,6 +48,7 @@ export default function BudgetsPage() {
   const [userId, setUserId] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [progress, setProgress] = useState<BudgetProgress[]>([]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState("");
   const [loading, setLoading] = useState(true);
@@ -87,15 +95,16 @@ export default function BudgetsPage() {
       setSuccess("");
 
       try {
-        const data = await api.getBudgets(
-          id,
-          selectedMonth
-        );
+        const [budgetData, progressData] = await Promise.all([
+          api.getBudgets(id, selectedMonth),
+          api.getBudgetProgress(id, selectedMonth),
+        ]);
 
-        setBudgets(data);
+        setBudgets(budgetData);
+        setProgress(progressData);
         setValues(
           Object.fromEntries(
-            data.map((budget) => [
+            budgetData.map((budget) => [
               budget.category,
               String(budget.limit_cents / 100),
             ])
@@ -154,6 +163,10 @@ export default function BudgetsPage() {
         saved,
       ]);
 
+      setProgress(
+        await api.getBudgetProgress(userId, selectedMonth)
+      );
+
       setSuccess(
         `${category} budget saved for ${formatMonth(
           selectedMonth
@@ -197,7 +210,7 @@ export default function BudgetsPage() {
 
   return (
     <main
-      className="relative min-h-screen overflow-hidden bg-[#050d18] px-5 py-8 text-white"
+      className="relative min-h-screen overflow-hidden bg-[#050d18] text-white"
       style={{
         backgroundImage: `
           radial-gradient(circle at 10% 5%, rgba(16,185,129,0.20), transparent 28%),
@@ -212,7 +225,10 @@ export default function BudgetsPage() {
     >
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#050d18]/20 to-[#050d18]" />
 
-      <div className="relative mx-auto max-w-6xl">
+      <AppSidebar />
+
+      <div className="relative px-5 pb-10 pt-20 sm:px-8 lg:ml-72 lg:px-10 lg:pt-8">
+        <div className="mx-auto max-w-6xl">
         <header className="flex flex-col gap-6 rounded-3xl border border-white/10 bg-white/[0.05] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
@@ -229,12 +245,6 @@ export default function BudgetsPage() {
             </p>
           </div>
 
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="rounded-xl border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-slate-200 transition hover:bg-white/10"
-          >
-            Back to dashboard
-          </button>
         </header>
 
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl">
@@ -331,6 +341,12 @@ export default function BudgetsPage() {
                   item.month === selectedMonth
               );
 
+              const categoryProgress = progress.find(
+                (item) =>
+                  item.category === category &&
+                  item.month === selectedMonth
+              );
+
               return (
                 <div
                   key={category}
@@ -359,6 +375,62 @@ export default function BudgetsPage() {
                         : "Not set"}
                     </span>
                   </div>
+
+                  {categoryProgress && (
+                    <div className="mt-5">
+                      <div className="flex items-center justify-between gap-4 text-sm">
+                        <span className="text-slate-400">
+                          {formatCents(categoryProgress.spent_cents)} spent
+                        </span>
+
+                        <span
+                          className={
+                            categoryProgress.over_budget_cents > 0
+                              ? "font-medium text-rose-300"
+                              : "text-slate-400"
+                          }
+                        >
+                          {categoryProgress.over_budget_cents > 0
+                            ? `${formatCents(
+                                categoryProgress.over_budget_cents
+                              )} over`
+                            : `${formatCents(
+                                categoryProgress.remaining_cents
+                              )} remaining`}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            categoryProgress.percent_used >= 100
+                              ? "bg-rose-400"
+                              : categoryProgress.percent_used >= 75
+                              ? "bg-amber-400"
+                              : "bg-emerald-400"
+                          }`}
+                          style={{
+                            width: `${Math.min(
+                              categoryProgress.percent_used,
+                              100
+                            )}%`,
+                          }}
+                        />
+                      </div>
+
+                      <p
+                        className={`mt-2 text-xs ${
+                          categoryProgress.percent_used >= 100
+                            ? "text-rose-300"
+                            : categoryProgress.percent_used >= 75
+                            ? "text-amber-300"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        {categoryProgress.percent_used}% used
+                      </p>
+                    </div>
+                  )}
 
                   <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                     <div className="relative min-w-0 flex-1">
@@ -399,6 +471,7 @@ export default function BudgetsPage() {
             })}
           </section>
         )}
+        </div>
       </div>
     </main>
   );

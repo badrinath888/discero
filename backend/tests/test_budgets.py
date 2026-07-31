@@ -188,3 +188,72 @@ def test_cross_user_budget_access_rejected(
     )
 
     assert response.status_code == 403
+
+def test_budget_progress_calculates_monthly_spending(
+    client: TestClient,
+) -> None:
+    from datetime import date
+
+    from app.models import Transaction
+    from tests.conftest import TestingSessionLocal
+
+    user_id, headers = register_and_login(
+        client,
+        "budget-progress",
+    )
+
+    client.put(
+        f"/users/{user_id}/budgets",
+        headers=headers,
+        json={
+            "category": "Dining",
+            "month": "2026-07",
+            "limit_cents": 30000,
+        },
+    )
+
+    with TestingSessionLocal() as db:
+        db.add_all(
+            [
+                Transaction(
+                    user_id=user_id,
+                    posted_on=date(2026, 7, 10),
+                    description="Restaurant",
+                    amount_cents=-12000,
+                    category="Dining",
+                ),
+                Transaction(
+                    user_id=user_id,
+                    posted_on=date(2026, 7, 20),
+                    description="Coffee",
+                    amount_cents=-3000,
+                    category="Dining",
+                ),
+                Transaction(
+                    user_id=user_id,
+                    posted_on=date(2026, 8, 1),
+                    description="August meal",
+                    amount_cents=-5000,
+                    category="Dining",
+                ),
+            ]
+        )
+        db.commit()
+
+    response = client.get(
+        f"/users/{user_id}/budgets/progress?month=2026-07",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "category": "Dining",
+            "month": "2026-07",
+            "limit_cents": 30000,
+            "spent_cents": 15000,
+            "remaining_cents": 15000,
+            "percent_used": 50.0,
+            "over_budget_cents": 0,
+        }
+    ]

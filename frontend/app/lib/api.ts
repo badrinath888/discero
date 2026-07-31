@@ -118,6 +118,49 @@ export type MonthTotal = {
   net_cents: number;
 };
 
+export type FinancialInsight = {
+  kind: string;
+  title: string;
+  description: string;
+  severity: "info" | "positive" | "warning";
+  category: string | null;
+  amount_cents: number | null;
+  percentage: number | null;
+};
+
+export type MonthlyInsights = {
+  month: string;
+  previous_month: string;
+  income_cents: number;
+  spending_cents: number;
+  net_cents: number;
+  savings_rate_percent: number;
+  spending_change_cents: number;
+  spending_change_percent: number | null;
+  insights: FinancialInsight[];
+};
+
+export type UpcomingCashFlow = {
+  merchant: string;
+  amount_cents: number;
+  expected_date: string;
+  kind: "expense" | "income";
+  confidence_score: number;
+};
+
+export type CashFlowForecast = {
+  as_of: string;
+  month_end: string;
+  days_remaining: number;
+  liquid_balance_cents: number;
+  income_received_cents: number;
+  expected_income_cents: number;
+  upcoming_bills_cents: number;
+  projected_end_balance_cents: number;
+  low_balance_risk: boolean;
+  upcoming_cash_flows: UpcomingCashFlow[];
+};
+
 export type UploadSummary = {
   imported: number;
   rejected: number;
@@ -132,12 +175,54 @@ export type Budget = {
   limit_cents: number;
 };
 
+export type BudgetProgress = {
+  category: string;
+  month: string;
+  limit_cents: number;
+  spent_cents: number;
+  remaining_cents: number;
+  percent_used: number;
+  over_budget_cents: number;
+};
+
+export type SavingsGoal = {
+  id: number;
+  name: string;
+  target_cents: number;
+  saved_cents: number;
+  remaining_cents: number;
+  progress_percent: number;
+  target_date: string | null;
+  status: "active" | "completed" | "overdue";
+  created_at: string;
+  updated_at: string;
+};
+
+export type SavingsGoalCreate = {
+  name: string;
+  target_cents: number;
+  saved_cents?: number;
+  target_date?: string | null;
+};
+
+export type SavingsGoalUpdate = {
+  name?: string;
+  target_cents?: number;
+  saved_cents?: number;
+  target_date?: string | null;
+};
+
 export type RecurringPayment = {
   merchant: string;
   amount_cents: number;
   frequency: string;
   last_payment: string;
+  next_payment: string;
+  days_until_due: number;
   occurrences: number;
+  confidence_score: number;
+  price_change_percent: number;
+  price_change_warning: boolean;
 };
 
 export type PlaidLinkToken = {
@@ -312,6 +397,35 @@ export const api = {
       headers: authHeaders(),
     }).then((res) => handle<RecurringPayment[]>(res)),
 
+  getMonthlyInsights: (
+    userId: number,
+    month: string
+  ): Promise<MonthlyInsights> =>
+    fetch(
+      `${API_URL}/users/${userId}/summary/insights?month=${encodeURIComponent(
+        month
+      )}`,
+      {
+        headers: authHeaders(),
+      }
+    ).then((res) => handle<MonthlyInsights>(res)),
+
+  getCashFlowForecast: (
+    userId: number,
+    asOf?: string
+  ): Promise<CashFlowForecast> => {
+    const query = asOf
+      ? `?as_of=${encodeURIComponent(asOf)}`
+      : "";
+
+    return fetch(
+      `${API_URL}/users/${userId}/summary/cash-flow-forecast${query}`,
+      {
+        headers: authHeaders(),
+      }
+    ).then((res) => handle<CashFlowForecast>(res));
+  },
+
   getBudgets: (
     userId: number,
     month: string
@@ -340,6 +454,56 @@ export const api = {
         limit_cents: limitCents,
       }),
     }).then((res) => handle<Budget>(res)),
+
+  getBudgetProgress: (
+    userId: number,
+    month: string
+  ): Promise<BudgetProgress[]> =>
+    fetch(
+      `${API_URL}/users/${userId}/budgets/progress?month=${encodeURIComponent(
+        month
+      )}`,
+      {
+        headers: authHeaders(),
+      }
+    ).then((res) => handle<BudgetProgress[]>(res)),
+
+  getSavingsGoals: (
+    userId: number
+  ): Promise<SavingsGoal[]> =>
+    fetch(`${API_URL}/users/${userId}/goals`, {
+      headers: authHeaders(),
+    }).then((res) => handle<SavingsGoal[]>(res)),
+
+  createSavingsGoal: (
+    userId: number,
+    payload: SavingsGoalCreate
+  ): Promise<SavingsGoal> =>
+    fetch(`${API_URL}/users/${userId}/goals`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }).then((res) => handle<SavingsGoal>(res)),
+
+  updateSavingsGoal: (
+    userId: number,
+    goalId: number,
+    payload: SavingsGoalUpdate
+  ): Promise<SavingsGoal> =>
+    fetch(`${API_URL}/users/${userId}/goals/${goalId}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }).then((res) => handle<SavingsGoal>(res)),
+
+  deleteSavingsGoal: (
+    userId: number,
+    goalId: number
+  ): Promise<void> =>
+    fetch(`${API_URL}/users/${userId}/goals/${goalId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(handleEmpty),
 
   createPlaidLinkToken: (
     userId: number

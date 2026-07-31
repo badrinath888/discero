@@ -4,6 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
 import {
+  EmptyState,
+  PageError,
+  PageLoading,
+  PageSuccess,
+} from "../components/PageFeedback";
+import {
   api,
   Budget,
   BudgetProgress,
@@ -196,13 +202,9 @@ export default function BudgetsPage() {
 
   if (checkingSession) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#050d18] text-white">
-        <div className="text-center">
-          <div className="mx-auto h-9 w-9 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
-
-          <p className="mt-4 text-sm text-slate-400">
-            Checking your session...
-          </p>
+      <main className="flex min-h-screen items-center justify-center bg-[#050d18] px-5 text-white">
+        <div className="w-full max-w-xl">
+          <PageLoading message="Checking your session..." />
         </div>
       </main>
     );
@@ -311,26 +313,29 @@ export default function BudgetsPage() {
         </section>
 
         {error && (
-          <div className="mt-5 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-300">
-            {error}
+          <div className="mt-5">
+            <PageError message={error} />
           </div>
         )}
 
         {success && (
-          <div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-300">
-            {success}
+          <div className="mt-5">
+            <PageSuccess message={success} />
           </div>
         )}
 
         {loading ? (
-          <div className="mt-6 flex min-h-72 items-center justify-center rounded-3xl border border-white/10 bg-white/[0.05] backdrop-blur-xl">
-            <div className="text-center">
-              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
-
-              <p className="mt-3 text-sm text-slate-400">
-                Loading budgets...
-              </p>
-            </div>
+          <div className="mt-6">
+            <PageLoading message="Loading budgets..." />
+          </div>
+        ) : budgets.length === 0 && progress.length === 0 ? (
+          <div className="mt-6">
+            <EmptyState
+              title="No budgets configured"
+              description={`Set category limits for ${formatMonth(
+                selectedMonth
+              )} to start tracking monthly spending progress.`}
+            />
           </div>
         ) : (
           <section className="mt-6 grid gap-4 md:grid-cols-2">

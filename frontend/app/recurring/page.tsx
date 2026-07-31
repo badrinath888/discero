@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
+import {
+  CardSkeleton,
+  EmptyState,
+  PageError,
+} from "../components/PageFeedback";
 import RecurringPayments from "../components/RecurringPayments";
 import {
   api,
@@ -27,6 +32,7 @@ function monthlyEquivalent(payment: RecurringPayment): number {
 export default function RecurringPage() {
   const router = useRouter();
 
+  const [userId, setUserId] = useState<number | null>(null);
   const [payments, setPayments] = useState<
     RecurringPayment[]
   >([]);
@@ -70,6 +76,7 @@ export default function RecurringPage() {
           return;
         }
 
+        setUserId(userId);
         await loadPayments(userId);
       } catch {
         session.clear();
@@ -143,20 +150,33 @@ export default function RecurringPage() {
           </header>
 
           {error && (
-            <div className="mt-7 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-300">
-              {error}
+            <div className="mt-7">
+              <PageError
+                message={error}
+                onRetry={
+                  userId
+                    ? () => void loadPayments(userId)
+                    : undefined
+                }
+              />
             </div>
           )}
 
           {loading ? (
-            <section className="mt-8 grid gap-5 sm:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="h-28 animate-pulse rounded-3xl bg-white/[0.05]"
-                />
-              ))}
+            <section className="mt-8">
+              <CardSkeleton count={3} />
             </section>
+          ) : payments.length === 0 ? (
+            <div className="mt-8">
+              <EmptyState
+                title="No recurring bills detected"
+                description="Add more transaction history or synchronize your bank account so FinSight can identify repeating payments."
+                actionLabel="View transactions"
+                onAction={() =>
+                  router.push("/transactions")
+                }
+              />
+            </div>
           ) : (
             <>
               <section className="mt-8 grid gap-5 sm:grid-cols-3">

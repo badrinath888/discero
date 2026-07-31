@@ -8,6 +8,11 @@ import {
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
 import {
+  CardSkeleton,
+  EmptyState,
+  PageError,
+} from "../components/PageFeedback";
+import {
   api,
   FinancialInsight,
   formatCents,
@@ -39,6 +44,7 @@ function formatMonth(month: string): string {
 export default function InsightsPage() {
   const router = useRouter();
 
+  const [userId, setUserId] = useState<number | null>(null);
   const [month, setMonth] = useState(getCurrentMonth());
   const [insights, setInsights] =
     useState<MonthlyInsights | null>(null);
@@ -90,6 +96,7 @@ export default function InsightsPage() {
           return;
         }
 
+        setUserId(userId);
         await loadInsights(userId, month);
       } catch {
         session.clear();
@@ -153,23 +160,26 @@ export default function InsightsPage() {
           </header>
 
           {error && (
-            <div className="mt-7 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-300">
-              {error}
+            <div className="mt-7">
+              <PageError
+                message={error}
+                onRetry={
+                  userId
+                    ? () =>
+                        void loadInsights(userId, month)
+                    : undefined
+                }
+              />
             </div>
           )}
 
           {loading ? (
             <>
-              <section className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <div
-                    key={index}
-                    className="h-28 animate-pulse rounded-3xl bg-white/[0.05]"
-                  />
-                ))}
+              <section className="mt-8">
+                <CardSkeleton count={4} />
               </section>
 
-              <div className="mt-6 h-72 animate-pulse rounded-3xl bg-white/[0.05]" />
+              <div className="mt-6 h-72 animate-pulse rounded-3xl border border-white/5 bg-white/[0.05]" />
             </>
           ) : insights ? (
             <>
@@ -282,8 +292,15 @@ export default function InsightsPage() {
               </p>
             </>
           ) : (
-            <div className="mt-8 rounded-3xl border border-dashed border-white/10 px-5 py-16 text-center text-sm text-slate-500">
-              Financial insights are unavailable.
+            <div className="mt-8">
+              <EmptyState
+                title="No insights available"
+                description="Add or synchronize transactions for this month to generate spending trends and financial observations."
+                actionLabel="View transactions"
+                onAction={() =>
+                  router.push("/transactions")
+                }
+              />
             </div>
           )}
         </div>

@@ -10,6 +10,12 @@ import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
 import ConnectBankButton from "../components/ConnectBankButton";
 import {
+  EmptyState,
+  PageError,
+  PageLoading,
+  PageSuccess,
+} from "../components/PageFeedback";
+import {
   api,
   FinancialAccount,
   formatCents,
@@ -207,14 +213,21 @@ export default function AccountsPage() {
         </header>
 
         {message && (
-          <div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-300">
-            {message}
+          <div className="mt-5">
+            <PageSuccess message={message} />
           </div>
         )}
 
         {error && (
-          <div className="mt-5 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-300">
-            {error}
+          <div className="mt-5">
+            <PageError
+              message={error}
+              onRetry={
+                userId
+                  ? () => void refreshAccounts(userId)
+                  : undefined
+              }
+            />
           </div>
         )}
 
@@ -236,39 +249,25 @@ export default function AccountsPage() {
         </section>
 
         {loading ? (
-          <div className="mt-6 flex min-h-80 items-center justify-center rounded-3xl border border-white/10 bg-white/[0.05] backdrop-blur-xl">
-            <div className="text-center">
-              <div className="mx-auto h-9 w-9 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
-
-              <p className="mt-4 text-sm text-slate-400">
-                Loading connected accounts...
-              </p>
-            </div>
+          <div className="mt-6">
+            <PageLoading message="Loading connected accounts..." />
           </div>
         ) : accounts.length === 0 ? (
-          <section className="mt-6 rounded-3xl border border-dashed border-white/10 bg-white/[0.04] px-6 py-16 text-center backdrop-blur-xl">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-400/10 text-2xl text-emerald-300">
-              $
-            </div>
-
-            <h2 className="mt-5 text-xl font-semibold">
-              No bank accounts connected
-            </h2>
-
-            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-400">
-              Connect a Sandbox institution to securely import
-              account details and balances into FinSight.
-            </p>
+          <div className="mt-6">
+            <EmptyState
+              title="No bank accounts connected"
+              description="Connect a Sandbox institution to securely import balances and transaction activity into FinSight."
+            />
 
             {userId && (
-              <div className="mt-6 flex justify-center">
+              <div className="-mt-20 flex justify-center pb-12">
                 <ConnectBankButton
                   userId={userId}
                   onConnected={handleConnected}
                 />
               </div>
             )}
-          </section>
+          </div>
         ) : (
           <section className="mt-6 grid gap-5 md:grid-cols-2">
             {accounts.map((account) => (

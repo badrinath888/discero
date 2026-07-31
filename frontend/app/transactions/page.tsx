@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
+import {
+  EmptyState,
+  PageError,
+  PageLoading,
+  PageSuccess,
+} from "../components/PageFeedback";
 import { api, formatCents, session, Transaction } from "../lib/api";
 
 const CATEGORIES = [
@@ -432,26 +438,46 @@ export default function TransactionsPage() {
         </section>
 
         {message && (
-          <div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-300">
-            {message}
+          <div className="mt-5">
+            <PageSuccess message={message} />
           </div>
         )}
 
         {error && (
-          <div className="mt-5 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-300">
-            {error}
+          <div className="mt-5">
+            <PageError message={error} />
           </div>
         )}
 
         <section className="mt-6 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.05] shadow-2xl shadow-black/25 backdrop-blur-xl">
           {loading ? (
-            <div className="flex min-h-72 items-center justify-center">
-              <div className="text-center">
-                <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
-                <p className="mt-3 text-sm text-slate-400">
-                  Loading transactions...
-                </p>
-              </div>
+            <div className="p-5">
+              <PageLoading message="Loading transactions..." />
+            </div>
+          ) : visibleTransactions.length === 0 ? (
+            <div className="p-5">
+              <EmptyState
+                title={
+                  transactions.length === 0
+                    ? "No transactions yet"
+                    : "No transactions match your filters"
+                }
+                description={
+                  transactions.length === 0
+                    ? "Upload a CSV file or synchronize a connected bank account to add financial activity."
+                    : "Adjust or clear the current filters to view more transactions."
+                }
+                actionLabel={
+                  transactions.length === 0
+                    ? undefined
+                    : "Clear filters"
+                }
+                onAction={
+                  transactions.length === 0
+                    ? undefined
+                    : clearFilters
+                }
+              />
             </div>
           ) : (
             <div className="overflow-x-auto">

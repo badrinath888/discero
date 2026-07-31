@@ -4,6 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
 import {
+  CardSkeleton,
+  EmptyState,
+  PageError,
+} from "../components/PageFeedback";
+import {
   api,
   CashFlowForecast,
   formatCents,
@@ -24,6 +29,7 @@ function formatDate(value: string): string {
 export default function ForecastPage() {
   const router = useRouter();
 
+  const [userId, setUserId] = useState<number | null>(null);
   const [forecast, setForecast] =
     useState<CashFlowForecast | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,6 +72,7 @@ export default function ForecastPage() {
           return;
         }
 
+        setUserId(userId);
         await loadForecast(userId);
       } catch {
         session.clear();
@@ -113,19 +120,21 @@ export default function ForecastPage() {
           </header>
 
           {error && (
-            <div className="mt-7 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-300">
-              {error}
+            <div className="mt-7">
+              <PageError
+                message={error}
+                onRetry={
+                  userId
+                    ? () => void loadForecast(userId)
+                    : undefined
+                }
+              />
             </div>
           )}
 
           {loading ? (
-            <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="h-32 animate-pulse rounded-3xl bg-white/[0.05]"
-                />
-              ))}
+            <div className="mt-8">
+              <CardSkeleton count={4} />
             </div>
           ) : forecast ? (
             <>
@@ -278,8 +287,13 @@ export default function ForecastPage() {
               </p>
             </>
           ) : (
-            <div className="mt-8 rounded-3xl border border-dashed border-white/10 px-5 py-16 text-center text-sm text-slate-500">
-              Forecast data is unavailable.
+            <div className="mt-8">
+              <EmptyState
+                title="Forecast unavailable"
+                description="Connect an account and add more transaction history to generate a cash-flow projection."
+                actionLabel="View accounts"
+                onAction={() => router.push("/accounts")}
+              />
             </div>
           )}
         </div>

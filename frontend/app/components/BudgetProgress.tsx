@@ -1,4 +1,7 @@
-import type { Budget, CategoryTotal } from "../lib/api";
+import type {
+  Budget,
+  CategoryTotal,
+} from "../lib/api";
 import { formatCents } from "../lib/api";
 
 type Props = {
@@ -9,7 +12,7 @@ type Props = {
 function progressColor(percentage: number) {
   if (percentage >= 100) return "bg-rose-400";
   if (percentage >= 75) return "bg-amber-400";
-  return "bg-emerald-400";
+  return "bg-[#55d6a7]";
 }
 
 function statusColor(percentage: number) {
@@ -18,67 +21,125 @@ function statusColor(percentage: number) {
   return "text-slate-500";
 }
 
-export default function BudgetProgress({ budgets, categories }: Props) {
+function statusLabel(percentage: number) {
+  if (percentage >= 100) return "Over budget";
+  if (percentage >= 75) return "Approaching limit";
+  return "On track";
+}
+
+export default function BudgetProgress({
+  budgets,
+  categories,
+}: Props) {
   const spending = Object.fromEntries(
-    categories.map(({ category, total_cents }) => [
-      category,
-      Math.max(0, -total_cents),
-    ])
+    categories.map(
+      ({ category, total_cents }) => [
+        category,
+        Math.max(0, -total_cents),
+      ]
+    )
   );
 
+  if (budgets.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-white/[0.1] px-5 py-10 text-center">
+        <p className="text-sm font-medium text-slate-300">
+          No budgets configured
+        </p>
+
+        <p className="mt-1 text-sm text-slate-600">
+          Set monthly limits to begin tracking
+          category spending.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/[0.06] p-6">
-      <h2 className="text-lg font-semibold">Budget progress</h2>
-      <p className="mt-1 text-sm text-slate-400">
-        Monthly spending against your limits
-      </p>
+    <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-[#101916]">
+      {budgets.map((budget, index) => {
+        const spent =
+          spending[budget.category] ?? 0;
 
-      <div className="mt-6 space-y-5">
-        {budgets.map((budget) => {
-          const spent = spending[budget.category] ?? 0;
-          const percentage = Math.round(
-            (spent / budget.limit_cents) * 100
-          );
+        const percentage = Math.round(
+          (spent / budget.limit_cents) * 100
+        );
 
-          return (
-            <div key={budget.id}>
-              <div className="flex justify-between text-sm">
-                <span>{budget.category}</span>
+        const remaining = Math.max(
+          budget.limit_cents - spent,
+          0
+        );
 
-                <span className="text-slate-400">
-                  {formatCents(spent)} /{" "}
-                  {formatCents(budget.limit_cents)}
-                </span>
-              </div>
-
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className={`h-full rounded-full ${progressColor(
-                    percentage
-                  )}`}
-                  style={{
-                    width: `${Math.min(percentage, 100)}%`,
-                  }}
-                />
-              </div>
+        return (
+          <div
+            key={budget.id}
+            className={`grid gap-4 px-5 py-5 sm:grid-cols-[minmax(140px,0.8fr)_minmax(220px,1.6fr)_130px] sm:items-center ${
+              index > 0
+                ? "border-t border-white/[0.08]"
+                : ""
+            }`}
+          >
+            <div>
+              <p className="text-sm font-medium text-slate-200">
+                {budget.category}
+              </p>
 
               <p
                 className={`mt-1 text-xs ${statusColor(
                   percentage
                 )}`}
               >
-                {percentage}% used
+                {statusLabel(percentage)}
               </p>
             </div>
-          );
-        })}
 
-        {budgets.length === 0 && (
-          <p className="text-sm text-slate-500">
-            Set a budget to begin tracking progress.
-          </p>
-        )}
-      </div>
-    </section>
+            <div>
+              <div className="flex items-center justify-between gap-4 text-xs">
+                <span className="text-slate-500">
+                  {formatCents(spent)} spent
+                </span>
+
+                <span className="text-slate-600">
+                  {percentage}%
+                </span>
+              </div>
+
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
+                <div
+                  className={`h-full rounded-full transition-all ${progressColor(
+                    percentage
+                  )}`}
+                  style={{
+                    width: `${Math.min(
+                      percentage,
+                      100
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="sm:text-right">
+              <p className="text-sm font-medium text-slate-300">
+                {formatCents(
+                  budget.limit_cents
+                )}
+              </p>
+
+              <p className="mt-1 text-xs text-slate-600">
+                {percentage >= 100
+                  ? `${formatCents(
+                      spent -
+                        budget.limit_cents
+                    )} over`
+                  : `${formatCents(
+                      remaining
+                    )} left`}
+              </p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }

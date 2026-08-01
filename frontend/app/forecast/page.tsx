@@ -3,50 +3,32 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
-import {
-  CardSkeleton,
-  EmptyState,
-  PageError,
-} from "../components/PageFeedback";
-import {
-  api,
-  CashFlowForecast,
-  formatCents,
-  session,
-} from "../lib/api";
+import { CardSkeleton, EmptyState, PageError } from "../components/PageFeedback";
+import { api, CashFlowForecast, formatCents, session } from "../lib/api";
 
 function formatDate(value: string): string {
-  return new Date(`${value}T00:00:00`).toLocaleDateString(
-    "en-US",
-    {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }
-  );
+  return new Date(`${value}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export default function ForecastPage() {
   const router = useRouter();
-
   const [userId, setUserId] = useState<number | null>(null);
-  const [forecast, setForecast] =
-    useState<CashFlowForecast | null>(null);
+  const [forecast, setForecast] = useState<CashFlowForecast | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const loadForecast = useCallback(async (userId: number) => {
+  const loadForecast = useCallback(async (id: number) => {
     setLoading(true);
     setError("");
 
     try {
-      setForecast(await api.getCashFlowForecast(userId));
+      setForecast(await api.getCashFlowForecast(id));
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to load forecast"
-      );
+      setError(err instanceof Error ? err.message : "Unable to load forecast");
     } finally {
       setLoading(false);
     }
@@ -54,10 +36,10 @@ export default function ForecastPage() {
 
   useEffect(() => {
     async function initialize() {
-      const userId = session.getUserId();
+      const id = session.getUserId();
       const token = session.getToken();
 
-      if (!userId || !token) {
+      if (!id || !token) {
         session.clear();
         router.replace("/");
         return;
@@ -66,14 +48,14 @@ export default function ForecastPage() {
       try {
         const user = await api.getMe();
 
-        if (user.id !== userId) {
+        if (user.id !== id) {
           session.clear();
           router.replace("/");
           return;
         }
 
-        setUserId(userId);
-        await loadForecast(userId);
+        setUserId(id);
+        await loadForecast(id);
       } catch {
         session.clear();
         router.replace("/");
@@ -84,38 +66,24 @@ export default function ForecastPage() {
   }, [router, loadForecast]);
 
   return (
-    <main
-      className="relative min-h-screen overflow-hidden bg-[#07111f] text-white"
-      style={{
-        backgroundImage: `
-          radial-gradient(circle at 15% 10%, rgba(139,92,246,0.15), transparent 30%),
-          radial-gradient(circle at 85% 20%, rgba(14,165,233,0.10), transparent 28%),
-          linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)
-        `,
-        backgroundSize:
-          "auto, auto, 42px 42px, 42px 42px",
-      }}
-    >
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#07111f]/40 to-[#07111f]" />
-
+    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
       <AppSidebar />
 
-      <div className="relative px-5 pb-10 pt-20 sm:px-8 lg:ml-72 lg:px-10 lg:pt-8">
+      <div className="px-5 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-10">
         <div className="mx-auto max-w-7xl">
           <header>
-            <div className="inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-3 py-1 text-xs font-medium text-violet-300">
-              <span className="h-2 w-2 rounded-full bg-violet-400" />
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
               Forward projection
-            </div>
+            </p>
 
-            <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-              Cash-flow forecast
+            <h1 className="mt-3 max-w-3xl text-4xl font-semibold leading-tight tracking-[-0.05em] sm:text-5xl">
+              See where your balance
+              <span className="block text-[#167c5a]">is headed next.</span>
             </h1>
 
-            <p className="mt-2 max-w-2xl text-sm text-slate-400 sm:text-base">
-              Estimate your month-end balance using connected
-              accounts, income pace, and predicted recurring bills.
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-[#66746e] sm:text-base">
+              Estimate month-end cash using connected balances, expected income,
+              and predicted recurring bills.
             </p>
           </header>
 
@@ -123,11 +91,7 @@ export default function ForecastPage() {
             <div className="mt-7">
               <PageError
                 message={error}
-                onRetry={
-                  userId
-                    ? () => void loadForecast(userId)
-                    : undefined
-                }
+                onRetry={userId ? () => void loadForecast(userId) : undefined}
               />
             </div>
           )}
@@ -138,152 +102,130 @@ export default function ForecastPage() {
             </div>
           ) : forecast ? (
             <>
-              <section className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard
                   label="Liquid balance"
-                  value={formatCents(
-                    forecast.liquid_balance_cents
-                  )}
+                  value={formatCents(forecast.liquid_balance_cents)}
+                  tone="blue"
                   description="Available connected cash"
-                  accent="cyan"
                 />
-
                 <MetricCard
                   label="Expected income"
-                  value={formatCents(
-                    forecast.expected_income_cents
-                  )}
+                  value={formatCents(forecast.expected_income_cents)}
+                  tone="green"
                   description="Estimated remaining income"
-                  accent="emerald"
                 />
-
                 <MetricCard
                   label="Upcoming bills"
-                  value={formatCents(
-                    -forecast.upcoming_bills_cents
-                  )}
+                  value={formatCents(-forecast.upcoming_bills_cents)}
+                  tone="coral"
                   description="Predicted before month-end"
-                  accent="rose"
                 />
-
                 <MetricCard
                   label="Projected month-end"
-                  value={formatCents(
-                    forecast.projected_end_balance_cents
-                  )}
+                  value={formatCents(forecast.projected_end_balance_cents)}
+                  tone={forecast.low_balance_risk ? "coral" : "yellow"}
                   description={
                     forecast.low_balance_risk
                       ? "Balance may fall below zero"
                       : "Balance remains positive"
                   }
-                  accent={
-                    forecast.low_balance_risk
-                      ? "rose"
-                      : "violet"
-                  }
                 />
               </section>
 
-              <section
-                className={`mt-6 rounded-3xl border p-6 backdrop-blur-xl ${
-                  forecast.low_balance_risk
-                    ? "border-rose-400/20 bg-rose-400/[0.07]"
-                    : "border-emerald-400/20 bg-emerald-400/[0.07]"
-                }`}
-              >
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p
-                      className={`text-sm font-semibold ${
-                        forecast.low_balance_risk
-                          ? "text-rose-300"
-                          : "text-emerald-300"
-                      }`}
-                    >
-                      {forecast.low_balance_risk
-                        ? "Low-balance warning"
-                        : "Positive cash-flow outlook"}
-                    </p>
+              <section className="mt-6 grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+                <div
+                  className={`rounded-[32px] p-7 sm:p-8 ${
+                    forecast.low_balance_risk ? "bg-[#f8ddd5]" : "bg-[#dff6c7]"
+                  }`}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#52635b]">
+                    Forecast outlook
+                  </p>
 
-                    <p className="mt-2 text-sm leading-6 text-slate-300">
-                      {forecast.low_balance_risk
-                        ? "Predicted expenses may exceed your available cash and expected income."
-                        : "Your available cash and expected income currently cover predicted bills."}
-                    </p>
-                  </div>
+                  <h2 className="mt-4 text-4xl font-semibold tracking-[-0.05em]">
+                    {forecast.low_balance_risk
+                      ? "Low-balance warning"
+                      : "Positive cash-flow outlook"}
+                  </h2>
 
-                  <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-5 py-4">
-                    <p className="text-xs text-slate-500">
-                      Forecast period
-                    </p>
+                  <p className="mt-4 max-w-2xl text-sm leading-6 text-[#66746e]">
+                    {forecast.low_balance_risk
+                      ? "Predicted expenses may exceed your available cash and expected income."
+                      : "Your available cash and expected income currently cover predicted bills."}
+                  </p>
 
-                    <p className="mt-1 text-sm font-medium text-slate-200">
-                      {formatDate(forecast.as_of)} –{" "}
-                      {formatDate(forecast.month_end)}
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-500">
+                  <div className="mt-8 flex flex-wrap gap-3">
+                    <span className="rounded-full bg-white/65 px-4 py-2 text-sm font-medium">
                       {forecast.days_remaining} days remaining
-                    </p>
+                    </span>
+                    <span className="rounded-full bg-white/65 px-4 py-2 text-sm font-medium">
+                      Through {formatDate(forecast.month_end)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="rounded-[32px] bg-[#14241e] p-7 text-white sm:p-8">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#76dfbd]">
+                    Forecast period
+                  </p>
+
+                  <div className="mt-5 space-y-5">
+                    <PeriodRow label="As of" value={formatDate(forecast.as_of)} />
+                    <PeriodRow
+                      label="Month end"
+                      value={formatDate(forecast.month_end)}
+                    />
+                    <PeriodRow
+                      label="Predicted bills"
+                      value={String(forecast.upcoming_cash_flows.length)}
+                    />
                   </div>
                 </div>
               </section>
 
-              <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/20 backdrop-blur-xl sm:p-7">
-                <div>
-                  <h2 className="text-lg font-semibold">
-                    Upcoming predicted bills
-                  </h2>
+              <section className="mt-8">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+                      Upcoming cash outflows
+                    </p>
+                    <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
+                      Predicted bills before month-end
+                    </h2>
+                  </div>
 
-                  <p className="mt-1 text-sm text-slate-400">
-                    Recurring expenses expected before month-end
+                  <p className="text-sm text-[#7b8781]">
+                    {forecast.upcoming_cash_flows.length} expected
                   </p>
                 </div>
 
-                <div className="mt-6 space-y-3">
-                  {forecast.upcoming_cash_flows.map((item) => (
-                    <article
-                      key={`${item.merchant}-${item.expected_date}`}
-                      className="flex flex-col gap-4 rounded-2xl border border-white/[0.08] bg-slate-950/35 p-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="flex items-center gap-4">
-                        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-400/10 font-semibold text-rose-300">
-                          ↓
-                        </span>
-
-                        <div>
-                          <p className="font-medium text-slate-100">
-                            {item.merchant}
-                          </p>
-
-                          <p className="mt-1 text-xs text-slate-500">
-                            Expected {formatDate(item.expected_date)}
-                            {" · "}
-                            {item.confidence_score}% confidence
-                          </p>
-                        </div>
-                      </div>
-
-                      <p className="text-lg font-bold text-rose-300">
-                        {formatCents(-item.amount_cents)}
-                      </p>
-                    </article>
-                  ))}
-
-                  {forecast.upcoming_cash_flows.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-white/10 px-5 py-12 text-center">
-                      <p className="text-sm text-slate-500">
-                        No recurring bills are currently predicted
-                        before month-end.
-                      </p>
-                    </div>
-                  )}
-                </div>
+                {forecast.upcoming_cash_flows.length > 0 ? (
+                  <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                    {forecast.upcoming_cash_flows.map((item, index) => (
+                      <BillCard
+                        key={`${item.merchant}-${item.expected_date}`}
+                        merchant={item.merchant}
+                        expectedDate={item.expected_date}
+                        amount={item.amount_cents}
+                        confidence={item.confidence_score}
+                        index={index}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-5 rounded-[30px] border border-dashed border-[#14241e]/15 bg-white px-6 py-14 text-center">
+                    <p className="text-lg font-semibold">No predicted bills</p>
+                    <p className="mt-2 text-sm text-[#728078]">
+                      No recurring bills are currently expected before month-end.
+                    </p>
+                  </div>
+                )}
               </section>
 
-              <p className="mt-5 text-xs leading-5 text-slate-500">
-                Forecasts are estimates and may differ from actual
-                balances or future transactions.
+              <p className="mt-6 text-xs leading-5 text-[#7b8781]">
+                Forecasts are estimates and may differ from actual balances or
+                future transactions.
               </p>
             </>
           ) : (
@@ -305,32 +247,87 @@ export default function ForecastPage() {
 function MetricCard({
   label,
   value,
+  tone,
   description,
-  accent,
 }: {
   label: string;
   value: string;
+  tone: "green" | "coral" | "yellow" | "blue";
   description: string;
-  accent: "cyan" | "emerald" | "rose" | "violet";
 }) {
   const styles = {
-    cyan: "text-cyan-300",
-    emerald: "text-emerald-300",
-    rose: "text-rose-300",
-    violet: "text-violet-300",
+    green: "bg-[#dff6c7]",
+    coral: "bg-[#f8ddd5]",
+    yellow: "bg-[#f7e8b5]",
+    blue: "bg-[#dceeea]",
   };
 
   return (
-    <article className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/20 backdrop-blur-xl">
-      <p className="text-sm text-slate-400">{label}</p>
+    <article className={`rounded-[26px] p-5 ${styles[tone]}`}>
+      <p className="text-sm text-[#52635b]">{label}</p>
+      <p className="mt-3 text-3xl font-semibold tracking-[-0.04em]">{value}</p>
+      <p className="mt-2 text-xs text-[#66746e]">{description}</p>
+    </article>
+  );
+}
 
-      <p className={`mt-3 text-2xl font-bold ${styles[accent]}`}>
-        {value}
-      </p>
+function PeriodRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-5 border-b border-white/10 pb-4 last:border-b-0 last:pb-0">
+      <span className="text-sm text-white/55">{label}</span>
+      <span className="text-sm font-semibold">{value}</span>
+    </div>
+  );
+}
 
-      <p className="mt-2 text-xs text-slate-500">
-        {description}
-      </p>
+function BillCard({
+  merchant,
+  expectedDate,
+  amount,
+  confidence,
+  index,
+}: {
+  merchant: string;
+  expectedDate: string;
+  amount: number;
+  confidence: number;
+  index: number;
+}) {
+  const tones = ["bg-white", "bg-[#f8ddd5]", "bg-[#fbf0d1]", "bg-[#e8f1ef]"];
+
+  return (
+    <article
+      className={`rounded-[28px] border border-[#14241e]/10 p-6 shadow-sm shadow-[#14241e]/5 ${
+        tones[index % tones.length]
+      }`}
+    >
+      <div className="flex items-start justify-between gap-5">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#7b8781]">
+            Expected {formatDate(expectedDate)}
+          </p>
+          <h3 className="mt-2 text-xl font-semibold tracking-[-0.02em]">
+            {merchant}
+          </h3>
+        </div>
+
+        <span className="rounded-full bg-white/65 px-3 py-1.5 text-xs font-semibold text-[#52635b]">
+          {confidence}% confidence
+        </span>
+      </div>
+
+      <div className="mt-7 flex items-end justify-between gap-4">
+        <div>
+          <p className="text-sm text-[#66746e]">Predicted amount</p>
+          <p className="mt-1 text-3xl font-semibold tracking-[-0.04em] text-[#a64b3d]">
+            {formatCents(-amount)}
+          </p>
+        </div>
+
+        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/65 text-lg font-semibold text-[#a64b3d]">
+          ↓
+        </span>
+      </div>
     </article>
   );
 }

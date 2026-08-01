@@ -13,16 +13,12 @@ import {
   CashFlowForecast,
   CategoryTotal,
   formatCents,
-  MonthTotal,
-  MonthlyInsights,
   Overview,
   SavingsGoal,
   session,
   Transaction,
 } from "../lib/api";
 import AppSidebar from "../components/AppSidebar";
-import BudgetProgress from "../components/BudgetProgress";
-import MonthlyTrend from "../components/MonthlyTrend";
 import {
   Bar,
   BarChart,
@@ -66,14 +62,11 @@ export default function Dashboard() {
   const [categories, setCategories] = useState<
     CategoryTotal[]
   >([]);
-  const [months, setMonths] = useState<MonthTotal[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [transactions, setTransactions] = useState<
     Transaction[]
   >([]);
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
-  const [insights, setInsights] =
-    useState<MonthlyInsights | null>(null);
   const [cashFlow, setCashFlow] =
     useState<CashFlowForecast | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,30 +83,24 @@ export default function Dashboard() {
         const [
           overviewData,
           categoryData,
-          monthData,
           budgetData,
           transactionData,
           goalData,
-          insightData,
           cashFlowData,
         ] = await Promise.all([
           api.overview(id),
           api.byCategory(id),
-          api.byMonth(id),
           api.getBudgets(id, budgetMonth),
           api.getTransactions(id),
           api.getSavingsGoals(id),
-          api.getMonthlyInsights(id, budgetMonth),
           api.getCashFlowForecast(id),
         ]);
 
         setOverview(overviewData);
         setCategories(categoryData);
-        setMonths(monthData);
         setBudgets(budgetData);
         setTransactions(transactionData);
         setGoals(goalData);
-        setInsights(insightData);
         setCashFlow(cashFlowData);
       } catch (err) {
         setError(
@@ -300,49 +287,78 @@ export default function Dashboard() {
     }
   }
 
-  return (
-    <main
-      className="relative min-h-screen overflow-hidden bg-[#07111f] text-white"
-      style={{
-        backgroundImage: `
-          radial-gradient(circle at 15% 10%, rgba(16,185,129,0.16), transparent 30%),
-          radial-gradient(circle at 85% 20%, rgba(14,165,233,0.10), transparent 28%),
-          linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)
-        `,
-        backgroundSize:
-          "auto, auto, 42px 42px, 42px 42px",
-      }}
-    >
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#07111f]/40 to-[#07111f]" />
 
+  const currentMonthSpending = useMemo(
+    () =>
+      currentMonthCategories.reduce(
+        (total, category) =>
+          total + Math.abs(category.total_cents),
+        0
+      ),
+    [currentMonthCategories]
+  );
+
+  const recentTransactions = useMemo(
+    () => transactions.slice(0, 5),
+    [transactions]
+  );
+
+  const budgetPreview = useMemo(
+    () =>
+      budgets.slice(0, 4).map((budget) => {
+        const category = currentMonthCategories.find(
+          (item) => item.category === budget.category
+        );
+
+        const spent = Math.abs(
+          category?.total_cents ?? 0
+        );
+
+        const percentage =
+          budget.limit_cents > 0
+            ? Math.min(
+                Math.round(
+                  (spent / budget.limit_cents) * 100
+                ),
+                100
+              )
+            : 0;
+
+        return {
+          ...budget,
+          spent,
+          percentage,
+        };
+      }),
+    [budgets, currentMonthCategories]
+  );
+
+  return (
+    <main className="min-h-screen bg-[#f4efe5] text-[#173128]">
       <AppSidebar />
 
-      <div className="relative px-5 pb-8 pt-20 sm:px-8 lg:ml-72 lg:px-10 lg:pt-8">
+      <div className="px-5 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-8">
         <div className="mx-auto max-w-7xl">
-        <header className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
-              <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              Financial overview
+          <header className="flex flex-col gap-6 border-b border-[#173128]/10 pb-8 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#187a59]">
+                {formatMonth(budgetMonth)}
+              </p>
+
+              <h1 className="mt-3 max-w-3xl text-4xl font-semibold leading-tight tracking-[-0.055em] text-[#12261f] sm:text-6xl">
+                Here’s how your money is doing.
+              </h1>
+
+              <p className="mt-4 max-w-2xl text-base leading-7 text-[#68766f]">
+                Review your balance, spending patterns, upcoming
+                cash flow, budgets, and goals in one place.
+              </p>
             </div>
 
-            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              Welcome to FinSight
-            </h1>
+            <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full bg-[#173128] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#26463b]">
+              <UploadIcon />
 
-            <p className="mt-2 max-w-xl text-sm text-slate-400 sm:text-base">
-              Understand your income, spending
-              patterns, and financial health in one
-              place.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <label className="cursor-pointer rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400">
-              {uploading
-                ? "Uploading..."
-                : "Upload CSV"}
+              {uploading ? "Uploading..." : "Upload CSV"}
 
               <input
                 type="file"
@@ -352,641 +368,697 @@ export default function Dashboard() {
                 onChange={handleUpload}
               />
             </label>
-          </div>
-        </header>
+          </header>
 
-        {(message || error) && (
-          <div
-            className={`mt-7 rounded-2xl border px-4 py-3 text-sm ${
-              error
-                ? "border-red-400/20 bg-red-400/10 text-red-300"
-                : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
-            }`}
-          >
-            {error || message}
-          </div>
-        )}
+          {(message || error) && (
+            <div
+              className={`mt-6 rounded-2xl border px-4 py-3 text-sm ${
+                error
+                  ? "border-[#b65743]/20 bg-[#f0b8a8]/30 text-[#843d2f]"
+                  : "border-[#187a59]/20 bg-[#dff6c7] text-[#285d42]"
+              }`}
+            >
+              {error || message}
+            </div>
+          )}
 
-        <section className="mt-8 grid gap-5 md:grid-cols-3">
-          <SummaryCard
-            label="Total income"
-            value={
-              overview
-                ? formatCents(
-                    overview.total_income_cents
-                  )
-                : "$0.00"
-            }
-            description="Money received"
-            icon="↑"
-            accent="emerald"
-            loading={loading}
-          />
+          <section className="mt-8 grid gap-5 lg:grid-cols-[1.25fr_0.75fr]">
+            <article className="relative overflow-hidden rounded-[30px] bg-[#173128] p-7 text-white shadow-[0_24px_60px_rgba(23,49,40,0.18)] sm:p-9">
+              <div className="pointer-events-none absolute -right-14 -top-14 h-48 w-48 rounded-full bg-[#64d7aa]/20 blur-2xl" />
 
-          <SummaryCard
-            label="Total spending"
-            value={
-              overview
-                ? formatCents(
-                    -overview.total_spending_cents
-                  )
-                : "$0.00"
-            }
-            description="Money spent"
-            icon="↓"
-            accent="rose"
-            loading={loading}
-          />
+              <div className="relative">
+                <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+                      Net financial position
+                    </p>
 
-          <SummaryCard
-            label="Net balance"
-            value={
-              overview
-                ? formatCents(overview.net_cents)
-                : "$0.00"
-            }
-            description="Income minus spending"
-            icon="$"
-            accent={
-              overview && overview.net_cents < 0
-                ? "rose"
-                : "cyan"
-            }
-            loading={loading}
-          />
-        </section>
+                    {loading ? (
+                      <div className="mt-5 h-14 w-56 animate-pulse rounded-xl bg-white/10" />
+                    ) : (
+                      <p className="mt-4 text-5xl font-semibold tracking-[-0.06em] sm:text-6xl">
+                        {formatCents(
+                          overview?.net_cents ?? 0
+                        )}
+                      </p>
+                    )}
 
-        <section className="mt-6 rounded-3xl border border-violet-400/20 bg-gradient-to-br from-violet-500/10 via-white/[0.05] to-cyan-500/10 p-5 shadow-xl shadow-black/20 backdrop-blur-xl sm:p-6">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-400/15 text-lg text-violet-300">
-                  ↗
-                </span>
+                    <p className="mt-3 text-sm text-white/55">
+                      Income minus total recorded spending
+                    </p>
+                  </div>
 
+                  <span
+                    className={`inline-flex w-fit rounded-full px-3 py-1.5 text-xs font-semibold ${
+                      (overview?.net_cents ?? 0) >= 0
+                        ? "bg-[#dff6c7] text-[#315d31]"
+                        : "bg-[#f0b8a8] text-[#7b3528]"
+                    }`}
+                  >
+                    {(overview?.net_cents ?? 0) >= 0
+                      ? "Positive balance"
+                      : "Needs attention"}
+                  </span>
+                </div>
+
+                <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
+                  <DarkMetric
+                    label="Income"
+                    value={formatCents(
+                      overview?.total_income_cents ?? 0
+                    )}
+                    tone="positive"
+                  />
+
+                  <DarkMetric
+                    label="Spending"
+                    value={formatCents(
+                      -(overview?.total_spending_cents ?? 0)
+                    )}
+                    tone="negative"
+                  />
+
+                  <DarkMetric
+                    label="Transactions"
+                    value={String(
+                      overview?.transaction_count ?? 0
+                    )}
+                    tone="neutral"
+                  />
+                </div>
+              </div>
+            </article>
+
+            <article className="rounded-[30px] bg-[#dff6c7] p-7 sm:p-8">
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="font-semibold text-white">
-                    Cash-flow forecast
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#4c7e53]">
+                    Month-end forecast
                   </p>
 
-                  <p className="mt-1 text-sm text-slate-400">
-                    Estimated balance at the end of this month
-                  </p>
+                  {loading ? (
+                    <div className="mt-5 h-11 w-40 animate-pulse rounded-lg bg-[#173128]/10" />
+                  ) : (
+                    <p className="mt-4 text-4xl font-semibold tracking-[-0.05em] text-[#173128]">
+                      {formatCents(
+                        cashFlow?.projected_end_balance_cents ??
+                          0
+                      )}
+                    </p>
+                  )}
                 </div>
+
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#173128] text-[#dff6c7]">
+                  <TrendIcon />
+                </span>
               </div>
-            </div>
 
-            {loading ? (
-              <div className="h-14 w-full animate-pulse rounded-xl bg-white/5 lg:w-96" />
-            ) : cashFlow ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div className="rounded-xl border border-white/10 bg-slate-950/35 px-4 py-3">
-                  <p className="text-xs text-slate-500">
-                    Projected
-                  </p>
-
-                  <p
-                    className={`mt-1 font-bold ${
-                      cashFlow.projected_end_balance_cents < 0
-                        ? "text-rose-300"
-                        : "text-violet-300"
-                    }`}
-                  >
-                    {formatCents(
-                      cashFlow.projected_end_balance_cents
-                    )}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-slate-950/35 px-4 py-3">
-                  <p className="text-xs text-slate-500">
-                    Expected income
-                  </p>
-
-                  <p className="mt-1 font-bold text-emerald-300">
-                    {formatCents(
-                      cashFlow.expected_income_cents
-                    )}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-slate-950/35 px-4 py-3">
-                  <p className="text-xs text-slate-500">
-                    Upcoming bills
-                  </p>
-
-                  <p className="mt-1 font-bold text-rose-300">
-                    {formatCents(
-                      -cashFlow.upcoming_bills_cents
-                    )}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-slate-950/35 px-4 py-3">
-                  <p className="text-xs text-slate-500">
-                    Status
-                  </p>
-
-                  <p
-                    className={`mt-1 font-bold ${
-                      cashFlow.low_balance_risk
-                        ? "text-rose-300"
-                        : "text-emerald-300"
-                    }`}
-                  >
-                    {cashFlow.low_balance_risk
-                      ? "At risk"
-                      : "On track"}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-slate-500">
-                Forecast unavailable
+              <p className="mt-4 text-sm leading-6 text-[#56705d]">
+                {cashFlow?.low_balance_risk
+                  ? "Your projected balance may fall below a safe level."
+                  : "Your current balance and expected activity remain on track."}
               </p>
-            )}
-          </div>
-        </section>
 
-        <section className="mt-6 grid gap-6 lg:grid-cols-[1.7fr_0.8fr]">
-          <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl sm:p-7">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-lg font-semibold">
-                  Spending by category
-                </p>
+              <div className="mt-8 space-y-4 border-t border-[#173128]/10 pt-6">
+                <LightStat
+                  label="Expected income"
+                  value={formatCents(
+                    cashFlow?.expected_income_cents ?? 0
+                  )}
+                />
 
-                <p className="mt-1 text-sm text-slate-400">
-                  Your largest expense categories
-                  across all imported transactions
-                </p>
+                <LightStat
+                  label="Upcoming bills"
+                  value={formatCents(
+                    -(cashFlow?.upcoming_bills_cents ?? 0)
+                  )}
+                />
+
+                <LightStat
+                  label="Days remaining"
+                  value={String(
+                    cashFlow?.days_remaining ?? 0
+                  )}
+                />
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2 text-xs text-slate-400">
-                {overview?.transaction_count ?? 0}{" "}
-                transactions
-              </div>
-            </div>
+              <button
+                type="button"
+                onClick={() => router.push("/forecast")}
+                className="mt-7 text-sm font-semibold text-[#173128] transition hover:opacity-65"
+              >
+                View full forecast →
+              </button>
+            </article>
+          </section>
 
-            <div className="mt-8 h-[390px]">
-              {loading ? (
-                <LoadingState message="Loading spending analysis..." />
-              ) : spendingData.length === 0 ? (
-                <EmptyState />
-              ) : (
-                <ResponsiveContainer
-                  width="100%"
-                  height="100%"
-                >
-                  <BarChart
-                    data={spendingData}
-                    layout="vertical"
-                    margin={{
-                      top: 0,
-                      right: 20,
-                      bottom: 0,
-                      left: 15,
-                    }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="4 4"
-                      horizontal={false}
-                      stroke="rgba(255,255,255,0.08)"
-                    />
-
-                    <XAxis
-                      type="number"
-                      tickFormatter={(value) =>
-                        `$${value}`
-                      }
-                      tick={{
-                        fill: "#94a3b8",
-                        fontSize: 12,
-                      }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-
-                    <YAxis
-                      type="category"
-                      dataKey="category"
-                      width={105}
-                      tick={{
-                        fill: "#cbd5e1",
-                        fontSize: 12,
-                      }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-
-                    <Tooltip
-                      cursor={{
-                        fill: "rgba(255,255,255,0.04)",
-                      }}
-                      content={<CustomTooltip />}
-                    />
-
-                    <Bar
-                      dataKey="amount"
-                      fill="#34d399"
-                      radius={[0, 8, 8, 0]}
-                      barSize={24}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+          <section className="mt-8 grid gap-5 sm:grid-cols-3">
+            <SoftMetric
+              label="Income this month"
+              value={formatCents(
+                overview?.total_income_cents ?? 0
               )}
-            </div>
-          </div>
+              description="Money received"
+              background="bg-[#fffdf8]"
+            />
 
-          <aside className="space-y-6">
-            <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-emerald-500/20 to-cyan-500/10 p-6 backdrop-blur-xl">
-              <p className="text-sm font-medium text-emerald-300">
-                Spending insight
+            <SoftMetric
+              label="Spending this month"
+              value={formatCents(
+                -(overview?.total_spending_cents ?? 0)
+              )}
+              description="Recorded expenses"
+              background="bg-[#f0b8a8]"
+            />
+
+            <SoftMetric
+              label="Goal progress"
+              value={`${goalProgress}%`}
+              description={
+                goals.length > 0
+                  ? `${goals.length} active goal${
+                      goals.length === 1 ? "" : "s"
+                    }`
+                  : "No goals created yet"
+              }
+              background="bg-[#c9e7ff]"
+            />
+          </section>
+
+          <section className="mt-12 grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
+            <article className="rounded-[30px] bg-white p-6 shadow-[0_18px_50px_rgba(23,49,40,0.08)] sm:p-8">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#187a59]">
+                    Spending patterns
+                  </p>
+
+                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">
+                    Where your money went
+                  </h2>
+
+                  <p className="mt-2 text-sm text-[#758078]">
+                    Top expense categories across imported activity
+                  </p>
+                </div>
+
+                <p className="text-xs text-[#8b958f]">
+                  {overview?.transaction_count ?? 0} transactions
+                </p>
+              </div>
+
+              <div className="mt-7 h-[330px]">
+                {loading ? (
+                  <LoadingState message="Loading spending analysis..." />
+                ) : spendingData.length === 0 ? (
+                  <EmptyState />
+                ) : (
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                  >
+                    <BarChart
+                      data={spendingData.slice(0, 6)}
+                      layout="vertical"
+                      margin={{
+                        top: 4,
+                        right: 28,
+                        bottom: 4,
+                        left: 2,
+                      }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 5"
+                        horizontal={false}
+                        stroke="rgba(23,49,40,0.09)"
+                      />
+
+                      <XAxis
+                        type="number"
+                        tickFormatter={(value) =>
+                          `$${Number(value).toLocaleString(
+                            "en-US",
+                            {
+                              notation: "compact",
+                            }
+                          )}`
+                        }
+                        tick={{
+                          fill: "#839088",
+                          fontSize: 11,
+                        }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+
+                      <YAxis
+                        type="category"
+                        dataKey="category"
+                        width={105}
+                        tick={{
+                          fill: "#52645b",
+                          fontSize: 12,
+                        }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+
+                      <Tooltip
+                        cursor={{
+                          fill: "rgba(23,49,40,0.035)",
+                        }}
+                        content={<CustomTooltip />}
+                      />
+
+                      <Bar
+                        dataKey="amount"
+                        fill="#187a59"
+                        radius={[0, 8, 8, 0]}
+                        barSize={20}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </article>
+
+            <article className="rounded-[30px] bg-[#f5d66f] p-7 sm:p-8">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#735d15]">
+                FinSight observation
               </p>
 
-              <h2 className="mt-3 text-2xl font-bold">
+              <h2 className="mt-5 text-3xl font-semibold leading-tight tracking-[-0.045em] text-[#2f2912]">
                 {highestCategory
-                  ? highestCategory.category
-                  : "Upload data"}
+                  ? `${highestCategory.category} is your largest category.`
+                  : "Add transaction data to unlock spending insights."}
               </h2>
 
-              <p className="mt-2 text-sm leading-6 text-slate-300">
+              <p className="mt-5 text-sm leading-7 text-[#695d2d]">
                 {highestCategory
-                  ? `${
-                      highestCategory.category
-                    } is currently your largest spending category at ${highestCategory.amount.toLocaleString(
+                  ? `${highestCategory.category} represents your highest recorded spending at ${highestCategory.amount.toLocaleString(
                       "en-US",
                       {
                         style: "currency",
                         currency: "USD",
                       }
-                    )}.`
-                  : "Upload a CSV file to discover where most of your money is going."}
-              </p>
-            </div>
-
-            <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-6 backdrop-blur-xl">
-              <p className="text-sm font-semibold">
-                Category breakdown
+                    )}. Review uncategorized items to improve the accuracy of your insights.`
+                  : "Upload a CSV or synchronize a connected account to generate personalized observations."}
               </p>
 
-              <div className="mt-5 space-y-4">
-                {spendingData
-                  .slice(0, 5)
-                  .map((item) => {
-                    const totalSpending =
-                      overview?.total_spending_cents ??
-                      0;
+              <div className="mt-8 border-t border-[#2f2912]/10 pt-6">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#735d15]">
+                  Current-month spending
+                </p>
 
-                    const percentage =
-                      totalSpending > 0
-                        ? Math.round(
-                            ((item.amount * 100) /
-                              totalSpending) *
-                              100
-                          )
-                        : 0;
-
-                    return (
-                      <div key={item.category}>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-300">
-                            {item.category}
-                          </span>
-
-                          <span className="font-medium">
-                            {item.amount.toLocaleString(
-                              "en-US",
-                              {
-                                style:
-                                  "currency",
-                                currency: "USD",
-                              }
-                            )}
-                          </span>
-                        </div>
-
-                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
-                          <div
-                            className="h-full rounded-full bg-emerald-400"
-                            style={{
-                              width: `${Math.min(
-                                percentage,
-                                100
-                              )}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                {!loading &&
-                  spendingData.length === 0 && (
-                    <p className="text-sm text-slate-500">
-                      No spending data available
-                      yet.
-                    </p>
-                  )}
-              </div>
-            </div>
-          </aside>
-        </section>
-
-        <div className="mt-6">
-          <MonthlyTrend data={months} />
-        </div>
-
-        <section className="mt-6">
-          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-lg font-semibold">
-                Monthly budget progress
-              </p>
-
-              <p className="mt-1 text-sm text-slate-400">
-                Comparing spending and limits for{" "}
-                {formatMonth(budgetMonth)}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/budgets")
-              }
-              className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-sm font-medium text-emerald-300 transition hover:bg-emerald-400/20"
-            >
-              Manage budgets
-            </button>
-          </div>
-
-          <BudgetProgress
-            budgets={budgets}
-            categories={currentMonthCategories}
-          />
-        </section>
-
-        <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/20 backdrop-blur-xl sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-300">
-                ✦ Smart analysis
-              </div>
-
-              <h2 className="mt-3 text-lg font-semibold">
-                Financial insights
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-400">
-                Key observations for {formatMonth(budgetMonth)}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => router.push("/insights")}
-              className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-2.5 text-sm font-medium text-cyan-300 transition hover:bg-cyan-400/20"
-            >
-              View all insights
-            </button>
-          </div>
-
-          {loading ? (
-            <div className="mt-5 grid gap-3 md:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="h-24 animate-pulse rounded-2xl bg-white/5"
-                />
-              ))}
-            </div>
-          ) : insights ? (
-            <div className="mt-5 grid gap-3 md:grid-cols-3">
-              {insights.insights
-                .slice(0, 3)
-                .map((insight, index) => (
-                  <article
-                    key={`${insight.kind}-${
-                      insight.category ?? index
-                    }`}
-                    className={`rounded-2xl border p-4 ${
-                      insight.severity === "positive"
-                        ? "border-emerald-400/20 bg-emerald-400/[0.06]"
-                        : insight.severity === "warning"
-                        ? "border-amber-400/20 bg-amber-400/[0.06]"
-                        : "border-cyan-400/20 bg-cyan-400/[0.06]"
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <span
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${
-                          insight.severity === "positive"
-                            ? "bg-emerald-400/15 text-emerald-300"
-                            : insight.severity === "warning"
-                            ? "bg-amber-400/15 text-amber-300"
-                            : "bg-cyan-400/15 text-cyan-300"
-                        }`}
-                      >
-                        {insight.severity === "positive"
-                          ? "↑"
-                          : insight.severity === "warning"
-                          ? "!"
-                          : "i"}
-                      </span>
-
-                      <div>
-                        <h3 className="text-sm font-medium text-slate-100">
-                          {insight.title}
-                        </h3>
-
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">
-                          {insight.description}
-                        </p>
-                      </div>
-                    </div>
-                  </article>
-                ))}
-            </div>
-          ) : (
-            <p className="mt-5 rounded-2xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-slate-500">
-              Financial insights are unavailable.
-            </p>
-          )}
-        </section>
-
-        <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/20 backdrop-blur-xl sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
-                ◇ Savings progress
-              </div>
-
-              <h2 className="mt-3 text-lg font-semibold">
-                Savings goals
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-400">
-                Progress across your financial milestones
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => router.push("/goals")}
-              className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2.5 text-sm font-medium text-emerald-300 transition hover:bg-emerald-400/20"
-            >
-              Manage goals
-            </button>
-          </div>
-
-          {loading ? (
-            <div className="mt-5 h-24 animate-pulse rounded-2xl bg-white/5" />
-          ) : goals.length > 0 ? (
-            <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_1.5fr] lg:items-center">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-xl border border-white/10 bg-slate-950/35 p-3">
-                  <p className="text-xs text-slate-500">
-                    Saved
-                  </p>
-
-                  <p className="mt-1 font-bold text-emerald-300">
-                    {formatCents(goalSummary.saved)}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-slate-950/35 p-3">
-                  <p className="text-xs text-slate-500">
-                    Target
-                  </p>
-
-                  <p className="mt-1 font-bold text-cyan-300">
-                    {formatCents(goalSummary.target)}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-slate-950/35 p-3">
-                  <p className="text-xs text-slate-500">
-                    Completed
-                  </p>
-
-                  <p className="mt-1 font-bold text-slate-200">
-                    {goalSummary.completed}/{goals.length}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-500">
-                    Overall progress
-                  </span>
-
-                  <span className="font-medium text-emerald-300">
-                    {goalProgress}%
-                  </span>
-                </div>
-
-                <div className="mt-2 h-3 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all"
-                    style={{ width: `${goalProgress}%` }}
-                  />
-                </div>
-
-                <p className="mt-2 text-xs text-slate-500">
-                  {formatCents(
-                    Math.max(
-                      goalSummary.target - goalSummary.saved,
-                      0
-                    )
-                  )}{" "}
-                  remaining across all goals
+                <p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[#2f2912]">
+                  {formatCents(-currentMonthSpending)}
                 </p>
               </div>
-            </div>
-          ) : (
-            <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-dashed border-white/10 px-5 py-7 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-slate-500">
-                No savings goals have been created yet.
-              </p>
 
               <button
                 type="button"
-                onClick={() => router.push("/goals")}
-                className="text-left text-sm font-medium text-emerald-300 transition hover:text-emerald-200"
+                onClick={() => router.push("/insights")}
+                className="mt-7 text-sm font-semibold text-[#2f2912] transition hover:opacity-65"
               >
-                Create your first goal →
+                Explore insights →
+              </button>
+            </article>
+          </section>
+
+          <section className="mt-12 grid gap-6 lg:grid-cols-2">
+            <DashboardSection
+              eyebrow="Monthly plan"
+              title="Budget progress"
+              action="Manage budgets →"
+              onAction={() => router.push("/budgets")}
+            >
+              {budgetPreview.length > 0 ? (
+                <div className="space-y-5">
+                  {budgetPreview.map((budget) => (
+                    <div key={budget.id}>
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold text-[#173128]">
+                            {budget.category}
+                          </p>
+
+                          <p className="mt-1 text-xs text-[#7b8781]">
+                            {formatCents(budget.spent)} of{" "}
+                            {formatCents(
+                              budget.limit_cents
+                            )}
+                          </p>
+                        </div>
+
+                        <span className="text-sm font-semibold text-[#173128]">
+                          {budget.percentage}%
+                        </span>
+                      </div>
+
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#173128]/8">
+                        <div
+                          className={`h-full rounded-full ${
+                            budget.percentage >= 100
+                              ? "bg-[#b65743]"
+                              : budget.percentage >= 75
+                              ? "bg-[#d89e24]"
+                              : "bg-[#187a59]"
+                          }`}
+                          style={{
+                            width: `${budget.percentage}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <CompactEmpty
+                  title="No budgets configured"
+                  description="Set monthly limits to start tracking category spending."
+                  action="Create a budget"
+                  onAction={() =>
+                    router.push("/budgets")
+                  }
+                />
+              )}
+            </DashboardSection>
+
+            <DashboardSection
+              eyebrow="Your milestones"
+              title="Savings goals"
+              action="Manage goals →"
+              onAction={() => router.push("/goals")}
+            >
+              {goals.length > 0 ? (
+                <div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <MiniStat
+                      label="Saved"
+                      value={formatCents(
+                        goalSummary.saved
+                      )}
+                    />
+
+                    <MiniStat
+                      label="Target"
+                      value={formatCents(
+                        goalSummary.target
+                      )}
+                    />
+
+                    <MiniStat
+                      label="Complete"
+                      value={`${goalSummary.completed}/${goals.length}`}
+                    />
+                  </div>
+
+                  <div className="mt-7">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-[#7b8781]">
+                        Overall progress
+                      </span>
+
+                      <span className="font-semibold text-[#187a59]">
+                        {goalProgress}%
+                      </span>
+                    </div>
+
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#173128]/8">
+                      <div
+                        className="h-full rounded-full bg-[#187a59]"
+                        style={{
+                          width: `${goalProgress}%`,
+                        }}
+                      />
+                    </div>
+
+                    <p className="mt-3 text-xs text-[#7b8781]">
+                      {formatCents(
+                        Math.max(
+                          goalSummary.target -
+                            goalSummary.saved,
+                          0
+                        )
+                      )}{" "}
+                      remaining
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <CompactEmpty
+                  title="No savings goals yet"
+                  description="Create a goal for an emergency fund, trip, or major purchase."
+                  action="Create a goal"
+                  onAction={() =>
+                    router.push("/goals")
+                  }
+                />
+              )}
+            </DashboardSection>
+          </section>
+
+          <section className="mt-12 rounded-[30px] bg-white p-6 shadow-[0_18px_50px_rgba(23,49,40,0.08)] sm:p-8">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#187a59]">
+                  Recent activity
+                </p>
+
+                <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">
+                  Latest transactions
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  router.push("/transactions")
+                }
+                className="text-sm font-semibold text-[#187a59] transition hover:opacity-65"
+              >
+                View all →
               </button>
             </div>
-          )}
-        </section>
 
+            <div className="mt-6 divide-y divide-[#173128]/10">
+              {recentTransactions.length > 0 ? (
+                recentTransactions.map((transaction) => (
+                  <div
+                    key={transaction.id}
+                    className="grid gap-3 py-4 sm:grid-cols-[120px_1fr_150px] sm:items-center"
+                  >
+                    <p className="text-sm text-[#7b8781]">
+                      {new Date(
+                        `${transaction.posted_on}T00:00:00`
+                      ).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </p>
+
+                    <div>
+                      <p className="text-sm font-semibold text-[#173128]">
+                        {transaction.merchant_name ||
+                          transaction.description}
+                      </p>
+
+                      <p className="mt-1 text-xs text-[#89938e]">
+                        {transaction.category}
+                      </p>
+                    </div>
+
+                    <p
+                      className={`text-sm font-semibold sm:text-right ${
+                        transaction.amount_cents >= 0
+                          ? "text-[#187a59]"
+                          : "text-[#a64c3b]"
+                      }`}
+                    >
+                      {formatCents(
+                        transaction.amount_cents
+                      )}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <div className="py-10 text-center text-sm text-[#7b8781]">
+                  No recent transactions available.
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       </div>
     </main>
   );
 }
 
-function SummaryCard({
+function DarkMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "positive" | "negative" | "neutral";
+}) {
+  const toneClass = {
+    positive: "text-[#83dcb9]",
+    negative: "text-[#f4a594]",
+    neutral: "text-white",
+  };
+
+  return (
+    <div className="bg-white/[0.045] p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
+        {label}
+      </p>
+
+      <p className={`mt-2 text-lg font-semibold ${toneClass[tone]}`}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function LightStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-sm text-[#607163]">
+        {label}
+      </span>
+
+      <span className="text-sm font-semibold text-[#173128]">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function SoftMetric({
   label,
   value,
   description,
-  icon,
-  accent,
-  loading,
+  background,
 }: {
   label: string;
   value: string;
   description: string;
-  icon: string;
-  accent: "emerald" | "rose" | "cyan";
-  loading: boolean;
+  background: string;
 }) {
-  const styles = {
-    emerald: {
-      icon: "bg-emerald-400/15 text-emerald-300",
-      value: "text-emerald-300",
-    },
-    rose: {
-      icon: "bg-rose-400/15 text-rose-300",
-      value: "text-rose-300",
-    },
-    cyan: {
-      icon: "bg-cyan-400/15 text-cyan-300",
-      value: "text-cyan-300",
-    },
-  };
-
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-6 shadow-xl shadow-black/10 backdrop-blur-xl transition hover:-translate-y-1 hover:bg-white/[0.08]">
-      <div className="flex items-start justify-between">
+    <article className={`rounded-[26px] p-6 ${background}`}>
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#52645b]">
+        {label}
+      </p>
+
+      <p className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-[#173128]">
+        {value}
+      </p>
+
+      <p className="mt-2 text-sm text-[#65746d]">
+        {description}
+      </p>
+    </article>
+  );
+}
+
+function DashboardSection({
+  eyebrow,
+  title,
+  action,
+  onAction,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  action: string;
+  onAction: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <article className="rounded-[30px] bg-white p-6 shadow-[0_18px_50px_rgba(23,49,40,0.08)] sm:p-8">
+      <div className="flex items-end justify-between gap-4">
         <div>
-          <p className="text-sm text-slate-400">
-            {label}
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#187a59]">
+            {eyebrow}
           </p>
 
-          {loading ? (
-            <div className="mt-4 h-9 w-32 animate-pulse rounded-lg bg-white/10" />
-          ) : (
-            <p
-              className={`mt-3 text-3xl font-bold tracking-tight ${styles[accent].value}`}
-            >
-              {value}
-            </p>
-          )}
-
-          <p className="mt-2 text-xs text-slate-500">
-            {description}
-          </p>
+          <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">
+            {title}
+          </h2>
         </div>
 
-        <div
-          className={`flex h-11 w-11 items-center justify-center rounded-2xl text-lg font-bold ${styles[accent].icon}`}
+        <button
+          type="button"
+          onClick={onAction}
+          className="text-sm font-semibold text-[#187a59] transition hover:opacity-65"
         >
-          {icon}
-        </div>
+          {action}
+        </button>
       </div>
+
+      <div className="mt-7">{children}</div>
+    </article>
+  );
+}
+
+function MiniStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-[0.12em] text-[#89938e]">
+        {label}
+      </p>
+
+      <p className="mt-2 truncate text-lg font-semibold text-[#173128]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function CompactEmpty({
+  title,
+  description,
+  action,
+  onAction,
+}: {
+  title: string;
+  description: string;
+  action: string;
+  onAction: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-dashed border-[#173128]/15 bg-[#f8f5ee] px-5 py-9 text-center">
+      <p className="text-sm font-semibold text-[#173128]">
+        {title}
+      </p>
+
+      <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[#7b8781]">
+        {description}
+      </p>
+
+      <button
+        type="button"
+        onClick={onAction}
+        className="mt-4 text-sm font-semibold text-[#187a59] transition hover:opacity-65"
+      >
+        {action} →
+      </button>
     </div>
   );
 }
@@ -998,9 +1070,9 @@ function LoadingState({
 }) {
   return (
     <div className="flex h-full flex-col items-center justify-center text-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#187a59] border-t-transparent" />
 
-      <p className="mt-3 text-sm text-slate-400">
+      <p className="mt-3 text-sm text-[#7b8781]">
         {message}
       </p>
     </div>
@@ -1009,18 +1081,18 @@ function LoadingState({
 
 function EmptyState() {
   return (
-    <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.02] text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-400/10 text-2xl">
+    <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-[#173128]/15 bg-[#f8f5ee] text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#dff6c7] text-xl text-[#187a59]">
         $
       </div>
 
-      <p className="mt-4 font-medium">
+      <p className="mt-4 font-medium text-[#173128]">
         No financial data yet
       </p>
 
-      <p className="mt-2 max-w-xs text-sm text-slate-500">
+      <p className="mt-2 max-w-xs text-sm text-[#7b8781]">
         Upload a transaction CSV to generate your
-        dashboard and spending analysis.
+        spending analysis.
       </p>
     </div>
   );
@@ -1042,29 +1114,64 @@ function CustomTooltip({
 }) {
   if (!active || !payload?.length) return null;
 
-  const amount = Number(
-    payload[0].value ?? 0
-  );
+  const amount = Number(payload[0].value ?? 0);
   const count =
     payload[0].payload?.count ?? 0;
 
   return (
-    <div className="rounded-xl border border-white/10 bg-slate-900/95 px-4 py-3 shadow-xl">
-      <p className="text-sm font-semibold">
+    <div className="rounded-xl border border-[#173128]/10 bg-white px-4 py-3 shadow-xl">
+      <p className="text-sm font-semibold text-[#173128]">
         {label}
       </p>
 
-      <p className="mt-1 text-sm text-emerald-300">
+      <p className="mt-1 text-sm font-semibold text-[#187a59]">
         {amount.toLocaleString("en-US", {
           style: "currency",
           currency: "USD",
         })}
       </p>
 
-      <p className="mt-1 text-xs text-slate-500">
+      <p className="mt-1 text-xs text-[#7b8781]">
         {count} transaction
         {count === 1 ? "" : "s"}
       </p>
     </div>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+    >
+      <path d="M12 16V4" />
+      <path d="m7 9 5-5 5 5" />
+      <path d="M5 20h14" />
+    </svg>
+  );
+}
+
+function TrendIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-5 w-5"
+    >
+      <path d="m4 17 6-6 4 4 6-8" />
+      <path d="M15 7h5v5" />
+    </svg>
   );
 }

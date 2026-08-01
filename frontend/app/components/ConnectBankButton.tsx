@@ -120,7 +120,7 @@ export default function ConnectBankButton({
         type="button"
         onClick={startConnection}
         disabled={loading || connecting}
-        className="rounded-xl bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-xl bg-[#45d7a4] px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-[#5de3b3] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {connecting
           ? "Connecting account..."

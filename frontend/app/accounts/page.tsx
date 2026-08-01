@@ -26,34 +26,28 @@ export default function AccountsPage() {
   const router = useRouter();
 
   const [userId, setUserId] = useState<number | null>(null);
-  const [accounts, setAccounts] = useState<
-    FinancialAccount[]
-  >([]);
+  const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const refreshAccounts = useCallback(
-    async (id: number) => {
-      setLoading(true);
-      setError("");
+  const refreshAccounts = useCallback(async (id: number) => {
+    setLoading(true);
+    setError("");
 
-      try {
-        const data = await api.getAccounts(id);
-        setAccounts(data);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load connected accounts"
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
+    try {
+      setAccounts(await api.getAccounts(id));
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load connected accounts"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     async function initializeAccounts() {
@@ -75,10 +69,8 @@ export default function AccountsPage() {
           return;
         }
 
-        const data = await api.getAccounts(id);
-
         setUserId(id);
-        setAccounts(data);
+        setAccounts(await api.getAccounts(id));
       } catch {
         session.clear();
         router.replace("/");
@@ -100,13 +92,22 @@ export default function AccountsPage() {
     [accounts]
   );
 
+  const availableBalance = useMemo(
+    () =>
+      accounts.reduce(
+        (total, account) =>
+          total + (account.available_balance_cents ?? 0),
+        0
+      ),
+    [accounts]
+  );
+
   const institutionCount = useMemo(
     () =>
       new Set(
         accounts.map(
           (account) =>
-            account.institution_name ??
-            "Connected institution"
+            account.institution_name ?? "Connected institution"
         )
       ).size,
     [accounts]
@@ -130,8 +131,7 @@ export default function AccountsPage() {
     setMessage("");
 
     try {
-      const result =
-        await api.syncPlaidTransactions(userId);
+      const result = await api.syncPlaidTransactions(userId);
 
       setMessage(
         `Sync complete: ${result.added} added, ` +
@@ -152,160 +152,153 @@ export default function AccountsPage() {
   }
 
   return (
-    <main
-      className="relative min-h-screen overflow-hidden bg-[#050d18] text-white"
-      style={{
-        backgroundImage: `
-          radial-gradient(circle at 10% 5%, rgba(16,185,129,0.20), transparent 28%),
-          radial-gradient(circle at 88% 15%, rgba(14,165,233,0.14), transparent 25%),
-          radial-gradient(circle at 50% 100%, rgba(6,182,212,0.08), transparent 35%),
-          linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)
-        `,
-        backgroundSize:
-          "auto, auto, auto, 42px 42px, 42px 42px",
-      }}
-    >
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#050d18]/20 to-[#050d18]" />
-
+    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
       <AppSidebar />
 
-      <div className="relative px-5 pb-10 pt-20 sm:px-8 lg:ml-72 lg:px-10 lg:pt-8">
-        <div className="mx-auto max-w-6xl">
-        <header className="flex flex-col gap-6 rounded-3xl border border-white/10 bg-white/[0.05] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
-              <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              Secure bank connectivity
+      <div className="px-5 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-10">
+        <div className="mx-auto max-w-7xl">
+          <header className="grid gap-6 xl:grid-cols-[1fr_auto] xl:items-end">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
+                Connected money
+              </p>
+
+              <h1 className="mt-3 max-w-3xl text-4xl font-semibold leading-tight tracking-[-0.05em] sm:text-5xl">
+                All your accounts,
+                <span className="block text-[#167c5a]">
+                  in one calm view.
+                </span>
+              </h1>
+
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-[#66746e] sm:text-base">
+                Review balances across institutions, connect new accounts,
+                and keep transaction data synchronized.
+              </p>
             </div>
 
-            <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-              Connected accounts
-            </h1>
+            <div className="flex flex-wrap gap-3">
+              {userId && accounts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleSync}
+                  disabled={syncing}
+                  className="rounded-full border border-[#14241e]/10 bg-white px-5 py-3 text-sm font-semibold transition hover:bg-[#f7f4ed] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {syncing ? "Syncing..." : "Sync transactions"}
+                </button>
+              )}
 
-            <p className="mt-2 max-w-xl text-sm text-slate-400">
-              Connect financial institutions securely and
-              review balances across your accounts.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-start gap-3">
-            {userId && accounts.length > 0 && (
-              <button
-                type="button"
-                onClick={handleSync}
-                disabled={syncing}
-                className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-5 py-3 text-sm font-medium text-emerald-300 transition hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {syncing
-                  ? "Syncing transactions..."
-                  : "Sync transactions"}
-              </button>
-            )}
-
-            {userId && (
-              <ConnectBankButton
-                userId={userId}
-                onConnected={handleConnected}
-              />
-            )}
-          </div>
-        </header>
-
-        {message && (
-          <div className="mt-5">
-            <PageSuccess message={message} />
-          </div>
-        )}
-
-        {error && (
-          <div className="mt-5">
-            <PageError
-              message={error}
-              onRetry={
-                userId
-                  ? () => void refreshAccounts(userId)
-                  : undefined
-              }
-            />
-          </div>
-        )}
-
-        <section className="mt-6 grid gap-4 sm:grid-cols-3">
-          <SummaryCard
-            label="Connected accounts"
-            value={String(accounts.length)}
-          />
-
-          <SummaryCard
-            label="Financial institutions"
-            value={String(institutionCount)}
-          />
-
-          <SummaryCard
-            label="Combined balance"
-            value={formatCents(totalBalance)}
-          />
-        </section>
-
-        {loading ? (
-          <div className="mt-6">
-            <PageLoading message="Loading connected accounts..." />
-          </div>
-        ) : accounts.length === 0 ? (
-          <div className="mt-6">
-            <EmptyState
-              title="No bank accounts connected"
-              description="Connect a Sandbox institution to securely import balances and transaction activity into FinSight."
-            />
-
-            {userId && (
-              <div className="-mt-20 flex justify-center pb-12">
+              {userId && (
                 <ConnectBankButton
                   userId={userId}
                   onConnected={handleConnected}
                 />
-              </div>
-            )}
-          </div>
-        ) : (
-          <section className="mt-6 grid gap-5 md:grid-cols-2">
-            {accounts.map((account) => (
-              <AccountCard
-                key={account.id}
-                account={account}
-              />
-            ))}
+              )}
+            </div>
+          </header>
+
+          {(message || error) && (
+            <div className="mt-6 space-y-3">
+              {message && <PageSuccess message={message} />}
+              {error && (
+                <PageError
+                  message={error}
+                  onRetry={
+                    userId
+                      ? () => void refreshAccounts(userId)
+                      : undefined
+                  }
+                />
+              )}
+            </div>
+          )}
+
+          <section className="mt-8 grid gap-4 md:grid-cols-3">
+            <MetricCard
+              label="Combined balance"
+              value={formatCents(totalBalance)}
+              tone="green"
+            />
+            <MetricCard
+              label="Available to use"
+              value={formatCents(availableBalance)}
+              tone="yellow"
+            />
+            <MetricCard
+              label="Connected institutions"
+              value={String(institutionCount)}
+              tone="blue"
+            />
           </section>
-        )}
+
+          {loading ? (
+            <div className="mt-6">
+              <PageLoading message="Loading connected accounts..." />
+            </div>
+          ) : accounts.length === 0 ? (
+            <div className="mt-6">
+              <EmptyState
+                title="No bank accounts connected"
+                description="Connect a Sandbox institution to securely import balances and transaction activity into FinSight."
+              />
+
+              {userId && (
+                <div className="-mt-20 flex justify-center pb-12">
+                  <ConnectBankButton
+                    userId={userId}
+                    onConnected={handleConnected}
+                  />
+                </div>
+              )}
+            </div>
+          ) : (
+            <section className="mt-6 grid gap-5 lg:grid-cols-2">
+              {accounts.map((account, index) => (
+                <AccountCard
+                  key={account.id}
+                  account={account}
+                  index={index}
+                />
+              ))}
+            </section>
+          )}
         </div>
       </div>
     </main>
   );
 }
 
-function SummaryCard({
+function MetricCard({
   label,
   value,
+  tone,
 }: {
   label: string;
   value: string;
+  tone: "green" | "yellow" | "blue";
 }) {
-  return (
-    <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/20 backdrop-blur-xl">
-      <p className="text-sm text-slate-400">{label}</p>
+  const styles = {
+    green: "bg-[#dff6c7]",
+    yellow: "bg-[#f7e8b5]",
+    blue: "bg-[#dceeea]",
+  };
 
-      <p className="mt-3 text-2xl font-bold text-emerald-300">
+  return (
+    <article className={`rounded-[26px] p-5 ${styles[tone]}`}>
+      <p className="text-sm text-[#52635b]">{label}</p>
+      <p className="mt-3 text-3xl font-semibold tracking-[-0.04em]">
         {value}
       </p>
-    </div>
+    </article>
   );
 }
 
 function AccountCard({
   account,
+  index,
 }: {
   account: FinancialAccount;
+  index: number;
 }) {
   const accountLabel = [
     account.account_type,
@@ -314,57 +307,91 @@ function AccountCard({
     .filter(Boolean)
     .join(" • ");
 
+  const tones = [
+    "bg-[#14241e] text-white",
+    "bg-[#dff6c7] text-[#14241e]",
+    "bg-[#f7e8b5] text-[#14241e]",
+    "bg-[#dceeea] text-[#14241e]",
+  ];
+
+  const muted =
+    index % tones.length === 0
+      ? "text-white/65"
+      : "text-[#66746e]";
+
+  const divider =
+    index % tones.length === 0
+      ? "border-white/15"
+      : "border-[#14241e]/10";
+
   return (
-    <article className="rounded-3xl border border-white/10 bg-white/[0.06] p-6 shadow-xl shadow-black/20 backdrop-blur-xl transition hover:-translate-y-1 hover:border-emerald-400/20 hover:bg-white/[0.075]">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-emerald-300">
-            {account.institution_name ??
-              "Connected institution"}
+    <article
+      className={`rounded-[30px] p-6 shadow-sm shadow-[#14241e]/5 ${
+        tones[index % tones.length]
+      }`}
+    >
+      <div className="flex items-start justify-between gap-5">
+        <div className="min-w-0">
+          <p className={`text-xs font-semibold uppercase tracking-[0.16em] ${muted}`}>
+            {account.institution_name ?? "Connected institution"}
           </p>
 
-          <h2 className="mt-2 text-xl font-semibold text-slate-100">
+          <h2 className="mt-3 truncate text-2xl font-semibold tracking-[-0.03em]">
             {account.name}
           </h2>
 
           {account.official_name &&
             account.official_name !== account.name && (
-              <p className="mt-1 text-sm text-slate-500">
+              <p className={`mt-1 truncate text-sm ${muted}`}>
                 {account.official_name}
               </p>
             )}
         </div>
 
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-400/10 text-lg font-bold text-emerald-300">
+        <div
+          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border text-sm font-bold ${
+            index % tones.length === 0
+              ? "border-white/15 bg-white/10 text-white"
+              : "border-[#14241e]/10 bg-white/45"
+          }`}
+        >
           {account.mask ? `••${account.mask.slice(-2)}` : "$"}
         </div>
       </div>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <Balance
-          label="Current balance"
-          cents={account.current_balance_cents}
-          currency={account.currency}
-        />
+      <div className="mt-8">
+        <p className={`text-sm ${muted}`}>Current balance</p>
+        <p className="mt-2 text-4xl font-semibold tracking-[-0.05em]">
+          {account.current_balance_cents === null
+            ? "Unavailable"
+            : formatCents(
+                account.current_balance_cents,
+                account.currency
+              )}
+        </p>
+      </div>
 
+      <div className={`mt-8 grid gap-4 border-t pt-5 sm:grid-cols-2 ${divider}`}>
         <Balance
           label="Available balance"
           cents={account.available_balance_cents}
           currency={account.currency}
+          muted={muted}
         />
+
+        <div>
+          <p className={`text-xs ${muted}`}>Account type</p>
+          <p className="mt-2 text-sm font-semibold capitalize">
+            {accountLabel || "Financial account"}
+          </p>
+        </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4 text-xs">
-        <span className="capitalize text-slate-400">
-          {accountLabel || "Financial account"}
-        </span>
-
-        <span className="text-slate-500">
-          {account.mask
-            ? `Account ending in ${account.mask}`
-            : "Account number hidden"}
-        </span>
-      </div>
+      <p className={`mt-5 text-xs ${muted}`}>
+        {account.mask
+          ? `Account ending in ${account.mask}`
+          : "Account number hidden"}
+      </p>
     </article>
   );
 }
@@ -373,16 +400,17 @@ function Balance({
   label,
   cents,
   currency,
+  muted,
 }: {
   label: string;
   cents: number | null;
   currency: string;
+  muted: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
-      <p className="text-xs text-slate-500">{label}</p>
-
-      <p className="mt-2 text-lg font-semibold text-slate-100">
+    <div>
+      <p className={`text-xs ${muted}`}>{label}</p>
+      <p className="mt-2 text-sm font-semibold">
         {cents === null
           ? "Unavailable"
           : formatCents(cents, currency)}

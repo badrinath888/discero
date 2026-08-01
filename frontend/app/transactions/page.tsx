@@ -174,7 +174,12 @@ export default function TransactionsPage() {
 
   const totalSpending = filtered
     .filter(({ amount_cents }) => amount_cents < 0)
-    .reduce((total, item) => total + Math.abs(item.amount_cents), 0);
+    .reduce(
+      (total, item) => total + Math.abs(item.amount_cents),
+      0
+    );
+
+  const net = totalIncome - totalSpending;
 
   async function syncTransactions() {
     if (!userId) return;
@@ -276,186 +281,165 @@ export default function TransactionsPage() {
   }
 
   return (
-    <main
-      className="relative min-h-screen overflow-hidden bg-[#050d18] text-white"
-      style={{
-        backgroundImage: `
-          radial-gradient(circle at 10% 5%, rgba(16,185,129,0.20), transparent 28%),
-          radial-gradient(circle at 88% 15%, rgba(14,165,233,0.14), transparent 25%),
-          radial-gradient(circle at 50% 100%, rgba(6,182,212,0.08), transparent 35%),
-          linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)
-        `,
-        backgroundSize: "auto, auto, auto, 42px 42px, 42px 42px",
-      }}
-    >
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#050d18]/20 to-[#050d18]" />
-
+    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
       <AppSidebar />
 
-      <div className="relative px-5 pb-10 pt-20 sm:px-8 lg:ml-72 lg:px-10 lg:pt-8">
+      <div className="px-5 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-10">
         <div className="mx-auto max-w-7xl">
-        <header className="flex flex-col gap-6 rounded-3xl border border-white/10 bg-white/[0.05] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300">
-              <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              Financial activity
+          <header className="grid gap-6 xl:grid-cols-[1fr_auto] xl:items-end">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
+                Money activity
+              </p>
+
+              <h1 className="mt-3 max-w-3xl text-4xl font-semibold leading-tight tracking-[-0.05em] sm:text-5xl">
+                Every transaction,
+                <span className="block text-[#167c5a]">
+                  clearly organized.
+                </span>
+              </h1>
+
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-[#66746e] sm:text-base">
+                Search, filter, categorize, and review your financial
+                activity without digging through a dense table.
+              </p>
             </div>
 
-            <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-              Transactions
-            </h1>
-
-            <p className="mt-2 max-w-xl text-sm text-slate-400">
-              Review, filter, categorize, and manage your financial activity.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
             <button
               type="button"
               onClick={syncTransactions}
               disabled={!userId || syncing}
-              className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-5 py-2.5 text-sm font-medium text-emerald-300 transition hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-full bg-[#14241e] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {syncing ? "Syncing..." : "Sync transactions"}
             </button>
+          </header>
 
-          </div>
-        </header>
-
-        <section className="mt-6 grid gap-4 sm:grid-cols-3">
-          <SummaryCard
-            label="Filtered transactions"
-            value={String(filtered.length)}
-            accent="cyan"
-          />
-
-          <SummaryCard
-            label="Filtered income"
-            value={formatCents(totalIncome)}
-            accent="emerald"
-          />
-
-          <SummaryCard
-            label="Filtered spending"
-            value={formatCents(-totalSpending)}
-            accent="rose"
-          />
-        </section>
-
-        <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl">
-          <div className="grid gap-3 md:grid-cols-7">
-            <input
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value);
-                setPage(1);
-              }}
-              placeholder="Search merchant or category"
-              className="rounded-xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm outline-none transition placeholder:text-slate-500 focus:border-emerald-400 md:col-span-2"
+          <section className="mt-8 grid gap-4 md:grid-cols-3">
+            <MetricCard
+              label="Income in view"
+              value={formatCents(totalIncome)}
+              tone="green"
             />
-
-            <select
-              value={category}
-              onChange={(event) => {
-                setCategory(event.target.value);
-                setPage(1);
-              }}
-              className="rounded-xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm outline-none transition focus:border-emerald-400"
-            >
-              {CATEGORIES.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-
-            <select
-              value={source}
-              onChange={(event) => {
-                setSource(event.target.value);
-                setPage(1);
-              }}
-              className="rounded-xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm outline-none transition focus:border-emerald-400"
-            >
-              <option>All</option>
-              <option>Plaid</option>
-              <option>CSV</option>
-              <option>Pending</option>
-            </select>
-
-            <select
-              value={accountId}
-              onChange={(event) => {
-                setAccountId(event.target.value);
-                setPage(1);
-              }}
-              disabled={accountOptions.length === 0}
-              className="rounded-xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm outline-none transition focus:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="All">All accounts</option>
-
-              {accountOptions.map(([id, label]) => (
-                <option key={id} value={String(id)}>
-                  {label}
-                </option>
-              ))}
-            </select>
-
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(event) => {
-                setFromDate(event.target.value);
-                setPage(1);
-              }}
-              className="rounded-xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm outline-none transition focus:border-emerald-400"
+            <MetricCard
+              label="Spending in view"
+              value={formatCents(-totalSpending)}
+              tone="coral"
             />
-
-            <input
-              type="date"
-              value={toDate}
-              min={fromDate}
-              onChange={(event) => {
-                setToDate(event.target.value);
-                setPage(1);
-              }}
-              className="rounded-xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm outline-none transition focus:border-emerald-400"
+            <MetricCard
+              label="Net activity"
+              value={formatCents(net)}
+              tone={net >= 0 ? "yellow" : "coral"}
             />
-          </div>
+          </section>
 
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-slate-400">
-              Showing {filtered.length} of {transactions.length} transactions
-            </p>
-
-            <button
-              onClick={clearFilters}
-              className="text-left text-sm font-medium text-emerald-300 transition hover:text-emerald-200"
-            >
-              Clear filters
-            </button>
-          </div>
-        </section>
-
-        {message && (
-          <div className="mt-5">
-            <PageSuccess message={message} />
-          </div>
-        )}
-
-        {error && (
-          <div className="mt-5">
-            <PageError message={error} />
-          </div>
-        )}
-
-        <section className="mt-6 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.05] shadow-2xl shadow-black/25 backdrop-blur-xl">
-          {loading ? (
-            <div className="p-5">
-              <PageLoading message="Loading transactions..." />
+          {(message || error) && (
+            <div className="mt-5">
+              {message && <PageSuccess message={message} />}
+              {error && <PageError message={error} />}
             </div>
-          ) : visibleTransactions.length === 0 ? (
-            <div className="p-5">
+          )}
+
+          <section className="mt-6 rounded-[28px] border border-[#14241e]/10 bg-white p-5 shadow-sm shadow-[#14241e]/5 sm:p-6">
+            <div className="flex flex-col gap-4 border-b border-[#14241e]/10 pb-5 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">
+                  Find what matters
+                </h2>
+                <p className="mt-1 text-sm text-[#728078]">
+                  {filtered.length} of {transactions.length} transactions
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-left text-sm font-semibold text-[#167c5a]"
+              >
+                Clear all filters
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+              <input
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search merchant, category, or account"
+                className="rounded-2xl border border-[#14241e]/10 bg-[#f7f4ed] px-4 py-3 text-sm outline-none placeholder:text-[#9aa39e] focus:border-[#167c5a] xl:col-span-2"
+              />
+
+              <FilterSelect
+                value={category}
+                onChange={(value) => {
+                  setCategory(value);
+                  setPage(1);
+                }}
+                options={CATEGORIES.map((item) => ({
+                  value: item,
+                  label: item,
+                }))}
+              />
+
+              <FilterSelect
+                value={source}
+                onChange={(value) => {
+                  setSource(value);
+                  setPage(1);
+                }}
+                options={[
+                  { value: "All", label: "All sources" },
+                  { value: "Plaid", label: "Plaid" },
+                  { value: "CSV", label: "CSV" },
+                  { value: "Pending", label: "Pending" },
+                ]}
+              />
+
+              <FilterSelect
+                value={accountId}
+                onChange={(value) => {
+                  setAccountId(value);
+                  setPage(1);
+                }}
+                disabled={accountOptions.length === 0}
+                options={[
+                  { value: "All", label: "All accounts" },
+                  ...accountOptions.map(([id, label]) => ({
+                    value: String(id),
+                    label,
+                  })),
+                ]}
+              />
+
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(event) => {
+                  setFromDate(event.target.value);
+                  setPage(1);
+                }}
+                className="rounded-2xl border border-[#14241e]/10 bg-[#f7f4ed] px-4 py-3 text-sm outline-none focus:border-[#167c5a]"
+              />
+
+              <input
+                type="date"
+                value={toDate}
+                min={fromDate}
+                onChange={(event) => {
+                  setToDate(event.target.value);
+                  setPage(1);
+                }}
+                className="rounded-2xl border border-[#14241e]/10 bg-[#f7f4ed] px-4 py-3 text-sm outline-none focus:border-[#167c5a]"
+              />
+            </div>
+          </section>
+
+          <section className="mt-6">
+            {loading ? (
+              <PageLoading message="Loading transactions..." />
+            ) : visibleTransactions.length === 0 ? (
               <EmptyState
                 title={
                   transactions.length === 0
@@ -464,223 +448,215 @@ export default function TransactionsPage() {
                 }
                 description={
                   transactions.length === 0
-                    ? "Upload a CSV file or synchronize a connected bank account to add financial activity."
-                    : "Adjust or clear the current filters to view more transactions."
+                    ? "Upload a CSV file or synchronize a connected account to add financial activity."
+                    : "Adjust or clear your current filters to see more transactions."
                 }
                 actionLabel={
-                  transactions.length === 0
-                    ? undefined
-                    : "Clear filters"
+                  transactions.length === 0 ? undefined : "Clear filters"
                 }
                 onAction={
-                  transactions.length === 0
-                    ? undefined
-                    : clearFilters
+                  transactions.length === 0 ? undefined : clearFilters
                 }
               />
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[850px] text-left text-sm">
-                <thead className="border-b border-white/10 bg-emerald-400/[0.06] text-slate-300">
-                  <tr>
-                    <th className="px-6 py-4 font-medium">Date</th>
-                    <th className="px-6 py-4 font-medium">Description</th>
-                    <th className="px-6 py-4 font-medium">Category</th>
-                    <th className="px-6 py-4 text-right font-medium">
-                      Amount
-                    </th>
-                    <th className="px-6 py-4 text-right font-medium">
-                      Action
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-white/[0.07]">
-                  {visibleTransactions.map((transaction) => (
-                    <tr
-                      key={transaction.id}
-                      className="transition hover:bg-emerald-400/[0.035]"
-                    >
-                      <td className="whitespace-nowrap px-6 py-4 text-slate-400">
-                        {new Date(
-                          `${transaction.posted_on}T00:00:00`
-                        ).toLocaleDateString("en-US")}
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <p className="font-medium text-slate-100">
-                          {transaction.merchant_name ||
-                            transaction.description}
-                        </p>
-
-                        {transaction.merchant_name &&
-                          transaction.merchant_name !==
-                            transaction.description && (
-                            <p className="mt-1 text-xs text-slate-500">
-                              {transaction.description}
-                            </p>
-                          )}
-
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <span
-                            className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                              transaction.source === "plaid"
-                                ? "bg-cyan-400/10 text-cyan-300"
-                                : "bg-slate-400/10 text-slate-300"
-                            }`}
-                          >
-                            {transaction.source === "plaid"
-                              ? "Plaid"
-                              : "CSV"}
-                          </span>
-
-                          {transaction.pending && (
-                            <span className="rounded-full bg-amber-400/10 px-2.5 py-1 text-[11px] font-medium text-amber-300">
-                              Pending
-                            </span>
-                          )}
-
-                          {transaction.source === "plaid" &&
-                            transaction.account_name && (
-                              <span className="text-xs text-slate-500">
-                                {transaction.institution_name
-                                  ? `${transaction.institution_name} • `
-                                  : ""}
-                                {transaction.account_name}
-                              </span>
-                            )}
-                        </div>
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <select
-                          value={transaction.category}
-                          disabled={busyId === transaction.id}
-                          onChange={(event) =>
-                            updateCategory(
-                              transaction.id,
-                              event.target.value
-                            )
-                          }
-                          className="rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none transition focus:border-emerald-400 disabled:opacity-50"
-                        >
-                          {CATEGORIES.filter(
-                            (item) => item !== "All"
-                          ).map((item) => (
-                            <option key={item}>{item}</option>
-                          ))}
-                        </select>
-                      </td>
-
-                      <td
-                        className={`whitespace-nowrap px-6 py-4 text-right font-semibold ${
-                          transaction.amount_cents >= 0
-                            ? "text-emerald-300"
-                            : "text-rose-300"
-                        }`}
-                      >
-                        {formatCents(transaction.amount_cents)}
-                      </td>
-
-                      <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() =>
-                            deleteTransaction(transaction)
-                          }
-                          disabled={busyId === transaction.id}
-                          className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-xs font-medium text-rose-300 transition hover:bg-rose-400/20 disabled:opacity-50"
-                        >
-                          {busyId === transaction.id
-                            ? "Working..."
-                            : "Delete"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {!loading && !error && filtered.length === 0 && (
-            <div className="px-5 py-16 text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-400/10 text-2xl text-emerald-300">
-                $
+            ) : (
+              <div className="space-y-3">
+                {visibleTransactions.map((transaction) => (
+                  <TransactionRow
+                    key={transaction.id}
+                    transaction={transaction}
+                    busy={busyId === transaction.id}
+                    onCategoryChange={(nextCategory) =>
+                      updateCategory(transaction.id, nextCategory)
+                    }
+                    onDelete={() => deleteTransaction(transaction)}
+                  />
+                ))}
               </div>
+            )}
+          </section>
 
-              <p className="mt-4 font-medium text-slate-200">
-                No matching transactions
+          {!loading && filtered.length > PAGE_SIZE && (
+            <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-[#14241e]/10 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-[#66746e]">
+                Page {page} of {totalPages}
               </p>
 
-              <p className="mt-2 text-sm text-slate-500">
-                Adjust or clear the selected filters.
-              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPage((current) => Math.max(1, current - 1))
+                  }
+                  disabled={page === 1}
+                  className="rounded-full border border-[#14241e]/10 px-4 py-2 text-sm font-medium transition hover:bg-[#f7f4ed] disabled:opacity-40"
+                >
+                  Previous
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPage((current) =>
+                      Math.min(totalPages, current + 1)
+                    )
+                  }
+                  disabled={page === totalPages}
+                  className="rounded-full bg-[#14241e] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#20352d] disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
             </div>
           )}
-        </section>
-
-        {!loading && filtered.length > PAGE_SIZE && (
-          <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-slate-400">
-              Page {page} of {totalPages}
-            </p>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() =>
-                  setPage((current) => Math.max(1, current - 1))
-                }
-                disabled={page === 1}
-                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Previous
-              </button>
-
-              <button
-                onClick={() =>
-                  setPage((current) =>
-                    Math.min(totalPages, current + 1)
-                  )
-                }
-                disabled={page === totalPages}
-                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
         </div>
       </div>
     </main>
   );
 }
 
-function SummaryCard({
+function MetricCard({
   label,
   value,
-  accent,
+  tone,
 }: {
   label: string;
   value: string;
-  accent: "emerald" | "rose" | "cyan";
+  tone: "green" | "coral" | "yellow";
 }) {
   const styles = {
-    emerald: "text-emerald-300 bg-emerald-400/10",
-    rose: "text-rose-300 bg-rose-400/10",
-    cyan: "text-cyan-300 bg-cyan-400/10",
+    green: "bg-[#dff6c7]",
+    coral: "bg-[#f8ddd5]",
+    yellow: "bg-[#f7e8b5]",
   };
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/20 backdrop-blur-xl">
-      <p className="text-sm text-slate-400">{label}</p>
-
-      <div
-        className={`mt-3 inline-flex rounded-xl px-3 py-2 text-2xl font-bold ${styles[accent]}`}
-      >
+    <article className={`rounded-[26px] p-5 ${styles[tone]}`}>
+      <p className="text-sm text-[#52635b]">{label}</p>
+      <p className="mt-3 text-3xl font-semibold tracking-[-0.04em]">
         {value}
+      </p>
+    </article>
+  );
+}
+
+function FilterSelect({
+  value,
+  onChange,
+  options,
+  disabled = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  disabled?: boolean;
+}) {
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+      className="rounded-2xl border border-[#14241e]/10 bg-[#f7f4ed] px-4 py-3 text-sm outline-none focus:border-[#167c5a] disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function TransactionRow({
+  transaction,
+  busy,
+  onCategoryChange,
+  onDelete,
+}: {
+  transaction: Transaction;
+  busy: boolean;
+  onCategoryChange: (category: string) => void;
+  onDelete: () => void;
+}) {
+  const positive = transaction.amount_cents >= 0;
+
+  return (
+    <article className="grid gap-4 rounded-[24px] border border-[#14241e]/10 bg-white p-5 transition hover:-translate-y-0.5 hover:shadow-md hover:shadow-[#14241e]/5 lg:grid-cols-[140px_minmax(0,1fr)_190px_140px_90px] lg:items-center">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8a958f]">
+          Date
+        </p>
+        <p className="mt-2 text-sm font-medium">
+          {new Date(
+            `${transaction.posted_on}T00:00:00`
+          ).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+        </p>
       </div>
-    </div>
+
+      <div className="min-w-0">
+        <p className="truncate text-base font-semibold">
+          {transaction.merchant_name || transaction.description}
+        </p>
+
+        {transaction.merchant_name &&
+          transaction.merchant_name !== transaction.description && (
+            <p className="mt-1 truncate text-sm text-[#7b8781]">
+              {transaction.description}
+            </p>
+          )}
+
+        <div className="mt-2 flex flex-wrap gap-2">
+          <span className="rounded-full bg-[#edf5ee] px-2.5 py-1 text-[11px] font-semibold text-[#476457]">
+            {transaction.source === "plaid" ? "Plaid" : "CSV"}
+          </span>
+
+          {transaction.pending && (
+            <span className="rounded-full bg-[#f7e8b5] px-2.5 py-1 text-[11px] font-semibold text-[#8b6518]">
+              Pending
+            </span>
+          )}
+
+          {transaction.account_name && (
+            <span className="text-xs text-[#8a958f]">
+              {transaction.institution_name
+                ? `${transaction.institution_name} • `
+                : ""}
+              {transaction.account_name}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <select
+        value={transaction.category}
+        disabled={busy}
+        onChange={(event) => onCategoryChange(event.target.value)}
+        className="rounded-2xl border border-[#14241e]/10 bg-[#f7f4ed] px-3 py-2.5 text-sm outline-none focus:border-[#167c5a] disabled:opacity-50"
+      >
+        {CATEGORIES.filter((item) => item !== "All").map((item) => (
+          <option key={item}>{item}</option>
+        ))}
+      </select>
+
+      <p
+        className={`text-lg font-semibold lg:text-right ${
+          positive ? "text-[#167c5a]" : "text-[#a64b3d]"
+        }`}
+      >
+        {formatCents(transaction.amount_cents)}
+      </p>
+
+      <button
+        type="button"
+        onClick={onDelete}
+        disabled={busy}
+        className="text-left text-sm font-semibold text-[#a64b3d] transition hover:text-[#843a30] disabled:opacity-50 lg:text-right"
+      >
+        {busy ? "Working..." : "Delete"}
+      </button>
+    </article>
   );
 }

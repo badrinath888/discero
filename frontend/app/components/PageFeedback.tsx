@@ -2,29 +2,20 @@ type Accent = "emerald" | "cyan" | "violet";
 
 export function PageLoading({
   message = "Loading...",
-  accent = "emerald",
 }: {
   message?: string;
   accent?: Accent;
 }) {
-  const spinner = {
-    emerald: "border-emerald-400",
-    cyan: "border-cyan-400",
-    violet: "border-violet-400",
-  };
-
   return (
     <div
       role="status"
       aria-live="polite"
-      className="flex min-h-72 items-center justify-center rounded-3xl border border-white/10 bg-white/[0.05] shadow-xl shadow-black/20 backdrop-blur-xl"
+      className="flex min-h-56 items-center justify-center rounded-xl border border-white/[0.08] bg-[#101916]"
     >
       <div className="text-center">
-        <div
-          className={`mx-auto h-9 w-9 animate-spin rounded-full border-2 border-t-transparent ${spinner[accent]}`}
-        />
+        <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-[#55d6a7] border-t-transparent" />
 
-        <p className="mt-4 text-sm text-slate-400">
+        <p className="mt-4 text-sm text-slate-500">
           {message}
         </p>
       </div>
@@ -42,15 +33,15 @@ export function PageError({
   return (
     <div
       role="alert"
-      className="rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-4 text-sm text-rose-200"
+      className="rounded-lg border border-rose-400/20 bg-rose-400/[0.07] px-4 py-3.5"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="font-semibold text-rose-300">
+          <p className="text-sm font-medium text-rose-300">
             Something went wrong
           </p>
 
-          <p className="mt-1 text-rose-200/80">
+          <p className="mt-1 text-sm text-rose-200/70">
             {message}
           </p>
         </div>
@@ -59,7 +50,7 @@ export function PageError({
           <button
             type="button"
             onClick={onRetry}
-            className="shrink-0 rounded-xl border border-rose-300/20 bg-rose-300/10 px-4 py-2 text-sm font-medium text-rose-200 transition hover:bg-rose-300/20"
+            className="focus-ring shrink-0 rounded-lg border border-rose-300/20 px-3.5 py-2 text-sm font-medium text-rose-200 transition hover:bg-rose-300/[0.08]"
           >
             Try again
           </button>
@@ -78,7 +69,7 @@ export function PageSuccess({
     <div
       role="status"
       aria-live="polite"
-      className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-300"
+      className="rounded-lg border border-emerald-400/20 bg-emerald-400/[0.07] px-4 py-3 text-sm text-[#55d6a7]"
     >
       {message}
     </div>
@@ -97,16 +88,16 @@ export function EmptyState({
   onAction?: () => void;
 }) {
   return (
-    <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] px-6 py-14 text-center backdrop-blur-xl">
-      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white/[0.05] text-xl text-slate-400">
-        ◇
+    <div className="rounded-xl border border-dashed border-white/[0.1] bg-[#101916] px-6 py-12 text-center">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.08] text-slate-600">
+        ◎
       </div>
 
-      <h2 className="mt-5 text-lg font-semibold text-slate-200">
+      <h2 className="mt-4 text-sm font-medium text-slate-300">
         {title}
       </h2>
 
-      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
         {description}
       </p>
 
@@ -114,7 +105,7 @@ export function EmptyState({
         <button
           type="button"
           onClick={onAction}
-          className="mt-6 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
+          className="focus-ring mt-5 rounded-lg bg-[#55d6a7] px-4 py-2.5 text-sm font-semibold text-[#07110e] transition hover:bg-[#6ee0b5]"
         >
           {actionLabel}
         </button>
@@ -129,11 +120,11 @@ export function CardSkeleton({
   count?: number;
 }) {
   return (
-    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {Array.from({ length: count }).map((_, index) => (
         <div
           key={index}
-          className="h-32 animate-pulse rounded-3xl border border-white/5 bg-white/[0.05]"
+          className="h-28 animate-pulse rounded-xl border border-white/[0.06] bg-[#101916]"
         />
       ))}
     </div>

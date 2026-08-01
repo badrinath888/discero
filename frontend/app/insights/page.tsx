@@ -52,16 +52,13 @@ export default function InsightsPage() {
   const [error, setError] = useState("");
 
   const loadInsights = useCallback(
-    async (userId: number, selectedMonth: string) => {
+    async (id: number, selectedMonth: string) => {
       setLoading(true);
       setError("");
 
       try {
         setInsights(
-          await api.getMonthlyInsights(
-            userId,
-            selectedMonth
-          )
+          await api.getMonthlyInsights(id, selectedMonth)
         );
       } catch (err) {
         setError(
@@ -78,10 +75,10 @@ export default function InsightsPage() {
 
   useEffect(() => {
     async function initialize() {
-      const userId = session.getUserId();
+      const id = session.getUserId();
       const token = session.getToken();
 
-      if (!userId || !token) {
+      if (!id || !token) {
         session.clear();
         router.replace("/");
         return;
@@ -90,14 +87,14 @@ export default function InsightsPage() {
       try {
         const user = await api.getMe();
 
-        if (user.id !== userId) {
+        if (user.id !== id) {
           session.clear();
           router.replace("/");
           return;
         }
 
-        setUserId(userId);
-        await loadInsights(userId, month);
+        setUserId(id);
+        await loadInsights(id, month);
       } catch {
         session.clear();
         router.replace("/");
@@ -108,44 +105,34 @@ export default function InsightsPage() {
   }, [router, loadInsights, month]);
 
   return (
-    <main
-      className="relative min-h-screen overflow-hidden bg-[#07111f] text-white"
-      style={{
-        backgroundImage: `
-          radial-gradient(circle at 15% 10%, rgba(14,165,233,0.14), transparent 30%),
-          radial-gradient(circle at 85% 20%, rgba(16,185,129,0.10), transparent 28%),
-          linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)
-        `,
-        backgroundSize:
-          "auto, auto, 42px 42px, 42px 42px",
-      }}
-    >
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#07111f]/40 to-[#07111f]" />
-
+    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
       <AppSidebar />
 
-      <div className="relative px-5 pb-10 pt-20 sm:px-8 lg:ml-72 lg:px-10 lg:pt-8">
+      <div className="px-5 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-10">
         <div className="mx-auto max-w-7xl">
-          <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <header className="grid gap-6 xl:grid-cols-[1fr_auto] xl:items-end">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-300">
-                <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                Smart analysis
-              </div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
+                Financial intelligence
+              </p>
 
-              <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-                Financial insights
+              <h1 className="mt-3 max-w-3xl text-4xl font-semibold leading-tight tracking-[-0.05em] sm:text-5xl">
+                See the story behind
+                <span className="block text-[#167c5a]">
+                  your spending.
+                </span>
               </h1>
 
-              <p className="mt-2 max-w-2xl text-sm text-slate-400 sm:text-base">
-                Understand spending changes, savings performance,
-                and important category trends.
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-[#66746e] sm:text-base">
+                Understand what changed, where your money went, and
+                which habits deserve your attention.
               </p>
             </div>
 
-            <label className="text-sm text-slate-400">
-              Analysis month
+            <label className="rounded-[22px] border border-[#14241e]/10 bg-white p-4 text-sm font-medium">
+              <span className="block text-xs uppercase tracking-[0.13em] text-[#7b8781]">
+                Analysis month
+              </span>
 
               <input
                 type="month"
@@ -154,7 +141,7 @@ export default function InsightsPage() {
                 onChange={(event) =>
                   setMonth(event.target.value)
                 }
-                className="mt-2 block rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm text-white outline-none transition focus:border-cyan-400/40"
+                className="mt-2 rounded-full border border-[#14241e]/10 bg-[#f7f4ed] px-4 py-2 text-sm outline-none focus:border-[#167c5a]"
               />
             </label>
           </header>
@@ -165,8 +152,7 @@ export default function InsightsPage() {
                 message={error}
                 onRetry={
                   userId
-                    ? () =>
-                        void loadInsights(userId, month)
+                    ? () => void loadInsights(userId, month)
                     : undefined
                 }
               />
@@ -179,116 +165,125 @@ export default function InsightsPage() {
                 <CardSkeleton count={4} />
               </section>
 
-              <div className="mt-6 h-72 animate-pulse rounded-3xl border border-white/5 bg-white/[0.05]" />
+              <div className="mt-6 h-80 animate-pulse rounded-[30px] border border-[#14241e]/10 bg-white" />
             </>
           ) : insights ? (
             <>
-              <section className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard
                   label="Income"
-                  value={formatCents(
-                    insights.income_cents
-                  )}
+                  value={formatCents(insights.income_cents)}
+                  tone="green"
                   description={formatMonth(insights.month)}
-                  accent="emerald"
                 />
 
                 <MetricCard
                   label="Spending"
-                  value={formatCents(
-                    -insights.spending_cents
-                  )}
+                  value={formatCents(-insights.spending_cents)}
+                  tone="coral"
                   description={formatMonth(insights.month)}
-                  accent="rose"
                 />
 
                 <MetricCard
                   label="Net cash flow"
-                  value={formatCents(
-                    insights.net_cents
-                  )}
+                  value={formatCents(insights.net_cents)}
+                  tone={insights.net_cents >= 0 ? "yellow" : "coral"}
                   description="Income minus spending"
-                  accent={
-                    insights.net_cents < 0
-                      ? "rose"
-                      : "cyan"
-                  }
                 />
 
                 <MetricCard
                   label="Savings rate"
                   value={`${insights.savings_rate_percent}%`}
-                  description="Share of income retained"
-                  accent={
+                  tone={
                     insights.savings_rate_percent >= 20
-                      ? "emerald"
+                      ? "green"
                       : insights.savings_rate_percent >= 10
-                      ? "amber"
-                      : "rose"
+                      ? "yellow"
+                      : "coral"
                   }
+                  description="Share of income retained"
                 />
               </section>
 
-              <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/20 backdrop-blur-xl sm:p-7">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="text-lg font-semibold">
-                      Monthly analysis
-                    </h2>
+              <section className="mt-6 grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+                <div
+                  className={`rounded-[30px] p-7 ${
+                    insights.spending_change_cents > 0
+                      ? "bg-[#f8ddd5]"
+                      : "bg-[#dff6c7]"
+                  }`}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#52635b]">
+                    Spending change
+                  </p>
 
-                    <p className="mt-1 text-sm text-slate-400">
-                      Personalized observations for{" "}
-                      {formatMonth(insights.month)}
-                    </p>
-                  </div>
+                  <p className="mt-4 text-5xl font-semibold tracking-[-0.06em]">
+                    {insights.spending_change_percent === null
+                      ? "—"
+                      : `${
+                          insights.spending_change_percent > 0
+                            ? "+"
+                            : ""
+                        }${insights.spending_change_percent}%`}
+                  </p>
 
-                  <div
-                    className={`rounded-xl border px-4 py-3 ${
-                      insights.spending_change_cents > 0
-                        ? "border-rose-400/20 bg-rose-400/10"
-                        : "border-emerald-400/20 bg-emerald-400/10"
-                    }`}
-                  >
-                    <p className="text-xs text-slate-400">
-                      Spending change
-                    </p>
-
-                    <p
-                      className={`mt-1 font-semibold ${
-                        insights.spending_change_cents > 0
-                          ? "text-rose-300"
-                          : "text-emerald-300"
-                      }`}
-                    >
-                      {insights.spending_change_percent === null
-                        ? "No previous data"
-                        : `${
-                            insights.spending_change_percent > 0
-                              ? "+"
-                              : ""
-                          }${insights.spending_change_percent}%`}
-                    </p>
-                  </div>
+                  <p className="mt-3 text-sm leading-6 text-[#66746e]">
+                    {insights.spending_change_percent === null
+                      ? "There is not enough previous-month data to compare spending yet."
+                      : insights.spending_change_cents > 0
+                      ? "Spending increased compared with the previous month."
+                      : "Spending decreased compared with the previous month."}
+                  </p>
                 </div>
 
-                <div className="mt-6 grid gap-4 md:grid-cols-2">
-                  {insights.insights.map(
-                    (insight, index) => (
-                      <InsightCard
-                        key={`${insight.kind}-${
-                          insight.category ?? index
-                        }`}
-                        insight={insight}
-                      />
-                    )
-                  )}
+                <div className="rounded-[30px] bg-[#14241e] p-7 text-white">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#76dfbd]">
+                    FinSight summary
+                  </p>
+
+                  <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
+                    {formatMonth(insights.month)}
+                  </h2>
+
+                  <p className="mt-3 max-w-2xl text-sm leading-6 text-white/65">
+                    FinSight generated {insights.insights.length} personalized
+                    observation{insights.insights.length === 1 ? "" : "s"} from
+                    your imported and synchronized transaction history.
+                  </p>
                 </div>
               </section>
 
-              <p className="mt-5 text-xs leading-5 text-slate-500">
+              <section className="mt-8">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+                      Personalized observations
+                    </p>
+                    <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
+                      What deserves your attention
+                    </h2>
+                  </div>
+
+                  <p className="text-sm text-[#7b8781]">
+                    {insights.insights.length} insight
+                    {insights.insights.length === 1 ? "" : "s"}
+                  </p>
+                </div>
+
+                <div className="mt-5 grid gap-5 md:grid-cols-2">
+                  {insights.insights.map((insight, index) => (
+                    <InsightCard
+                      key={`${insight.kind}-${insight.category ?? index}`}
+                      insight={insight}
+                      index={index}
+                    />
+                  ))}
+                </div>
+              </section>
+
+              <p className="mt-6 text-xs leading-5 text-[#7b8781]">
                 Insights are generated from imported and synchronized
-                transaction history. Results improve as more data is
-                added.
+                transaction history. Results improve as more data is added.
               </p>
             </>
           ) : (
@@ -297,9 +292,7 @@ export default function InsightsPage() {
                 title="No insights available"
                 description="Add or synchronize transactions for this month to generate spending trends and financial observations."
                 actionLabel="View transactions"
-                onAction={() =>
-                  router.push("/transactions")
-                }
+                onAction={() => router.push("/transactions")}
               />
             </div>
           )}
@@ -311,67 +304,71 @@ export default function InsightsPage() {
 
 function InsightCard({
   insight,
+  index,
 }: {
   insight: FinancialInsight;
+  index: number;
 }) {
-  const styles = {
+  const tones = {
     positive: {
-      border: "border-emerald-400/20",
-      background: "bg-emerald-400/[0.07]",
-      icon: "bg-emerald-400/15 text-emerald-300",
+      background: "bg-[#eef6e9]",
+      badge: "bg-[#dff6c7] text-[#167c5a]",
       symbol: "↑",
     },
     warning: {
-      border: "border-amber-400/20",
-      background: "bg-amber-400/[0.07]",
-      icon: "bg-amber-400/15 text-amber-300",
+      background: "bg-[#fbf0d1]",
+      badge: "bg-[#f7e8b5] text-[#8b6518]",
       symbol: "!",
     },
     info: {
-      border: "border-cyan-400/20",
-      background: "bg-cyan-400/[0.07]",
-      icon: "bg-cyan-400/15 text-cyan-300",
+      background: "bg-[#e8f1ef]",
+      badge: "bg-[#dceeea] text-[#476457]",
       symbol: "i",
     },
   };
 
-  const style = styles[insight.severity];
+  const style = tones[insight.severity];
+  const fallback = ["bg-white", "bg-[#f7f4ed]"];
+  const background =
+    insight.severity === "info"
+      ? style.background
+      : `${style.background} ${fallback[index % fallback.length]}`;
 
   return (
     <article
-      className={`rounded-2xl border p-5 ${style.border} ${style.background}`}
+      className={`rounded-[28px] border border-[#14241e]/10 p-6 shadow-sm shadow-[#14241e]/5 ${background}`}
     >
       <div className="flex items-start gap-4">
         <span
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-bold ${style.icon}`}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-sm font-bold ${style.badge}`}
         >
           {style.symbol}
         </span>
 
-        <div>
-          <h3 className="font-semibold text-slate-100">
+        <div className="min-w-0">
+          <h3 className="text-lg font-semibold tracking-[-0.02em]">
             {insight.title}
           </h3>
 
-          <p className="mt-2 text-sm leading-6 text-slate-400">
+          <p className="mt-2 text-sm leading-6 text-[#66746e]">
             {insight.description}
           </p>
 
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             {insight.category && (
-              <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-xs text-slate-300">
+              <span className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-medium text-[#52635b]">
                 {insight.category}
               </span>
             )}
 
             {insight.amount_cents !== null && (
-              <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-xs text-slate-300">
+              <span className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-medium text-[#52635b]">
                 {formatCents(insight.amount_cents)}
               </span>
             )}
 
             {insight.percentage !== null && (
-              <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-xs text-slate-300">
+              <span className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-medium text-[#52635b]">
                 {insight.percentage > 0 ? "+" : ""}
                 {insight.percentage}%
               </span>
@@ -386,40 +383,27 @@ function InsightCard({
 function MetricCard({
   label,
   value,
+  tone,
   description,
-  accent,
 }: {
   label: string;
   value: string;
+  tone: "green" | "coral" | "yellow";
   description: string;
-  accent:
-    | "cyan"
-    | "emerald"
-    | "rose"
-    | "amber";
 }) {
   const styles = {
-    cyan: "text-cyan-300",
-    emerald: "text-emerald-300",
-    rose: "text-rose-300",
-    amber: "text-amber-300",
+    green: "bg-[#dff6c7]",
+    coral: "bg-[#f8ddd5]",
+    yellow: "bg-[#f7e8b5]",
   };
 
   return (
-    <article className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/20 backdrop-blur-xl">
-      <p className="text-sm text-slate-400">
-        {label}
-      </p>
-
-      <p
-        className={`mt-3 text-2xl font-bold ${styles[accent]}`}
-      >
+    <article className={`rounded-[26px] p-5 ${styles[tone]}`}>
+      <p className="text-sm text-[#52635b]">{label}</p>
+      <p className="mt-3 text-3xl font-semibold tracking-[-0.04em]">
         {value}
       </p>
-
-      <p className="mt-2 text-xs text-slate-500">
-        {description}
-      </p>
+      <p className="mt-2 text-xs text-[#66746e]">{description}</p>
     </article>
   );
 }

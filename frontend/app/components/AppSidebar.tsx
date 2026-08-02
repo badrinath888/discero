@@ -14,6 +14,7 @@ type IconName =
   | "insights"
   | "forecast"
   | "recurring"
+  | "settings"
   | "logout"
   | "menu"
   | "close";
@@ -30,6 +31,7 @@ const primaryNavigation: NavigationItem[] = [
   { label: "Accounts", href: "/accounts", icon: "accounts" },
   { label: "Budgets", href: "/budgets", icon: "budgets" },
   { label: "Savings goals", href: "/goals", icon: "goals" },
+  { label: "Settings", href: "/settings", icon: "settings" },
 ];
 
 const intelligenceNavigation: NavigationItem[] = [
@@ -264,6 +266,12 @@ function Icon({ name }: { name: IconName }) {
         <path d="M4 17h5v5" />
         <path d="M5.5 9a8 8 0 0 1 13-3L20 7" />
         <path d="M18.5 15a8 8 0 0 1-13 3L4 17" />
+      </>
+    ),
+    settings: (
+      <>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21h-4v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1H21v4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
       </>
     ),
     logout: (

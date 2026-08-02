@@ -1,4 +1,5 @@
 import re
+from calendar import monthrange
 from collections import defaultdict
 from datetime import date, timedelta
 from statistics import median
@@ -21,18 +22,25 @@ def _merchant(transaction: Transaction) -> str:
 def _frequency(
     intervals: list[int],
 ) -> tuple[str, int] | None:
-    typical_interval = round(median(intervals))
-
     ranges = (
         ("Weekly", 7, 5, 9),
         ("Biweekly", 14, 11, 17),
         ("Monthly", 30, 24, 38),
     )
 
+    allowed_misses = 1 if len(intervals) >= 4 else 0
+
     for name, expected_days, minimum, maximum in ranges:
-        if all(
+        matching = sum(
             minimum <= interval <= maximum
             for interval in intervals
+        )
+
+        typical_interval = round(median(intervals))
+
+        if (
+            matching >= len(intervals) - allowed_misses
+            and minimum <= typical_interval <= maximum
         ):
             return name, expected_days
 
@@ -48,7 +56,10 @@ def _confidence_score(
 
     interval_error = (
         sum(
-            abs(interval - expected_interval)
+            min(
+                abs(interval - expected_interval),
+                expected_interval,
+            )
             for interval in intervals
         )
         / len(intervals)
@@ -86,6 +97,29 @@ def _confidence_score(
     return round(score * 100, 1)
 
 
+def _next_payment_date(
+    last_payment: date,
+    frequency: str,
+    expected_interval: int,
+) -> date:
+    if frequency != "Monthly":
+        return last_payment + timedelta(days=expected_interval)
+
+    if last_payment.month == 12:
+        year = last_payment.year + 1
+        month = 1
+    else:
+        year = last_payment.year
+        month = last_payment.month + 1
+
+    day = min(
+        last_payment.day,
+        monthrange(year, month)[1],
+    )
+
+    return date(year, month, day)
+
+
 def detect_recurring(
     transactions: list[Transaction],
     as_of: date | None = None,
@@ -95,7 +129,11 @@ def detect_recurring(
     for transaction in transactions:
         merchant = _merchant(transaction)
 
-        if transaction.amount_cents < 0 and merchant:
+        if (
+            transaction.amount_cents < 0
+            and not transaction.pending
+            and merchant
+        ):
             groups[merchant].append(transaction)
 
     today = as_of or date.today()
@@ -104,7 +142,7 @@ def detect_recurring(
     for merchant, items in groups.items():
         items.sort(key=lambda item: item.posted_on)
 
-        if len(items) < 2:
+        if len(items) < 3:
             continue
 
         intervals = [
@@ -139,10 +177,8 @@ def detect_recurring(
         ):
             continue
 
-        previous_average = (
-            round(sum(amounts[:-1]) / len(amounts[:-1]))
-            if len(amounts) > 1
-            else amounts[-1]
+        previous_average = round(
+            sum(amounts[:-1]) / len(amounts[:-1])
         )
 
         latest_amount = amounts[-1]
@@ -165,9 +201,10 @@ def detect_recurring(
             and abs(price_change_percent) >= 10
         )
 
-        next_payment = (
-            items[-1].posted_on
-            + timedelta(days=expected_interval)
+        next_payment = _next_payment_date(
+            items[-1].posted_on,
+            frequency,
+            expected_interval,
         )
 
         recurring.append(
@@ -186,12 +223,8 @@ def detect_recurring(
                     amounts,
                     expected_interval,
                 ),
-                "price_change_percent": (
-                    price_change_percent
-                ),
-                "price_change_warning": (
-                    price_change_warning
-                ),
+                "price_change_percent": price_change_percent,
+                "price_change_warning": price_change_warning,
             }
         )
 

@@ -399,7 +399,7 @@ export default function AccountsPage() {
               />
 
               {userId && (
-                <div className="-mt-20 flex justify-center pb-12">
+                <div className="mt-6 flex justify-center pb-12">
                   <ConnectBankButton
                     userId={userId}
                     onConnected={handleConnected}

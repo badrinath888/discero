@@ -98,6 +98,31 @@ export type Transaction = {
   institution_name: string | null;
 };
 
+
+export type TransactionSearchParams = {
+  search?: string;
+  category?: string;
+  source?: string;
+  account_id?: number;
+  start_date?: string;
+  end_date?: string;
+  pending?: boolean;
+  transaction_type?: "income" | "spending";
+  page?: number;
+  page_size?: number;
+};
+
+export type TransactionPage = {
+  items: Transaction[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  total_income_cents: number;
+  total_spending_cents: number;
+  net_cents: number;
+};
+
 export type CategoryTotal = {
   category: string;
   total_cents: number;
@@ -346,6 +371,35 @@ export const api = {
     fetch(`${API_URL}/users/${userId}/transactions`, {
       headers: authHeaders(),
     }).then((res) => handle<Transaction[]>(res)),
+
+
+  searchTransactions: (
+    userId: number,
+    params: TransactionSearchParams = {}
+  ): Promise<TransactionPage> => {
+    const query = new URLSearchParams();
+
+    for (const [key, value] of Object.entries(params)) {
+      if (
+        value !== undefined &&
+        value !== null &&
+        value !== ""
+      ) {
+        query.set(key, String(value));
+      }
+    }
+
+    const suffix = query.toString()
+      ? `?${query.toString()}`
+      : "";
+
+    return fetch(
+      `${API_URL}/users/${userId}/transactions/search${suffix}`,
+      {
+        headers: authHeaders(),
+      }
+    ).then((res) => handle<TransactionPage>(res));
+  },
 
   updateTransaction: (
     userId: number,

@@ -19,6 +19,17 @@ class TransactionOut(BaseModel):
     institution_name: str | None
 
 
+class TransactionPage(BaseModel):
+    items: list[TransactionOut]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    total_income_cents: int
+    total_spending_cents: int
+    net_cents: int
+
+
 class TransactionUpdate(BaseModel):
     category: str = Field(min_length=1, max_length=64)
 

@@ -10,7 +10,13 @@ import {
   PageLoading,
   PageSuccess,
 } from "../components/PageFeedback";
-import { api, formatCents, session, Transaction } from "../lib/api";
+import {
+  api,
+  FinancialAccount,
+  formatCents,
+  session,
+  Transaction,
+} from "../lib/api";
 import { PageReveal, Reveal } from "../components/PremiumMotion";
 
 const CATEGORIES = [
@@ -40,6 +46,12 @@ export default function TransactionsPage() {
 
   const [userId, setUserId] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalIncome, setTotalIncome] = useState(0);
+  const [totalSpending, setTotalSpending] = useState(0);
+  const [net, setNet] = useState(0);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [source, setSource] = useState("All");
@@ -61,7 +73,7 @@ export default function TransactionsPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    async function loadTransactions() {
+    async function initializePage() {
       const id = session.getUserId();
       const token = session.getToken();
 
@@ -80,11 +92,68 @@ export default function TransactionsPage() {
           return;
         }
 
-        const data = await api.getTransactions(id);
+        const accountData = await api.getAccounts(id);
 
         setUserId(id);
-        setTransactions(data);
+        setAccounts(accountData);
       } catch (err) {
+        if (!session.getToken()) {
+          router.replace("/");
+          return;
+        }
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to initialize transactions"
+        );
+        setLoading(false);
+      }
+    }
+
+    void initializePage();
+  }, [router]);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const controller = new AbortController();
+    const delay = search.trim() ? 300 : 0;
+
+    const timeout = window.setTimeout(async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const data = await api.searchTransactions(userId, {
+          search: search.trim() || undefined,
+          category: category === "All" ? undefined : category,
+          source:
+            source === "All" || source === "Pending"
+              ? undefined
+              : source.toLowerCase(),
+          pending: source === "Pending" ? true : undefined,
+          account_id:
+            accountId === "All" ? undefined : Number(accountId),
+          start_date: fromDate || undefined,
+          end_date: toDate || undefined,
+          page,
+          page_size: PAGE_SIZE,
+        });
+
+        if (controller.signal.aborted) return;
+
+        setTransactions(data.items);
+        setTotal(data.total);
+        setTotalPages(data.total_pages);
+        setTotalIncome(data.total_income_cents);
+        setTotalSpending(data.total_spending_cents);
+        setNet(data.net_cents);
+        setSelectedIds([]);
+        setExpandedId(null);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+
         if (!session.getToken()) {
           router.replace("/");
           return;
@@ -96,91 +165,43 @@ export default function TransactionsPage() {
             : "Unable to load transactions"
         );
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
-    }
+    }, delay);
 
-    void loadTransactions();
-  }, [router]);
-
-  const accountOptions = useMemo(() => {
-    const accounts = new Map<number, string>();
-
-    for (const transaction of transactions) {
-      if (
-        transaction.financial_account_id &&
-        transaction.account_name
-      ) {
-        const label = transaction.institution_name
-          ? `${transaction.institution_name} • ${transaction.account_name}`
-          : transaction.account_name;
-
-        accounts.set(transaction.financial_account_id, label);
-      }
-    }
-
-    return [...accounts.entries()].sort((a, b) =>
-      a[1].localeCompare(b[1])
-    );
-  }, [transactions]);
-
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-
-    return transactions.filter((transaction) => {
-      const matchesSearch =
-        transaction.description.toLowerCase().includes(query) ||
-        transaction.merchant_name?.toLowerCase().includes(query) ||
-        transaction.category.toLowerCase().includes(query) ||
-        transaction.account_name?.toLowerCase().includes(query) ||
-        transaction.institution_name?.toLowerCase().includes(query);
-
-      const matchesCategory =
-        category === "All" || transaction.category === category;
-
-      const matchesSource =
-        source === "All" ||
-        (source === "Pending"
-          ? transaction.pending
-          : transaction.source === source.toLowerCase());
-
-      const matchesAccount =
-        accountId === "All" ||
-        transaction.financial_account_id === Number(accountId);
-
-      const matchesFrom =
-        !fromDate || transaction.posted_on >= fromDate;
-
-      const matchesTo = !toDate || transaction.posted_on <= toDate;
-
-      return (
-        matchesSearch &&
-        matchesCategory &&
-        matchesSource &&
-        matchesAccount &&
-        matchesFrom &&
-        matchesTo
-      );
-    });
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
   }, [
-    transactions,
+    userId,
     search,
     category,
     source,
     accountId,
     fromDate,
     toDate,
+    page,
+    router,
   ]);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filtered.length / PAGE_SIZE)
+  const accountOptions = useMemo(
+    () =>
+      accounts
+        .map((account) => {
+          const label = account.institution_name
+            ? `${account.institution_name} • ${account.name}`
+            : account.name;
+
+          return [account.id, label] as const;
+        })
+        .sort((a, b) => a[1].localeCompare(b[1])),
+    [accounts]
   );
 
-  const visibleTransactions = filtered.slice(
-    (page - 1) * PAGE_SIZE,
-    page * PAGE_SIZE
-  );
+  const visibleTransactions = transactions;
 
   const groupedTransactions = useMemo(() => {
     const groups = new Map<string, Transaction[]>();
@@ -196,19 +217,6 @@ export default function TransactionsPage() {
 
   const activeTransaction =
     transactions.find(({ id }) => id === expandedId) ?? null;
-
-  const totalIncome = filtered
-    .filter(({ amount_cents }) => amount_cents > 0)
-    .reduce((total, item) => total + item.amount_cents, 0);
-
-  const totalSpending = filtered
-    .filter(({ amount_cents }) => amount_cents < 0)
-    .reduce(
-      (total, item) => total + Math.abs(item.amount_cents),
-      0
-    );
-
-  const net = totalIncome - totalSpending;
 
   const activeFilterCount = [
     category !== "All",
@@ -232,12 +240,33 @@ export default function TransactionsPage() {
 
     try {
       const result = await api.syncPlaidTransactions(userId);
-      const refreshed = await api.getTransactions(userId);
 
-      setTransactions(refreshed);
       setSelectedIds([]);
       setExpandedId(null);
       setPage(1);
+
+      const refreshed = await api.searchTransactions(userId, {
+        search: search.trim() || undefined,
+        category: category === "All" ? undefined : category,
+        source:
+          source === "All" || source === "Pending"
+            ? undefined
+            : source.toLowerCase(),
+        pending: source === "Pending" ? true : undefined,
+        account_id:
+          accountId === "All" ? undefined : Number(accountId),
+        start_date: fromDate || undefined,
+        end_date: toDate || undefined,
+        page: 1,
+        page_size: PAGE_SIZE,
+      });
+
+      setTransactions(refreshed.items);
+      setTotal(refreshed.total);
+      setTotalPages(refreshed.total_pages);
+      setTotalIncome(refreshed.total_income_cents);
+      setTotalSpending(refreshed.total_spending_cents);
+      setNet(refreshed.net_cents);
       setMessage(
         `Sync complete: ${result.added} added, ` +
           `${result.modified} updated, ` +
@@ -495,7 +524,7 @@ export default function TransactionsPage() {
           <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryItem
               label="Transactions"
-              value={filtered.length.toLocaleString()}
+              value={total.toLocaleString()}
             />
             <SummaryItem
               label="Income"
@@ -766,22 +795,22 @@ export default function TransactionsPage() {
               <div className="p-5">
                 <EmptyState
                   title={
-                    transactions.length === 0
+                    total === 0 && activeFilterCount === 0 && !search.trim()
                       ? "No transactions yet"
                       : "No transactions match your filters"
                   }
                   description={
-                    transactions.length === 0
+                    total === 0 && activeFilterCount === 0 && !search.trim()
                       ? "Upload a CSV file or synchronize a connected account to add financial activity."
                       : "Adjust or clear your current filters to see more transactions."
                   }
                   actionLabel={
-                    transactions.length === 0
+                    total === 0 && activeFilterCount === 0 && !search.trim()
                       ? undefined
                       : "Clear filters"
                   }
                   onAction={
-                    transactions.length === 0
+                    total === 0 && activeFilterCount === 0 && !search.trim()
                       ? undefined
                       : clearFilters
                   }
@@ -807,12 +836,12 @@ export default function TransactionsPage() {
             )}
           </section>
 
-          {!loading && filtered.length > PAGE_SIZE && (
+          {!loading && totalPages > 1 && (
             <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-[#14241e]/10 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-[#66746e]">
                 Showing {(page - 1) * PAGE_SIZE + 1}–
-                {Math.min(page * PAGE_SIZE, filtered.length)} of{" "}
-                {filtered.length}
+                {Math.min(page * PAGE_SIZE, total)} of{" "}
+                {total}
               </p>
 
               <div className="flex items-center gap-2">

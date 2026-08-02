@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_user
@@ -22,6 +22,7 @@ from app.schemas import (
     Overview,
     RecurringPaymentOut,
     TransactionOut,
+    TransactionPage,
     UpcomingCashFlowOut,
     TransactionUpdate,
     UploadSummary,
@@ -193,6 +194,147 @@ def list_transactions(
     )
 
     return list(db.scalars(statement).all())
+
+
+@router.get(
+    "/transactions/search",
+    response_model=TransactionPage,
+)
+def search_transactions(
+    user_id: int,
+    search: str | None = Query(default=None, max_length=120),
+    category: str | None = Query(default=None, max_length=64),
+    source: str | None = Query(default=None, max_length=16),
+    account_id: int | None = Query(default=None, gt=0),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+    pending: bool | None = Query(default=None),
+    transaction_type: str | None = Query(
+        default=None,
+        pattern="^(income|spending)$",
+    ),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TransactionPage:
+    _authorize_user(user_id, current_user)
+
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=422,
+            detail="start_date cannot be after end_date",
+        )
+
+    filters = [Transaction.user_id == user_id]
+
+    if search and (normalized := search.strip().lower()):
+        pattern = f"%{normalized}%"
+        filters.append(
+            or_(
+                func.lower(Transaction.description).like(pattern),
+                func.lower(
+                    func.coalesce(Transaction.merchant_name, "")
+                ).like(pattern),
+                func.lower(Transaction.category).like(pattern),
+                func.lower(
+                    func.coalesce(FinancialAccount.name, "")
+                ).like(pattern),
+                func.lower(
+                    func.coalesce(PlaidItem.institution_name, "")
+                ).like(pattern),
+            )
+        )
+
+    if category:
+        filters.append(Transaction.category == category)
+
+    if source:
+        filters.append(Transaction.source == source.lower())
+
+    if account_id is not None:
+        filters.append(Transaction.financial_account_id == account_id)
+
+    if start_date is not None:
+        filters.append(Transaction.posted_on >= start_date)
+
+    if end_date is not None:
+        filters.append(Transaction.posted_on <= end_date)
+
+    if pending is not None:
+        filters.append(Transaction.pending == pending)
+
+    if transaction_type == "income":
+        filters.append(Transaction.amount_cents > 0)
+    elif transaction_type == "spending":
+        filters.append(Transaction.amount_cents < 0)
+
+    def base_select(*entities):
+        return (
+            select(*entities)
+            .select_from(Transaction)
+            .outerjoin(
+                FinancialAccount,
+                Transaction.financial_account_id == FinancialAccount.id,
+            )
+            .outerjoin(
+                PlaidItem,
+                FinancialAccount.plaid_item_id == PlaidItem.id,
+            )
+            .where(*filters)
+        )
+
+    total = int(
+        db.scalar(base_select(func.count(Transaction.id))) or 0
+    )
+
+    total_income_cents = int(
+        db.scalar(
+            base_select(
+                func.coalesce(func.sum(Transaction.amount_cents), 0)
+            ).where(Transaction.amount_cents > 0)
+        )
+        or 0
+    )
+
+    negative_total = int(
+        db.scalar(
+            base_select(
+                func.coalesce(func.sum(Transaction.amount_cents), 0)
+            ).where(Transaction.amount_cents < 0)
+        )
+        or 0
+    )
+    total_spending_cents = abs(negative_total)
+
+    statement = (
+        base_select(Transaction)
+        .options(
+            joinedload(Transaction.financial_account).joinedload(
+                FinancialAccount.plaid_item
+            )
+        )
+        .order_by(
+            Transaction.posted_on.desc(),
+            Transaction.id.desc(),
+        )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+
+    items = list(db.scalars(statement).all())
+    total_pages = (total + page_size - 1) // page_size
+
+    return TransactionPage(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+        total_income_cents=total_income_cents,
+        total_spending_cents=total_spending_cents,
+        net_cents=total_income_cents - total_spending_cents,
+    )
 
 
 @router.patch(

@@ -69,8 +69,15 @@ export function PageSuccess({
     <div
       role="status"
       aria-live="polite"
-      className="rounded-lg border border-emerald-400/20 bg-emerald-400/[0.07] px-4 py-3 text-sm text-[#55d6a7]"
+      className="flex items-center gap-3 rounded-xl border border-[#167c5a]/30 bg-[#dcefe3] px-4 py-3.5 text-sm font-semibold text-[#0f5f43] shadow-sm"
     >
+      <span
+        aria-hidden="true"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#167c5a] text-xs text-white"
+      >
+        ✓
+      </span>
+
       {message}
     </div>
   );

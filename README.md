@@ -9,9 +9,9 @@ FinSight is a full-stack personal finance intelligence platform for securely imp
 - CSV upload with validation, duplicate handling, and categorization
 - Plaid Sandbox account connection and transaction synchronization
 - Search, filters, pagination, category editing, category locking, and deletion
-- Month-specific budgets with progress and over-budget tracking
+- Month-specific budgets with progress, over-budget tracking, and copy-from-previous-month support
 - Savings goals with editing, contributions, withdrawals, deadlines, and status
-- Weekly, biweekly, and monthly recurring-bill detection
+- Improved weekly, biweekly, and monthly recurring-bill detection with pending-transaction filtering and price-change alerts
 - Financial insights with spending trends and savings-rate analysis
 - Cash-flow forecasting with projected month-end balance and low-balance risk
 - Responsive sidebar, mobile navigation, charts, and reusable feedback states
@@ -172,7 +172,7 @@ pytest -q
 Current verified result:
 
 ```text
-111 passed
+125 passed
 ```
 
 Frontend:
@@ -190,6 +190,7 @@ npm run build
 /users/login
 /users/me
 /users/{user_id}/transactions
+/users/{user_id}/transactions/search
 /users/{user_id}/transactions/upload
 /users/{user_id}/summary/overview
 /users/{user_id}/summary/by-category
@@ -199,6 +200,7 @@ npm run build
 /users/{user_id}/summary/cash-flow-forecast
 /users/{user_id}/budgets
 /users/{user_id}/budgets/progress
+/users/{user_id}/budgets/copy-previous
 /users/{user_id}/goals
 /users/{user_id}/accounts
 /users/{user_id}/plaid/link-token
@@ -236,10 +238,10 @@ Production setup requires secure secrets, production CORS, `NEXT_PUBLIC_API_URL`
 - [x] Authentication
 - [x] CSV ingestion
 - [x] Plaid Sandbox integration
-- [x] Transaction management
-- [x] Monthly budgets
+- [x] Transaction management with server-side filtering and pagination
+- [x] Monthly budgets with copy-from-previous-month workflow
 - [x] Savings goals
-- [x] Recurring-payment detection
+- [x] Improved recurring-payment detection
 - [x] Financial insights
 - [x] Cash-flow forecasting
 - [x] Responsive navigation
@@ -251,7 +253,6 @@ Production setup requires secure secrets, production CORS, `NEXT_PUBLIC_API_URL`
 - [ ] Production deployment
 - [ ] PostgreSQL production migration
 - [ ] Screenshots and demo video
-- [ ] Backend pagination
 - [ ] Password reset and email verification
 - [ ] Refresh-token flow
 - [ ] Rate limiting and monitoring

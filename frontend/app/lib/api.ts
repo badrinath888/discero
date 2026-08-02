@@ -210,6 +210,16 @@ export type BudgetProgress = {
   over_budget_cents: number;
 };
 
+
+export type BudgetCopyResult = {
+  source_month: string;
+  target_month: string;
+  copied: number;
+  updated: number;
+  skipped: number;
+  budgets: Budget[];
+};
+
 export type SavingsGoal = {
   id: number;
   name: string;
@@ -521,6 +531,22 @@ export const api = {
         headers: authHeaders(),
       }
     ).then((res) => handle<BudgetProgress[]>(res)),
+
+
+  copyPreviousMonthBudgets: (
+    userId: number,
+    month: string,
+    overwrite = false
+  ): Promise<BudgetCopyResult> =>
+    fetch(
+      `${API_URL}/users/${userId}/budgets/copy-previous?month=${encodeURIComponent(
+        month
+      )}&overwrite=${overwrite}`,
+      {
+        method: "POST",
+        headers: authHeaders(),
+      }
+    ).then((res) => handle<BudgetCopyResult>(res)),
 
   getSavingsGoals: (
     userId: number

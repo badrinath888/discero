@@ -257,3 +257,134 @@ def test_budget_progress_calculates_monthly_spending(
             "over_budget_cents": 0,
         }
     ]
+
+
+def test_copy_previous_month_budgets(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(client, "budget-copy")
+
+    for category, limit_cents in [
+        ("Dining", 30000),
+        ("Groceries", 50000),
+    ]:
+        response = client.put(
+            f"/users/{user_id}/budgets",
+            headers=headers,
+            json={
+                "category": category,
+                "month": "2026-07",
+                "limit_cents": limit_cents,
+            },
+        )
+        assert response.status_code == 200
+
+    response = client.post(
+        f"/users/{user_id}/budgets/copy-previous",
+        params={"month": "2026-08"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source_month"] == "2026-07"
+    assert body["target_month"] == "2026-08"
+    assert body["copied"] == 2
+    assert body["updated"] == 0
+    assert body["skipped"] == 0
+    assert [
+        (item["category"], item["limit_cents"])
+        for item in body["budgets"]
+    ] == [("Dining", 30000), ("Groceries", 50000)]
+
+
+def test_copy_previous_month_preserves_existing_by_default(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(
+        client,
+        "budget-copy-preserve",
+    )
+
+    for month, limit_cents in [
+        ("2026-07", 30000),
+        ("2026-08", 45000),
+    ]:
+        response = client.put(
+            f"/users/{user_id}/budgets",
+            headers=headers,
+            json={
+                "category": "Dining",
+                "month": month,
+                "limit_cents": limit_cents,
+            },
+        )
+        assert response.status_code == 200
+
+    response = client.post(
+        f"/users/{user_id}/budgets/copy-previous",
+        params={"month": "2026-08"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["copied"] == 0
+    assert body["updated"] == 0
+    assert body["skipped"] == 1
+    assert body["budgets"][0]["limit_cents"] == 45000
+
+
+def test_copy_previous_month_can_overwrite_existing(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(
+        client,
+        "budget-copy-overwrite",
+    )
+
+    for month, limit_cents in [
+        ("2026-07", 30000),
+        ("2026-08", 45000),
+    ]:
+        response = client.put(
+            f"/users/{user_id}/budgets",
+            headers=headers,
+            json={
+                "category": "Dining",
+                "month": month,
+                "limit_cents": limit_cents,
+            },
+        )
+        assert response.status_code == 200
+
+    response = client.post(
+        f"/users/{user_id}/budgets/copy-previous",
+        params={"month": "2026-08", "overwrite": "true"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["copied"] == 0
+    assert body["updated"] == 1
+    assert body["skipped"] == 0
+    assert body["budgets"][0]["limit_cents"] == 30000
+
+
+def test_copy_previous_month_returns_404_when_source_empty(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(
+        client,
+        "budget-copy-empty",
+    )
+
+    response = client.post(
+        f"/users/{user_id}/budgets/copy-previous",
+        params={"month": "2026-08"},
+        headers=headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "no budgets found for 2026-07"

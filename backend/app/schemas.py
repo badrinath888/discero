@@ -93,6 +93,15 @@ class BudgetOut(BaseModel):
     limit_cents: int
 
 
+class BudgetCopyResult(BaseModel):
+    source_month: str
+    target_month: str
+    copied: int
+    updated: int
+    skipped: int
+    budgets: list[BudgetOut]
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)

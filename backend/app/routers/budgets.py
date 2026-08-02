@@ -8,6 +8,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models import Budget, Transaction, User
 from app.schemas import (
+    BudgetCopyResult,
     BudgetCreate,
     BudgetOut,
     BudgetProgressOut,
@@ -97,6 +98,96 @@ def save_budget(
 
     return budget
 
+@router.post(
+    "/copy-previous",
+    response_model=BudgetCopyResult,
+)
+def copy_previous_month_budgets(
+    user_id: int,
+    month: str = Query(
+        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
+    ),
+    overwrite: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetCopyResult:
+    _authorize_user(user_id, current_user)
+
+    source_month = _previous_month(month)
+
+    source_budgets = list(
+        db.scalars(
+            select(Budget)
+            .where(
+                Budget.user_id == user_id,
+                Budget.month == source_month,
+            )
+            .order_by(Budget.category)
+        ).all()
+    )
+
+    if not source_budgets:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no budgets found for {source_month}",
+        )
+
+    target_budgets = {
+        budget.category: budget
+        for budget in db.scalars(
+            select(Budget).where(
+                Budget.user_id == user_id,
+                Budget.month == month,
+            )
+        ).all()
+    }
+
+    copied = 0
+    updated = 0
+    skipped = 0
+
+    for source_budget in source_budgets:
+        target_budget = target_budgets.get(source_budget.category)
+
+        if target_budget is None:
+            target_budget = Budget(
+                user_id=user_id,
+                category=source_budget.category,
+                month=month,
+                limit_cents=source_budget.limit_cents,
+            )
+            db.add(target_budget)
+            target_budgets[source_budget.category] = target_budget
+            copied += 1
+        elif overwrite:
+            target_budget.limit_cents = source_budget.limit_cents
+            updated += 1
+        else:
+            skipped += 1
+
+    db.commit()
+
+    budgets = list(
+        db.scalars(
+            select(Budget)
+            .where(
+                Budget.user_id == user_id,
+                Budget.month == month,
+            )
+            .order_by(Budget.category)
+        ).all()
+    )
+
+    return BudgetCopyResult(
+        source_month=source_month,
+        target_month=month,
+        copied=copied,
+        updated=updated,
+        skipped=skipped,
+        budgets=budgets,
+    )
+
+
 @router.get(
     "/progress",
     response_model=list[BudgetProgressOut],
@@ -148,6 +239,15 @@ def budget_progress(
         )
         for budget in budgets
     ]
+
+
+def _previous_month(month: str) -> str:
+    year, month_number = map(int, month.split("-"))
+
+    if month_number == 1:
+        return f"{year - 1}-12"
+
+    return f"{year}-{month_number - 1:02d}"
 
 
 def _next_month(month: str) -> str:

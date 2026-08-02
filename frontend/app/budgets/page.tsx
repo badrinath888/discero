@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Edit3,
   Gauge,
   PiggyBank,
@@ -52,6 +53,15 @@ function currentMonth(): string {
   ).padStart(2, "0")}`;
 }
 
+function previousMonth(month: string): string {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const value = new Date(year, monthNumber - 2, 1);
+
+  return `${value.getFullYear()}-${String(
+    value.getMonth() + 1
+  ).padStart(2, "0")}`;
+}
+
 function formatMonth(month: string): string {
   const [year, monthNumber] = month.split("-").map(Number);
 
@@ -76,6 +86,7 @@ export default function BudgetsPage() {
   );
   const [draftAmount, setDraftAmount] = useState("");
   const [saving, setSaving] = useState(false);
+  const [copying, setCopying] = useState(false);
   const [loading, setLoading] = useState(true);
   const [checkingSession, setCheckingSession] = useState(true);
   const [error, setError] = useState("");
@@ -242,6 +253,50 @@ export default function BudgetsPage() {
     }
   }
 
+  async function copyPreviousMonth() {
+    if (!userId) return;
+
+    setCopying(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const result = await api.copyPreviousMonthBudgets(
+        userId,
+        selectedMonth
+      );
+
+      setBudgets(result.budgets);
+      setProgress(
+        await api.getBudgetProgress(userId, selectedMonth)
+      );
+
+      const changes = [
+        result.copied > 0 ? `${result.copied} copied` : "",
+        result.updated > 0 ? `${result.updated} updated` : "",
+        result.skipped > 0 ? `${result.skipped} kept` : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
+
+      setSuccess(
+        `Budget plan copied from ${formatMonth(
+          result.source_month
+        )} to ${formatMonth(result.target_month)}${
+          changes ? ` — ${changes}.` : "."
+        }`
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to copy the previous month"
+      );
+    } finally {
+      setCopying(false);
+    }
+  }
+
   function changeMonth(offset: number) {
     const [year, month] = selectedMonth.split("-").map(Number);
     const next = new Date(year, month - 1 + offset, 1);
@@ -287,7 +342,7 @@ export default function BudgetsPage() {
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[#14241e]/10 bg-white p-2 shadow-sm">
+              <div className="flex w-full flex-nowrap items-center gap-2 overflow-x-auto rounded-2xl border border-[#14241e]/10 bg-white p-2 shadow-sm xl:w-auto">
                 <button
                   type="button"
                   onClick={() => changeMonth(-1)}
@@ -305,7 +360,7 @@ export default function BudgetsPage() {
                     onChange={(event) =>
                       setSelectedMonth(event.target.value)
                     }
-                    className="h-10 rounded-xl border border-[#14241e]/10 bg-[#f7f4ed] pl-9 pr-3 text-sm outline-none focus:border-[#167c5a]"
+                    className="h-10 w-[170px] shrink-0 rounded-xl border border-[#14241e]/10 bg-[#f7f4ed] pl-9 pr-3 text-sm outline-none focus:border-[#167c5a]"
                   />
                 </label>
 
@@ -320,8 +375,22 @@ export default function BudgetsPage() {
 
                 <button
                   type="button"
+                  onClick={copyPreviousMonth}
+                  disabled={copying || loading}
+                  className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-[#14241e]/10 bg-white px-4 text-sm font-semibold transition hover:bg-[#f7f4ed] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Copy className="h-4 w-4" />
+                  {copying
+                    ? "Copying..."
+                    : `Copy ${formatMonth(
+                        previousMonth(selectedMonth)
+                      )}`}
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setSelectedMonth(currentMonth())}
-                  className="h-10 rounded-xl bg-[#14241e] px-4 text-sm font-semibold text-white transition hover:bg-[#20352d]"
+                  className="h-10 shrink-0 whitespace-nowrap rounded-xl bg-[#14241e] px-4 text-sm font-semibold text-white transition hover:bg-[#20352d]"
                 >
                   Current month
                 </button>

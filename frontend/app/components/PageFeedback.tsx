@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 type Accent = "emerald" | "cyan" | "violet";
 
 export function PageLoading({
@@ -88,11 +90,13 @@ export function EmptyState({
   description,
   actionLabel,
   onAction,
+  children,
 }: {
   title: string;
   description: string;
   actionLabel?: string;
   onAction?: () => void;
+  children?: ReactNode;
 }) {
   return (
     <div className="rounded-xl border border-dashed border-white/[0.1] bg-[#101916] px-6 py-12 text-center">
@@ -107,6 +111,8 @@ export function EmptyState({
       <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
         {description}
       </p>
+
+      {children && <div className="mt-5">{children}</div>}
 
       {actionLabel && onAction && (
         <button

@@ -396,16 +396,14 @@ export default function AccountsPage() {
               <EmptyState
                 title="No bank accounts connected"
                 description="Connect a Sandbox institution to securely import balances and transaction activity into FinSight."
-              />
-
-              {userId && (
-                <div className="mt-6 flex justify-center pb-12">
+              >
+                {userId && (
                   <ConnectBankButton
                     userId={userId}
                     onConnected={handleConnected}
                   />
-                </div>
-              )}
+                )}
+              </EmptyState>
             </div>
           ) : (
             <div className="mt-8 space-y-8">

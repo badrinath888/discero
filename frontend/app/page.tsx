@@ -7,7 +7,9 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+import { motion, useReducedMotion } from "framer-motion";
 import { api, session } from "./lib/api";
+import { PageReveal, Reveal } from "./components/PremiumMotion";
 
 type Mode = "login" | "register";
 
@@ -151,11 +153,13 @@ export default function HomePage() {
         }
       />
 
+      <PageReveal>
       <section className="relative px-5 pb-20 pt-28 sm:px-8 lg:pb-28 lg:pt-36">
         <div className="pointer-events-none absolute -left-24 top-20 h-72 w-72 rounded-full bg-[#d5f7a7]/55 blur-3xl" />
         <div className="pointer-events-none absolute -right-20 top-28 h-80 w-80 rounded-full bg-[#9debd5]/45 blur-3xl" />
 
         <div className="relative mx-auto grid max-w-7xl gap-16 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+          <Reveal>
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
               Personal finance intelligence
@@ -212,10 +216,12 @@ export default function HomePage() {
               </span>
             </div>
           </div>
+          </Reveal>
 
           <HeroProductPreview />
         </div>
       </section>
+      </PageReveal>
 
       <section className="border-y border-[#14241e]/10 bg-[#ede8dc] px-5 py-6 sm:px-8">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-x-10 gap-y-4 text-xs font-semibold uppercase tracking-[0.16em] text-[#758079]">
@@ -580,9 +586,28 @@ function BrandMark() {
 }
 
 function HeroProductPreview() {
+  const reduceMotion = useReducedMotion();
+
   return (
-    <div className="relative mx-auto w-full max-w-2xl">
-      <div className="absolute -left-5 top-24 z-20 hidden rounded-2xl bg-[#f0b8a8] p-4 shadow-2xl shadow-black/10 sm:block">
+    <motion.div
+      initial={reduceMotion ? false : { opacity: 0, y: 24, rotate: -1 }}
+      animate={{ opacity: 1, y: 0, rotate: 0 }}
+      transition={{
+        duration: reduceMotion ? 0 : 0.7,
+        delay: reduceMotion ? 0 : 0.12,
+        ease: [0.22, 1, 0.36, 1],
+      }}
+      className="relative mx-auto w-full max-w-2xl"
+    >
+      <motion.div
+        animate={reduceMotion ? undefined : { y: [0, -8, 0] }}
+        transition={
+          reduceMotion
+            ? undefined
+            : { duration: 4.8, repeat: Infinity, ease: "easeInOut" }
+        }
+        className="absolute -left-5 top-24 z-20 hidden rounded-2xl bg-[#f0b8a8] p-4 shadow-2xl shadow-black/10 sm:block"
+      >
         <p className="text-xs font-medium text-[#713729]">
           Spending this month
         </p>
@@ -590,9 +615,22 @@ function HeroProductPreview() {
         <p className="mt-1 text-xl font-semibold text-[#351d17]">
           Down 12%
         </p>
-      </div>
+      </motion.div>
 
-      <div className="absolute -right-5 bottom-20 z-20 hidden rounded-2xl bg-[#d5f7a7] p-4 shadow-2xl shadow-black/10 sm:block">
+      <motion.div
+        animate={reduceMotion ? undefined : { y: [0, 8, 0] }}
+        transition={
+          reduceMotion
+            ? undefined
+            : {
+                duration: 5.4,
+                repeat: Infinity,
+                ease: "easeInOut",
+                delay: 0.6,
+              }
+        }
+        className="absolute -right-5 bottom-20 z-20 hidden rounded-2xl bg-[#d5f7a7] p-4 shadow-2xl shadow-black/10 sm:block"
+      >
         <p className="text-xs font-medium text-[#41651c]">
           Savings goal
         </p>
@@ -600,9 +638,37 @@ function HeroProductPreview() {
         <p className="mt-1 text-xl font-semibold text-[#243d0d]">
           68% complete
         </p>
-      </div>
+      </motion.div>
 
-      <div className="rotate-[1.5deg] rounded-[30px] border border-[#14241e]/10 bg-[#14241e] p-3 shadow-[0_35px_100px_rgba(20,36,30,0.28)]">
+      <motion.div
+        animate={
+          reduceMotion
+            ? undefined
+            : {
+                y: [0, -6, 0],
+                rotate: [1.5, 1, 1.5],
+              }
+        }
+        transition={
+          reduceMotion
+            ? undefined
+            : {
+                duration: 7,
+                repeat: Infinity,
+                ease: "easeInOut",
+              }
+        }
+        whileHover={
+          reduceMotion
+            ? undefined
+            : {
+                scale: 1.012,
+                rotate: 0.4,
+                transition: { duration: 0.25 },
+              }
+        }
+        className="rounded-[30px] border border-[#14241e]/10 bg-[#14241e] p-3 shadow-[0_35px_100px_rgba(20,36,30,0.28)]"
+      >
         <div className="overflow-hidden rounded-[22px] bg-[#0d141e]">
           <div className="flex h-12 items-center gap-2 border-b border-white/[0.08] px-5">
             <span className="h-2.5 w-2.5 rounded-full bg-[#f0b8a8]" />
@@ -705,8 +771,8 @@ function HeroProductPreview() {
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -781,7 +847,8 @@ function FeaturePanel({
   icon: ReactNode;
 }) {
   return (
-    <article className="bg-[#192d25] p-8 sm:p-10">
+    <Reveal>
+      <article className="premium-hover bg-[#192d25] p-8 sm:p-10">
       <div className="flex items-start justify-between">
         <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#76dfbd]/10 text-[#76dfbd]">
           {icon}
@@ -799,7 +866,8 @@ function FeaturePanel({
       <p className="mt-4 leading-7 text-[#aebbb5]">
         {description}
       </p>
-    </article>
+      </article>
+    </Reveal>
   );
 }
 
@@ -813,7 +881,8 @@ function ProcessStep({
   description: string;
 }) {
   return (
-    <article className="border-t border-[#14241e]/15 pt-6">
+    <Reveal>
+      <article className="premium-hover border-t border-[#14241e]/15 pt-6">
       <span className="text-sm font-semibold text-[#167c5a]">
         0{number}
       </span>
@@ -825,7 +894,8 @@ function ProcessStep({
       <p className="mt-4 leading-7 text-[#66746e]">
         {description}
       </p>
-    </article>
+      </article>
+    </Reveal>
   );
 }
 
@@ -855,7 +925,8 @@ function Benefit({
 
 function SpendingPreview() {
   return (
-    <div className="rounded-[30px] bg-[#14241e] p-6 shadow-[0_35px_90px_rgba(20,36,30,0.22)] sm:p-8">
+    <Reveal>
+    <div className="premium-hover rounded-[30px] bg-[#14241e] p-6 shadow-[0_35px_90px_rgba(20,36,30,0.22)] sm:p-8">
       <div className="flex items-end justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.14em] text-slate-600">
@@ -910,6 +981,7 @@ function SpendingPreview() {
         </p>
       </div>
     </div>
+    </Reveal>
   );
 }
 
@@ -946,7 +1018,8 @@ function LargeChartRow({
 
 function ForecastPreview() {
   return (
-    <div className="rounded-[30px] border border-[#14241e]/10 bg-white p-6 shadow-[0_30px_90px_rgba(20,36,30,0.12)] sm:p-8">
+    <Reveal>
+    <div className="premium-hover rounded-[30px] border border-[#14241e]/10 bg-white p-6 shadow-[0_30px_90px_rgba(20,36,30,0.12)] sm:p-8">
       <p className="text-xs uppercase tracking-[0.14em] text-[#87928d]">
         Month-end forecast
       </p>
@@ -1010,6 +1083,7 @@ function ForecastPreview() {
         </div>
       </div>
     </div>
+    </Reveal>
   );
 }
 
@@ -1077,13 +1151,15 @@ function SmallFeature({
   description: string;
 }) {
   return (
-    <article className="border-t border-[#14241e]/15 pt-4">
+    <Reveal>
+      <article className="premium-hover border-t border-[#14241e]/15 pt-4">
       <p className="font-semibold">{title}</p>
 
       <p className="mt-2 text-sm leading-6 text-[#66746e]">
         {description}
       </p>
-    </article>
+      </article>
+    </Reveal>
   );
 }
 
@@ -1095,7 +1171,8 @@ function SecurityCard({
   description: string;
 }) {
   return (
-    <article className="rounded-2xl border border-[#351d17]/10 bg-[#f9d9d0]/60 p-6">
+    <Reveal>
+      <article className="premium-hover rounded-2xl border border-[#351d17]/10 bg-[#f9d9d0]/60 p-6">
       <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#713729] text-white">
         <LockIcon />
       </span>
@@ -1107,7 +1184,8 @@ function SecurityCard({
       <p className="mt-3 text-sm leading-6 text-[#714e44]">
         {description}
       </p>
-    </article>
+      </article>
+    </Reveal>
   );
 }
 
@@ -1161,7 +1239,8 @@ function AuthenticationCard({
   ) => void;
 }) {
   return (
-    <section className="rounded-[28px] bg-white p-6 text-[#14241e] shadow-[0_30px_90px_rgba(0,0,0,0.2)] sm:p-8">
+    <Reveal>
+    <section className="premium-hover rounded-[28px] bg-white p-6 text-[#14241e] shadow-[0_30px_90px_rgba(0,0,0,0.2)] sm:p-8">
       <div className="grid grid-cols-2 rounded-full bg-[#f1eee7] p-1">
         <button
           type="button"
@@ -1284,6 +1363,7 @@ function AuthenticationCard({
         </button>
       </form>
     </section>
+    </Reveal>
   );
 }
 

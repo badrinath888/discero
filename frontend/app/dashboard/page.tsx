@@ -19,6 +19,7 @@ import {
   Transaction,
 } from "../lib/api";
 import AppSidebar from "../components/AppSidebar";
+import { AnimatedNumber, PageReveal } from "../components/PremiumMotion";
 import {
   Bar,
   BarChart,
@@ -338,7 +339,7 @@ export default function Dashboard() {
       <AppSidebar />
 
       <div className="px-5 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-8">
-        <div className="mx-auto max-w-7xl">
+        <PageReveal className="mx-auto max-w-7xl">
           <header className="flex flex-col gap-6 border-b border-[#173128]/10 pb-8 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#187a59]">
@@ -383,7 +384,7 @@ export default function Dashboard() {
           )}
 
           <section className="mt-8 grid gap-5 lg:grid-cols-[1.25fr_0.75fr]">
-            <article className="relative overflow-hidden rounded-[30px] bg-[#173128] p-7 text-white shadow-[0_24px_60px_rgba(23,49,40,0.18)] sm:p-9">
+            <article className="premium-hover relative overflow-hidden rounded-[30px] bg-[#173128] p-7 text-white shadow-[0_24px_60px_rgba(23,49,40,0.18)] sm:p-9">
               <div className="pointer-events-none absolute -right-14 -top-14 h-48 w-48 rounded-full bg-[#64d7aa]/20 blur-2xl" />
 
               <div className="relative">
@@ -396,11 +397,11 @@ export default function Dashboard() {
                     {loading ? (
                       <div className="mt-5 h-14 w-56 animate-pulse rounded-xl bg-white/10" />
                     ) : (
-                      <p className="mt-4 text-5xl font-semibold tracking-[-0.06em] sm:text-6xl">
-                        {formatCents(
-                          overview?.net_cents ?? 0
-                        )}
-                      </p>
+                      <AnimatedNumber
+                        value={overview?.net_cents ?? 0}
+                        format={formatCents}
+                        className="mt-4 block text-5xl font-semibold tracking-[-0.06em] sm:text-6xl"
+                      />
                     )}
 
                     <p className="mt-3 text-sm text-white/55">
@@ -449,7 +450,7 @@ export default function Dashboard() {
               </div>
             </article>
 
-            <article className="rounded-[30px] bg-[#dff6c7] p-7 sm:p-8">
+            <article className="premium-hover rounded-[30px] bg-[#dff6c7] p-7 sm:p-8">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#4c7e53]">
@@ -459,12 +460,11 @@ export default function Dashboard() {
                   {loading ? (
                     <div className="mt-5 h-11 w-40 animate-pulse rounded-lg bg-[#173128]/10" />
                   ) : (
-                    <p className="mt-4 text-4xl font-semibold tracking-[-0.05em] text-[#173128]">
-                      {formatCents(
-                        cashFlow?.projected_end_balance_cents ??
-                          0
-                      )}
-                    </p>
+                    <AnimatedNumber
+                      value={cashFlow?.projected_end_balance_cents ?? 0}
+                      format={formatCents}
+                      className="mt-4 block text-4xl font-semibold tracking-[-0.05em] text-[#173128]"
+                    />
                   )}
                 </div>
 
@@ -546,7 +546,7 @@ export default function Dashboard() {
           </section>
 
           <section className="mt-12 grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
-            <article className="rounded-[30px] bg-white p-6 shadow-[0_18px_50px_rgba(23,49,40,0.08)] sm:p-8">
+            <article className="premium-hover rounded-[30px] bg-white p-6 shadow-[0_18px_50px_rgba(23,49,40,0.08)] sm:p-8">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#187a59]">
@@ -889,7 +889,7 @@ export default function Dashboard() {
               )}
             </div>
           </section>
-        </div>
+        </PageReveal>
       </div>
     </main>
   );
@@ -955,7 +955,7 @@ function SoftMetric({
   background: string;
 }) {
   return (
-    <article className={`rounded-[26px] p-6 ${background}`}>
+    <article className={`premium-hover rounded-[26px] p-6 ${background}`}>
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#52645b]">
         {label}
       </p>
@@ -985,7 +985,7 @@ function DashboardSection({
   children: React.ReactNode;
 }) {
   return (
-    <article className="rounded-[30px] bg-white p-6 shadow-[0_18px_50px_rgba(23,49,40,0.08)] sm:p-8">
+    <article className="premium-hover rounded-[30px] bg-white p-6 shadow-[0_18px_50px_rgba(23,49,40,0.08)] sm:p-8">
       <div className="flex items-end justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#187a59]">

@@ -1,6 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Edit3,
+  Gauge,
+  PiggyBank,
+  Target,
+  X,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
 import {
@@ -9,6 +20,11 @@ import {
   PageLoading,
   PageSuccess,
 } from "../components/PageFeedback";
+import {
+  AnimatedNumber,
+  PageReveal,
+  Reveal,
+} from "../components/PremiumMotion";
 import {
   api,
   Budget,
@@ -55,8 +71,11 @@ export default function BudgetsPage() {
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [progress, setProgress] = useState<BudgetProgress[]>([]);
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState("");
+  const [editingCategory, setEditingCategory] = useState<string | null>(
+    null
+  );
+  const [draftAmount, setDraftAmount] = useState("");
+  const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [checkingSession, setCheckingSession] = useState(true);
   const [error, setError] = useState("");
@@ -93,8 +112,6 @@ export default function BudgetsPage() {
   useEffect(() => {
     if (!userId) return;
 
-    const id = userId;
-
     void Promise.resolve().then(async () => {
       setLoading(true);
       setError("");
@@ -102,25 +119,15 @@ export default function BudgetsPage() {
 
       try {
         const [budgetData, progressData] = await Promise.all([
-          api.getBudgets(id, selectedMonth),
-          api.getBudgetProgress(id, selectedMonth),
+          api.getBudgets(userId, selectedMonth),
+          api.getBudgetProgress(userId, selectedMonth),
         ]);
 
         setBudgets(budgetData);
         setProgress(progressData);
-        setValues(
-          Object.fromEntries(
-            budgetData.map((budget) => [
-              budget.category,
-              String(budget.limit_cents / 100),
-            ])
-          )
-        );
       } catch (err) {
         setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load budgets"
+          err instanceof Error ? err.message : "Unable to load budgets"
         );
       } finally {
         setLoading(false);
@@ -147,24 +154,59 @@ export default function BudgetsPage() {
   );
 
   const totalRemaining = Math.max(totalBudget - totalSpent, 0);
+  const coverage = Math.round(
+    (budgets.length / CATEGORIES.length) * 100
+  );
+  const overallPercent =
+    totalBudget > 0
+      ? Math.round((totalSpent / totalBudget) * 100)
+      : 0;
 
-  async function save(category: string) {
-    const amount = Number(values[category]);
+  const activeBudget = editingCategory
+    ? budgets.find(
+        (budget) =>
+          budget.category === editingCategory &&
+          budget.month === selectedMonth
+      )
+    : undefined;
 
-    if (!userId || !Number.isFinite(amount) || amount <= 0) {
+  function openEditor(category: string) {
+    const budget = budgets.find(
+      (item) =>
+        item.category === category &&
+        item.month === selectedMonth
+    );
+
+    setEditingCategory(category);
+    setDraftAmount(
+      budget ? String(budget.limit_cents / 100) : ""
+    );
+    setError("");
+    setSuccess("");
+  }
+
+  async function saveBudget() {
+    const amount = Number(draftAmount);
+
+    if (
+      !userId ||
+      !editingCategory ||
+      !Number.isFinite(amount) ||
+      amount <= 0
+    ) {
       setError("Enter a valid budget amount greater than $0.");
       setSuccess("");
       return;
     }
 
-    setSaving(category);
+    setSaving(true);
     setError("");
     setSuccess("");
 
     try {
       const saved = await api.saveBudget(
         userId,
-        category,
+        editingCategory,
         selectedMonth,
         Math.round(amount * 100)
       );
@@ -185,18 +227,18 @@ export default function BudgetsPage() {
       );
 
       setSuccess(
-        `${category} budget saved for ${formatMonth(
+        `${editingCategory} budget saved for ${formatMonth(
           selectedMonth
         )}.`
       );
+      setEditingCategory(null);
+      setDraftAmount("");
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to save budget"
+        err instanceof Error ? err.message : "Unable to save budget"
       );
     } finally {
-      setSaving("");
+      setSaving(false);
     }
   }
 
@@ -209,6 +251,7 @@ export default function BudgetsPage() {
         next.getMonth() + 1
       ).padStart(2, "0")}`
     );
+    setEditingCategory(null);
   }
 
   if (checkingSession) {
@@ -225,118 +268,151 @@ export default function BudgetsPage() {
     <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
       <AppSidebar />
 
-      <div className="px-5 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-10">
-        <div className="mx-auto max-w-7xl">
-          <header className="grid gap-6 xl:grid-cols-[1fr_auto] xl:items-end">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
-                Monthly spending plan
-              </p>
+      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-9">
+        <PageReveal className="mx-auto max-w-[1500px]">
+          <Reveal>
+            <header className="flex flex-col gap-6 border-b border-[#14241e]/10 pb-7 xl:flex-row xl:items-end xl:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
+                  Monthly spending plan
+                </p>
 
-              <h1 className="mt-3 max-w-3xl text-4xl font-semibold leading-tight tracking-[-0.05em] sm:text-5xl">
-                Give every category
-                <span className="block text-[#167c5a]">
-                  a clear limit.
-                </span>
-              </h1>
+                <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
+                  Budgets
+                </h1>
 
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-[#66746e] sm:text-base">
-                Set monthly targets, compare actual spending, and adjust
-                category limits as your plans change.
-              </p>
-            </div>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66746e]">
+                  Plan category limits, monitor progress, and adjust your
+                  monthly spending without managing a wall of forms.
+                </p>
+              </div>
 
-            <div className="rounded-[24px] border border-[#14241e]/10 bg-white p-3 shadow-sm shadow-[#14241e]/5">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[#14241e]/10 bg-white p-2 shadow-sm">
                 <button
                   type="button"
                   onClick={() => changeMonth(-1)}
-                  className="rounded-full border border-[#14241e]/10 px-4 py-2 text-sm font-medium transition hover:bg-[#f7f4ed]"
+                  aria-label="Previous month"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl transition hover:bg-[#f7f4ed]"
                 >
-                  Previous
+                  <ChevronLeft className="h-4 w-4" />
                 </button>
 
-                <input
-                  type="month"
-                  value={selectedMonth}
-                  onChange={(event) =>
-                    setSelectedMonth(event.target.value)
-                  }
-                  className="rounded-full border border-[#14241e]/10 bg-[#f7f4ed] px-4 py-2 text-sm outline-none focus:border-[#167c5a]"
-                />
+                <label className="relative">
+                  <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#728078]" />
+                  <input
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(event) =>
+                      setSelectedMonth(event.target.value)
+                    }
+                    className="h-10 rounded-xl border border-[#14241e]/10 bg-[#f7f4ed] pl-9 pr-3 text-sm outline-none focus:border-[#167c5a]"
+                  />
+                </label>
 
                 <button
                   type="button"
                   onClick={() => changeMonth(1)}
-                  className="rounded-full border border-[#14241e]/10 px-4 py-2 text-sm font-medium transition hover:bg-[#f7f4ed]"
+                  aria-label="Next month"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl transition hover:bg-[#f7f4ed]"
                 >
-                  Next
+                  <ChevronRight className="h-4 w-4" />
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setSelectedMonth(currentMonth())}
-                  className="rounded-full bg-[#14241e] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#20352d]"
+                  className="h-10 rounded-xl bg-[#14241e] px-4 text-sm font-semibold text-white transition hover:bg-[#20352d]"
                 >
-                  Current
+                  Current month
                 </button>
               </div>
-            </div>
-          </header>
-
-          <section className="mt-8 grid gap-4 md:grid-cols-3">
-            <MetricCard
-              label="Monthly budget"
-              value={formatCents(totalBudget)}
-              tone="green"
-            />
-            <MetricCard
-              label="Spent so far"
-              value={formatCents(totalSpent)}
-              tone="coral"
-            />
-            <MetricCard
-              label="Still available"
-              value={formatCents(totalRemaining)}
-              tone="yellow"
-            />
-          </section>
+            </header>
+          </Reveal>
 
           {(error || success) && (
-            <div className="mt-6 space-y-3">
+            <div className="mt-5 space-y-3">
               {error && <PageError message={error} />}
               {success && <PageSuccess message={success} />}
             </div>
           )}
 
-          <section className="mt-6 rounded-[28px] bg-[#14241e] p-6 text-white sm:p-8">
-            <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#76dfbd]">
-                  Selected period
-                </p>
-                <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">
-                  {formatMonth(selectedMonth)}
-                </h2>
-                <p className="mt-2 max-w-xl text-sm leading-6 text-white/65">
-                  {budgets.length} of {CATEGORIES.length} categories
-                  currently have a limit.
-                </p>
-              </div>
+          <Reveal delay={0.06}>
+            <section className="mt-6 grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+              <article className="premium-hover relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.18)] sm:p-9">
+                <div className="pointer-events-none absolute -right-14 -top-14 h-48 w-48 rounded-full bg-[#76dfbd]/15 blur-3xl" />
 
-              <div className="rounded-2xl bg-white/10 px-5 py-4">
-                <p className="text-xs text-white/55">
-                  Budget coverage
+                <div className="relative">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+                    {formatMonth(selectedMonth)}
+                  </p>
+
+                  <AnimatedNumber
+                    value={totalRemaining}
+                    format={formatCents}
+                    className="mt-4 block text-5xl font-semibold tracking-[-0.06em] sm:text-6xl"
+                  />
+
+                  <p className="mt-3 text-sm text-white/55">
+                    Remaining across all configured categories
+                  </p>
+
+                  <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
+                    <PlanMetric
+                      label="Budgeted"
+                      value={formatCents(totalBudget)}
+                      tone="positive"
+                    />
+                    <PlanMetric
+                      label="Spent"
+                      value={formatCents(-totalSpent)}
+                      tone="negative"
+                    />
+                    <PlanMetric
+                      label="Used"
+                      value={`${overallPercent}%`}
+                      tone="neutral"
+                    />
+                  </div>
+                </div>
+              </article>
+
+              <article className="premium-hover rounded-[30px] bg-[#dff6c7] p-7 sm:p-8">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#4c7e53]">
+                      Budget coverage
+                    </p>
+                    <AnimatedNumber
+                      value={coverage}
+                      format={(value) => `${value}%`}
+                      className="mt-4 block text-5xl font-semibold tracking-[-0.05em]"
+                    />
+                  </div>
+
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#14241e] text-[#dff6c7]">
+                    <Gauge className="h-5 w-5" />
+                  </span>
+                </div>
+
+                <p className="mt-3 text-sm leading-6 text-[#56705d]">
+                  {budgets.length} of {CATEGORIES.length} categories have
+                  active limits for this month.
                 </p>
-                <p className="mt-2 text-2xl font-semibold">
-                  {Math.round(
-                    (budgets.length / CATEGORIES.length) * 100
-                  )}
-                  %
-                </p>
-              </div>
-            </div>
-          </section>
+
+                <div className="mt-8 h-2 overflow-hidden rounded-full bg-[#14241e]/10">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${coverage}%` }}
+                    transition={{
+                      duration: 0.55,
+                      ease: [0.22, 1, 0.36, 1],
+                    }}
+                    className="h-full rounded-full bg-[#167c5a]"
+                  />
+                </div>
+              </article>
+            </section>
+          </Reveal>
 
           {loading ? (
             <div className="mt-6">
@@ -349,216 +425,346 @@ export default function BudgetsPage() {
                 description={`Set category limits for ${formatMonth(
                   selectedMonth
                 )} to start tracking monthly spending progress.`}
+                actionLabel="Create first budget"
+                onAction={() => openEditor(CATEGORIES[0])}
               />
             </div>
           ) : (
-            <section className="mt-6 grid gap-5 md:grid-cols-2">
-              {CATEGORIES.map((category, index) => {
-                const budget = budgets.find(
-                  (item) =>
-                    item.category === category &&
-                    item.month === selectedMonth
-                );
+            <Reveal>
+              <section className="mt-8 overflow-hidden rounded-[24px] border border-[#14241e]/10 bg-white">
+                <header className="grid gap-3 border-b border-[#14241e]/10 bg-[#faf8f3] px-5 py-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780] md:grid-cols-[minmax(180px,1.3fr)_140px_minmax(200px,1fr)_140px_110px] md:items-center">
+                  <span>Category</span>
+                  <span>Limit</span>
+                  <span>Progress</span>
+                  <span>Status</span>
+                  <span />
+                </header>
 
-                const categoryProgress = progress.find(
-                  (item) =>
-                    item.category === category &&
-                    item.month === selectedMonth
-                );
+                <div className="divide-y divide-[#14241e]/8">
+                  {CATEGORIES.map((category) => {
+                    const budget = budgets.find(
+                      (item) =>
+                        item.category === category &&
+                        item.month === selectedMonth
+                    );
 
-                return (
-                  <BudgetCard
-                    key={category}
-                    category={category}
-                    index={index}
-                    month={selectedMonth}
-                    budget={budget}
-                    progress={categoryProgress}
-                    value={values[category] ?? ""}
-                    saving={saving === category}
-                    onValueChange={(value) =>
-                      setValues((current) => ({
-                        ...current,
-                        [category]: value,
-                      }))
-                    }
-                    onSave={() => save(category)}
-                  />
-                );
-              })}
-            </section>
+                    const categoryProgress = progress.find(
+                      (item) =>
+                        item.category === category &&
+                        item.month === selectedMonth
+                    );
+
+                    return (
+                      <BudgetRow
+                        key={category}
+                        category={category}
+                        budget={budget}
+                        progress={categoryProgress}
+                        onEdit={() => openEditor(category)}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
+            </Reveal>
           )}
-        </div>
+        </PageReveal>
       </div>
+
+      <AnimatePresence>
+        {editingCategory && (
+          <BudgetDrawer
+            category={editingCategory}
+            month={selectedMonth}
+            currentBudget={activeBudget}
+            value={draftAmount}
+            saving={saving}
+            onChange={setDraftAmount}
+            onClose={() => setEditingCategory(null)}
+            onSave={saveBudget}
+          />
+        )}
+      </AnimatePresence>
     </main>
   );
 }
 
-function MetricCard({
+function PlanMetric({
   label,
   value,
   tone,
 }: {
   label: string;
   value: string;
-  tone: "green" | "coral" | "yellow";
+  tone: "positive" | "negative" | "neutral";
 }) {
-  const styles = {
-    green: "bg-[#dff6c7]",
-    coral: "bg-[#f8ddd5]",
-    yellow: "bg-[#f7e8b5]",
+  const toneClass = {
+    positive: "text-[#83dcb9]",
+    negative: "text-[#f4a594]",
+    neutral: "text-white",
   };
 
   return (
-    <article className={`rounded-[26px] p-5 ${styles[tone]}`}>
-      <p className="text-sm text-[#52635b]">{label}</p>
-      <p className="mt-3 text-3xl font-semibold tracking-[-0.04em]">
+    <div className="bg-white/[0.045] p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
+        {label}
+      </p>
+      <p className={`mt-2 text-lg font-semibold ${toneClass[tone]}`}>
         {value}
       </p>
-    </article>
+    </div>
   );
 }
 
-function BudgetCard({
+function BudgetRow({
   category,
-  index,
-  month,
   budget,
   progress,
-  value,
-  saving,
-  onValueChange,
-  onSave,
+  onEdit,
 }: {
   category: string;
-  index: number;
-  month: string;
   budget?: Budget;
   progress?: BudgetProgress;
-  value: string;
-  saving: boolean;
-  onValueChange: (value: string) => void;
-  onSave: () => void;
+  onEdit: () => void;
 }) {
-  const tones = [
-    "bg-white",
-    "bg-[#eef6e9]",
-    "bg-[#fbf0d1]",
-    "bg-[#f5e4de]",
-  ];
-
   const percent = progress?.percent_used ?? 0;
+  const reduceMotion = useReducedMotion();
+
   const status =
-    percent >= 100
-      ? "Over budget"
-      : percent >= 75
-      ? "Watch closely"
-      : "On track";
+    !budget
+      ? "Not configured"
+      : percent >= 100
+        ? "Over budget"
+        : percent >= 75
+          ? "Near limit"
+          : "On track";
+
+  const statusClass =
+    !budget
+      ? "bg-[#f1eee7] text-[#728078]"
+      : percent >= 100
+        ? "bg-[#f8ddd5] text-[#a64b3d]"
+        : percent >= 75
+          ? "bg-[#f7e8b5] text-[#8b6518]"
+          : "bg-[#edf5ee] text-[#167c5a]";
 
   return (
-    <article
-      className={`rounded-[28px] border border-[#14241e]/10 p-6 shadow-sm shadow-[#14241e]/5 ${
-        tones[index % tones.length]
-      }`}
+    <motion.article
+      layout
+      whileHover={
+        reduceMotion
+          ? undefined
+          : { x: 3, backgroundColor: "#fbfaf6" }
+      }
+      transition={{ duration: reduceMotion ? 0 : 0.2 }}
+      className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(180px,1.3fr)_140px_minmax(200px,1fr)_140px_110px] md:items-center"
     >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#7b8781]">
-            {formatMonth(month)}
-          </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
-            {category}
-          </h2>
-        </div>
-
-        <span
-          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-            budget
-              ? "bg-[#dff6c7] text-[#167c5a]"
-              : "bg-white/60 text-[#7b8781]"
-          }`}
-        >
-          {budget ? formatCents(budget.limit_cents) : "Not set"}
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#edf5ee] text-[#167c5a]">
+          <PiggyBank className="h-4 w-4" />
         </span>
+
+        <div>
+          <p className="text-sm font-semibold">{category}</p>
+          <p className="mt-1 text-xs text-[#87928d]">
+            {progress
+              ? `${formatCents(progress.spent_cents)} spent`
+              : "No tracked spending"}
+          </p>
+        </div>
       </div>
 
-      {progress ? (
-        <div className="mt-6">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <p className="text-sm text-[#66746e]">Spent</p>
-              <p className="mt-1 text-2xl font-semibold">
-                {formatCents(progress.spent_cents)}
-              </p>
-            </div>
+      <p className="text-sm font-semibold">
+        {budget ? formatCents(budget.limit_cents) : "Not set"}
+      </p>
 
-            <div className="text-right">
-              <p className="text-sm text-[#66746e]">{status}</p>
-              <p
-                className={`mt-1 text-sm font-semibold ${
-                  progress.over_budget_cents > 0
-                    ? "text-[#a64b3d]"
-                    : "text-[#167c5a]"
-                }`}
-              >
-                {progress.over_budget_cents > 0
-                  ? `${formatCents(progress.over_budget_cents)} over`
-                  : `${formatCents(progress.remaining_cents)} left`}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 h-3 overflow-hidden rounded-full bg-[#14241e]/10">
-            <div
-              className={`h-full rounded-full transition-all ${
-                percent >= 100
-                  ? "bg-[#c56755]"
-                  : percent >= 75
+      <div>
+        <div className="h-2 overflow-hidden rounded-full bg-[#14241e]/8">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${Math.min(percent, 100)}%` }}
+            transition={{
+              duration: reduceMotion ? 0 : 0.5,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+            className={`h-full rounded-full ${
+              percent >= 100
+                ? "bg-[#c56755]"
+                : percent >= 75
                   ? "bg-[#d5a737]"
                   : "bg-[#167c5a]"
-              }`}
-              style={{
-                width: `${Math.min(percent, 100)}%`,
-              }}
-            />
-          </div>
-
-          <p className="mt-2 text-xs text-[#7b8781]">
-            {percent}% used
-          </p>
-        </div>
-      ) : (
-        <p className="mt-6 text-sm leading-6 text-[#7b8781]">
-          Add a limit to begin tracking this category.
-        </p>
-      )}
-
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-        <div className="relative min-w-0 flex-1">
-          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-[#7b8781]">
-            $
-          </span>
-
-          <input
-            type="number"
-            min="0.01"
-            step="0.01"
-            value={value}
-            onChange={(event) => onValueChange(event.target.value)}
-            placeholder="0.00"
-            className="w-full rounded-2xl border border-[#14241e]/10 bg-white/70 py-3 pl-8 pr-4 text-sm outline-none placeholder:text-[#9aa39e] focus:border-[#167c5a]"
+            }`}
           />
         </div>
 
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={saving}
-          className="rounded-full bg-[#14241e] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {saving ? "Saving..." : budget ? "Update" : "Set budget"}
-        </button>
+        <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#7b8781]">
+          <span>{Math.round(percent)}% used</span>
+          <span>
+            {progress
+              ? progress.over_budget_cents > 0
+                ? `${formatCents(progress.over_budget_cents)} over`
+                : `${formatCents(progress.remaining_cents)} left`
+              : "Set a limit"}
+          </span>
+        </div>
       </div>
-    </article>
+
+      <span
+        className={`w-fit rounded-full px-3 py-1.5 text-xs font-semibold ${statusClass}`}
+      >
+        {status}
+      </span>
+
+      <button
+        type="button"
+        onClick={onEdit}
+        className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm font-semibold transition hover:bg-[#f7f4ed]"
+      >
+        <Edit3 className="h-4 w-4" />
+        {budget ? "Edit" : "Set"}
+      </button>
+    </motion.article>
+  );
+}
+
+function BudgetDrawer({
+  category,
+  month,
+  currentBudget,
+  value,
+  saving,
+  onChange,
+  onClose,
+  onSave,
+}: {
+  category: string;
+  month: string;
+  currentBudget?: Budget;
+  value: string;
+  saving: boolean;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-50"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.2 }}
+    >
+      <motion.button
+        type="button"
+        aria-label="Close budget editor"
+        onClick={onClose}
+        className="absolute inset-0 bg-[#14241e]/35 backdrop-blur-[2px]"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      />
+
+      <motion.aside
+        initial={reduceMotion ? false : { x: "100%" }}
+        animate={{ x: 0 }}
+        exit={{ x: "100%" }}
+        transition={{
+          duration: reduceMotion ? 0 : 0.32,
+          ease: [0.22, 1, 0.36, 1],
+        }}
+        className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-[#fdfcf8] shadow-2xl"
+      >
+        <header className="flex items-start justify-between border-b border-[#14241e]/10 px-6 py-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+              Budget editor
+            </p>
+            <h2 className="mt-2 text-xl font-semibold">
+              {category}
+            </h2>
+            <p className="mt-1 text-sm text-[#728078]">
+              {formatMonth(month)}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-[#14241e]/10 bg-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="flex-1 px-6 py-6">
+          <div className="rounded-2xl bg-[#edf5ee] p-5">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#167c5a] text-white">
+                <Target className="h-4 w-4" />
+              </span>
+
+              <div>
+                <p className="text-sm font-semibold">
+                  {currentBudget ? "Update monthly limit" : "Set monthly limit"}
+                </p>
+                <p className="mt-1 text-sm leading-6 text-[#66746e]">
+                  Choose the maximum amount you want to spend in this category.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <label className="mt-7 block">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#728078]">
+              Monthly amount
+            </span>
+
+            <div className="relative mt-2">
+              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#728078]">
+                $
+              </span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={value}
+                onChange={(event) => onChange(event.target.value)}
+                placeholder="0.00"
+                autoFocus
+                className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-white pl-8 pr-4 text-lg font-semibold outline-none focus:border-[#167c5a]"
+              />
+            </div>
+          </label>
+
+          {currentBudget && (
+            <div className="mt-6 rounded-2xl border border-[#14241e]/10 bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.1em] text-[#87928d]">
+                Current limit
+              </p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatCents(currentBudget.limit_cents)}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <footer className="border-t border-[#14241e]/10 p-6">
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            className="h-11 w-full rounded-xl bg-[#14241e] text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:opacity-50"
+          >
+            {saving
+              ? "Saving..."
+              : currentBudget
+                ? "Update budget"
+                : "Create budget"}
+          </button>
+        </footer>
+      </motion.aside>
+    </motion.div>
   );
 }

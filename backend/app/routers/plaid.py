@@ -21,6 +21,7 @@ from app.services.plaid_service import (
     create_link_token,
     exchange_public_token,
     get_accounts,
+    remove_item,
     sync_transactions,
 )
 from app.token_encryption import (
@@ -192,6 +193,64 @@ def exchange_plaid_token(
         ],
     )
 
+
+
+@router.delete(
+    "/items/{item_id}",
+    status_code=204,
+)
+def disconnect_plaid_item(
+    user_id: int,
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    _authorize_user(user_id, current_user)
+
+    plaid_item = db.scalar(
+        select(PlaidItem).where(
+            PlaidItem.id == item_id,
+            PlaidItem.user_id == user_id,
+        )
+    )
+
+    if plaid_item is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Plaid connection not found",
+        )
+
+    try:
+        access_token = decrypt_token(
+            plaid_item.access_token_ciphertext
+        )
+        remove_item(access_token)
+    except PlaidConfigurationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
+    except TokenEncryptionError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
+    except PlaidServiceError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+    try:
+        db.delete(plaid_item)
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to remove Plaid connection",
+        ) from exc
 
 
 @router.post(

@@ -11,6 +11,7 @@ from plaid.model.country_code import CountryCode
 from plaid.model.item_public_token_exchange_request import (
     ItemPublicTokenExchangeRequest,
 )
+from plaid.model.item_remove_request import ItemRemoveRequest
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import (
     LinkTokenCreateRequestUser,
@@ -141,6 +142,29 @@ def exchange_public_token(
         access_token=response["access_token"],
         item_id=response["item_id"],
     )
+
+
+def remove_item(
+    access_token: str,
+    app_settings: Settings = settings,
+) -> None:
+    if not access_token:
+        raise PlaidServiceError(
+            "Plaid access token cannot be empty"
+        )
+
+    client = get_plaid_client(app_settings)
+
+    try:
+        client.item_remove(
+            ItemRemoveRequest(
+                access_token=access_token
+            )
+        )
+    except plaid.ApiException as exc:
+        raise PlaidServiceError(
+            "Unable to disconnect Plaid institution"
+        ) from exc
 
 
 def get_accounts(

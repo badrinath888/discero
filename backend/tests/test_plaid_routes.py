@@ -1,7 +1,9 @@
+from datetime import date
+
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.models import FinancialAccount, PlaidItem
+from app.models import FinancialAccount, PlaidItem, Transaction
 from app.routers import plaid as plaid_router
 from app.services.plaid_service import (
     PlaidAccountData,
@@ -422,3 +424,163 @@ def test_exchange_token_handles_encryption_failure(
     assert response.json()["detail"] == (
         "Token encryption key is not configured"
     )
+
+def test_disconnect_plaid_item_removes_connection_and_preserves_transactions(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    with TestingSessionLocal() as db:
+        item = PlaidItem(
+            user_id=user_id,
+            provider_item_id="item-disconnect-1",
+            institution_name="Sandbox Bank",
+            access_token_ciphertext="encrypted-token",
+            status="active",
+        )
+        db.add(item)
+        db.flush()
+
+        account = FinancialAccount(
+            plaid_item_id=item.id,
+            provider_account_id="account-disconnect-1",
+            name="Checking",
+            account_type="depository",
+            account_subtype="checking",
+            currency="USD",
+        )
+        db.add(account)
+        db.flush()
+
+        transaction = Transaction(
+            user_id=user_id,
+            financial_account_id=account.id,
+            provider_transaction_id="transaction-disconnect-1",
+            posted_on=date(2026, 8, 1),
+            description="Preserved transaction",
+            amount_cents=-2500,
+            category="Food",
+            source="plaid",
+            pending=False,
+        )
+        db.add(transaction)
+        db.commit()
+
+        item_id = item.id
+        transaction_id = transaction.id
+
+    removed_tokens: list[str] = []
+
+    monkeypatch.setattr(
+        plaid_router,
+        "decrypt_token",
+        lambda ciphertext: "plaintext-access-token",
+    )
+    monkeypatch.setattr(
+        plaid_router,
+        "remove_item",
+        lambda access_token: removed_tokens.append(access_token),
+    )
+
+    response = client.delete(
+        f"/users/{user_id}/plaid/items/{item_id}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 204
+    assert removed_tokens == ["plaintext-access-token"]
+
+    with TestingSessionLocal() as db:
+        assert db.get(PlaidItem, item_id) is None
+
+        accounts = list(
+            db.scalars(select(FinancialAccount)).all()
+        )
+        assert accounts == []
+
+        transaction = db.get(Transaction, transaction_id)
+        assert transaction is not None
+        assert transaction.financial_account_id is None
+        assert transaction.description == "Preserved transaction"
+
+
+def test_disconnect_plaid_item_returns_not_found(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    response = client.delete(
+        f"/users/{user_id}/plaid/items/999999",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == (
+        "Plaid connection not found"
+    )
+
+
+def test_disconnect_plaid_item_rejects_cross_user_access(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    response = client.delete(
+        f"/users/{user_id + 1}/plaid/items/1",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "you cannot access another user's data"
+    )
+
+
+def test_disconnect_plaid_item_keeps_local_data_when_plaid_fails(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    with TestingSessionLocal() as db:
+        item = PlaidItem(
+            user_id=user_id,
+            provider_item_id="item-disconnect-failure",
+            institution_name="Sandbox Bank",
+            access_token_ciphertext="encrypted-token",
+            status="active",
+        )
+        db.add(item)
+        db.commit()
+        item_id = item.id
+
+    monkeypatch.setattr(
+        plaid_router,
+        "decrypt_token",
+        lambda ciphertext: "plaintext-access-token",
+    )
+
+    def raise_error(access_token: str) -> None:
+        raise PlaidServiceError(
+            "Unable to disconnect Plaid institution"
+        )
+
+    monkeypatch.setattr(
+        plaid_router,
+        "remove_item",
+        raise_error,
+    )
+
+    response = client.delete(
+        f"/users/{user_id}/plaid/items/{item_id}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "Unable to disconnect Plaid institution"
+    )
+
+    with TestingSessionLocal() as db:
+        assert db.get(PlaidItem, item_id) is not None

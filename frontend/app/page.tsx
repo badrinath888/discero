@@ -28,6 +28,12 @@ export default function HomePage() {
 
   useEffect(() => {
     async function validateSession() {
+      const sessionNotice = session.consumeNotice();
+
+      if (sessionNotice) {
+        setError(sessionNotice);
+      }
+
       const token = session.getToken();
 
       if (!token) {
@@ -41,6 +47,7 @@ export default function HomePage() {
         router.replace("/dashboard");
       } catch {
         session.clear();
+        setError(session.consumeNotice());
         setCheckingSession(false);
       }
     }

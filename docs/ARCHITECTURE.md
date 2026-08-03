@@ -18,20 +18,20 @@ The frontend is a client-rendered App Router application. Each authenticated pag
 
 ## Database model
 
-- `User`: unique indexed email, Argon2 password hash, creation time. Owns transactions, budgets, goals, and Plaid items with delete-orphan cascades.
+- `User`: unique indexed email, Argon2 password hash, integer token version defaulting to zero, and creation time. Owns transactions, budgets, goals, and Plaid items with delete-orphan cascades.
 - `Transaction`: user; optional financial account (`SET NULL` on account removal); globally unique optional Plaid transaction id; date, description, optional merchant, signed integer cents, category, category lock, source, pending flag, timestamps. Positive is income; negative is expense.
 - `Budget`: user/category/`YYYY-MM` unique tuple, positive limit in cents.
 - `SavingsGoal`: user, name, positive target, nonnegative saved amount, optional target date, timestamps.
 - `PlaidItem`: user, globally unique provider item id, institution metadata, encrypted access token, status, cursor and sync timestamps. Owns financial accounts.
 - `FinancialAccount`: Plaid item, globally unique provider account id, names/type/subtype/mask, current/available balances, currency, timestamps. Relates to transactions.
 
-Alembic is linear: `93dcf675c7ee` initial user/transaction/budget schema → `f77d39a9c4e0` Plaid items/accounts → `ac2645f928d0` transaction Plaid fields → `383774abbeb5` category lock → `568820dfb45d` savings goals. Audit commands show one head and the local SQLite database at head.
+Alembic is linear: `93dcf675c7ee` initial user/transaction/budget schema → `f77d39a9c4e0` Plaid items/accounts → `ac2645f928d0` transaction Plaid fields → `383774abbeb5` category lock → `568820dfb45d` savings goals → `c4a8d9e2f1b0` user token version. Validation commands show one head and the local SQLite database at head.
 
 ## Authentication lifecycle
 
-Registration normalizes email and rejects duplicates, then hashes the password with pwdlib's recommended Argon2 hasher. Login verifies the hash and issues an HS256 JWT containing string `sub` (user id), `iat`, and `exp`; default lifetime is 60 minutes. The browser stores the JWT and user id in `localStorage`, sends `Authorization: Bearer`, clears storage on API 401, and has a sidebar logout that only clears the browser.
+Registration normalizes email and rejects duplicates, then hashes the password with pwdlib's recommended Argon2 hasher. New users start with token version zero. Login verifies the hash and issues an HS256 JWT containing string `sub` (user id), integer `ver` (the current user token version), and `exp`; default lifetime is 60 minutes. Authentication loads the user and requires the claim to equal the stored version. Validly signed tokens with a missing, non-integer, or mismatched `ver` receive the generic 401 `session expired; please sign in again`; legacy tokens without `ver` are intentionally rejected. Malformed, expired and unknown-user handling remains separate.
 
-Email and password changes require the current password. Email is normalized, must differ, and must be unique. New password must differ and meet the schema's 8-character minimum. The Settings UI clears local storage after a successful credential change. **The server does not revoke already-issued JWTs**, so tokens in this or other browsers remain valid until expiration. There are no refresh tokens, token version, denylist, password reset, email verification, rate limiting, or account deletion.
+Email and password changes require the current password. Email is normalized, must differ, and must be unique. New password must differ and meet the schema's 8-character minimum. Each successful credential change increments the token version exactly once in the same commit, invalidating every older token immediately; rejected changes do not increment it. The Settings UI continues to show its success state, clears local storage, and redirects to login. Shared frontend 401 handling also clears authentication and carries a one-time sign-in-again notice to the login page for version-invalidated sessions. There are no refresh tokens, per-device sessions, denylist, password reset, email verification, rate limiting, or account deletion.
 
 ## Data flows
 

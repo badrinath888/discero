@@ -8,10 +8,10 @@ Base URL is configured by deployment; local default is `http://localhost:8000`. 
 |---|---|---|
 | `GET /health` | None; public | `{"status":"ok"}`. |
 | `POST /users` | JSON `email`, password 8–128 | 201 `UserOut`; normalized lowercase email; 409 duplicate. |
-| `POST /users/login` | JSON email/password | `TokenOut`; 401 invalid credentials. JWT has `sub`, `iat`, `exp`. |
+| `POST /users/login` | JSON email/password | `TokenOut`; 401 invalid credentials. JWT has user id in `sub`, current token version in integer `ver`, and `exp`. |
 | `GET /users/me` | Bearer | Current `UserOut`. |
-| `PATCH /users/me/email` | `new_email`, `current_password` | Updated `UserOut`; 400 wrong password/same email, 409 duplicate. Existing JWTs remain valid. |
-| `PATCH /users/me/password` | `current_password`, `new_password` | 204; 400 wrong/same password. Existing JWTs remain valid. |
+| `PATCH /users/me/email` | `new_email`, `current_password` | Updated `UserOut`; 400 wrong password/same email, 409 duplicate. A successful change increments the user's token version once and immediately invalidates all previously issued JWTs. |
+| `PATCH /users/me/password` | `current_password`, `new_password` | 204; 400 wrong/same password. A successful change increments the user's token version once and immediately invalidates all previously issued JWTs. |
 | `GET /users/{user_id}` | Bearer | `UserOut`; 403 cross-user. |
 
 ## Transactions and import
@@ -68,4 +68,6 @@ Base URL is configured by deployment; local default is `http://localhost:8000`. 
 | `DELETE /users/{user_id}/plaid/items/{item_id}` | None | 204 after provider removal; preserves transactions but nulls account link. 404 missing/not owned. Local data is retained if provider removal fails. |
 | `GET /users/{user_id}/accounts` | None | Safe connected-account metadata/balances and last sync; no access tokens/provider ids. |
 
-Common failures are 401 missing/invalid/expired bearer, 403 path ownership mismatch, 404 owner-scoped resource missing, 409 conflicts, 422 validation, 502 Plaid upstream, 503 missing integration/encryption configuration, and 500 persistence/encryption failures. There is no standardized error envelope beyond FastAPI's `detail`.
+Authenticated requests compare the JWT's integer `ver` claim with the current user's stored token version. A mismatch or missing/non-integer claim returns 401 `session expired; please sign in again`. Legacy tokens without `ver` are deliberately rejected rather than treated as version 0. Missing, malformed, expired and unknown-user token handling otherwise remains unchanged.
+
+Common failures are 401 missing/invalid/expired bearer or invalidated session, 403 path ownership mismatch, 404 owner-scoped resource missing, 409 conflicts, 422 validation, 502 Plaid upstream, 503 missing integration/encryption configuration, and 500 persistence/encryption failures. There is no standardized error envelope beyond FastAPI's `detail`.

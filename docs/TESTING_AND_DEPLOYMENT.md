@@ -30,9 +30,9 @@ Frontend is port 3000. Never print or commit either real env file.
 cd backend && source venv/bin/activate && pytest -q
 # 136 passed in 7.42s; two cache-write warnings caused by audit sandbox permissions
 
-alembic heads      # 568820dfb45d (head)
-alembic current    # 568820dfb45d (head), local SQLite
-alembic history    # one five-revision chain
+alembic heads      # c4a8d9e2f1b0 (head)
+alembic current    # c4a8d9e2f1b0 (head), local SQLite
+alembic history    # one six-revision chain
 
 cd ../frontend
 npm run lint       # pass, no findings
@@ -49,17 +49,19 @@ Backend: `APP_NAME`, `DATABASE_URL`, `CORS_ORIGINS`, `JWT_SECRET`, `JWT_ALGORITH
 
 Run `alembic upgrade head` from `backend/`. `alembic/env.py` uses `settings.database_url`, not merely the ini default. Review generated revisions and test both upgrade and downgrade on disposable data; do not downgrade production casually. Current chain is documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 
+Revision `c4a8d9e2f1b0` adds `users.token_version` as a non-null integer with server default zero. Deploy through `backend/start.sh` so the migration completes before the new authentication code serves requests. The release intentionally signs out every browser holding a legacy token without `ver`; users must log in once to receive a versioned token.
+
 ## CI and production
 
 GitHub Actions runs pytest and npm lint/build on PRs and pushes to `main`. The intended deployment flow is merge/push main → GitHub CI plus external Vercel/Render main-branch deployments. That linkage is configured in vendor dashboards, not repository files.
 
-Render should use `backend/start.sh`; it migrates then starts Uvicorn on `$PORT`. A direct Dockerfile deployment starts Uvicorn but currently cannot migrate because Alembic files are not copied. Expect free/scale-to-zero Render instances to cold-start; the frontend's 15-second request timeout can surface this as “server took too long.” Do not claim an exact cold-start duration.
+Render should use `backend/start.sh`; it runs `alembic upgrade head` and only then executes `uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"`. The Dockerfile copies the Alembic configuration/revisions and uses the same script as its `CMD`, so both documented native and container starts migrate before serving. The repository has no `render.yaml` or Procfile; confirm the external Render dashboard command points to `./start.sh` when using the native runtime. Expect free/scale-to-zero Render instances to cold-start; the frontend's 15-second request timeout can surface this as “server took too long.” Do not claim an exact cold-start duration.
 
 Vercel should use `frontend` as root, `npm run build`, and production `NEXT_PUBLIC_API_URL`. To verify a commit is Ready: open the Vercel project Deployments view, match the Git SHA/branch, require status **Ready**, inspect build logs, open the deployment, and smoke-test login plus an authenticated API call. Also check backend `/health` and CORS from the production origin. The audit did not have vendor-dashboard evidence and did not live-probe production.
 
 ## Troubleshooting
 
-- 401: expired/invalid bearer; browser API clears local session. Credential changes do not revoke older server tokens.
+- 401: expired/invalid bearer or version-invalidated session; browser API clears local authentication. Version mismatches and legacy tokens return `session expired; please sign in again`, which the login page displays once.
 - 403: URL `user_id` differs from JWT subject.
 - Plaid 503: credentials or Fernet key absent/invalid; 502: provider failure.
 - CORS: ensure exact frontend origin (without trailing slash after normalization) appears in `CORS_ORIGINS`.

@@ -3,6 +3,9 @@ const API_URL =
 
 const TOKEN_KEY = "accessToken";
 const USER_ID_KEY = "userId";
+const SESSION_NOTICE_KEY = "sessionNotice";
+const INVALIDATED_SESSION_DETAIL =
+  "session expired; please sign in again";
 const REQUEST_TIMEOUT_MS = 15_000;
 
 async function fetchWithTimeout(
@@ -66,6 +69,22 @@ function clearSession(): void {
   localStorage.removeItem(USER_ID_KEY);
 }
 
+function handleUnauthorized(res: Response, message: string): void {
+  if (res.status !== 401) return;
+
+  clearSession();
+
+  if (
+    typeof window !== "undefined" &&
+    message.startsWith(INVALIDATED_SESSION_DETAIL)
+  ) {
+    sessionStorage.setItem(
+      SESSION_NOTICE_KEY,
+      "Your session expired. Please sign in again."
+    );
+  }
+}
+
 async function getErrorMessage(res: Response): Promise<string> {
   const body = await res.json().catch(() => ({}));
   const status = `${res.status}${
@@ -92,11 +111,10 @@ async function getErrorMessage(res: Response): Promise<string> {
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    if (res.status === 401) {
-      clearSession();
-    }
+    const message = await getErrorMessage(res);
 
-    throw new Error(await getErrorMessage(res));
+    handleUnauthorized(res, message);
+    throw new Error(message);
   }
 
   return res.json();
@@ -104,11 +122,10 @@ async function handle<T>(res: Response): Promise<T> {
 
 async function handleEmpty(res: Response): Promise<void> {
   if (!res.ok) {
-    if (res.status === 401) {
-      clearSession();
-    }
+    const message = await getErrorMessage(res);
 
-    throw new Error(await getErrorMessage(res));
+    handleUnauthorized(res, message);
+    throw new Error(message);
   }
 }
 
@@ -358,11 +375,20 @@ export const session = {
   save(auth: AuthResponse): void {
     localStorage.setItem(TOKEN_KEY, auth.access_token);
     localStorage.setItem(USER_ID_KEY, String(auth.user.id));
+    sessionStorage.removeItem(SESSION_NOTICE_KEY);
   },
 
   clear: clearSession,
 
   getToken,
+
+  consumeNotice(): string {
+    if (typeof window === "undefined") return "";
+
+    const notice = sessionStorage.getItem(SESSION_NOTICE_KEY) ?? "";
+    sessionStorage.removeItem(SESSION_NOTICE_KEY);
+    return notice;
+  },
 
   getUserId(): number | null {
     if (typeof window === "undefined") return null;

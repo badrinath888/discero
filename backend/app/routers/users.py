@@ -77,7 +77,7 @@ def login(
         )
 
     return TokenOut(
-        access_token=create_access_token(user.id),
+        access_token=create_access_token(user.id, user.token_version),
         user=UserOut.model_validate(user),
     )
 
@@ -118,6 +118,7 @@ def change_email(
         )
 
     current_user.email = new_email
+    current_user.token_version += 1
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
@@ -150,6 +151,7 @@ def change_password(
         )
 
     current_user.password_hash = hash_password(payload.new_password)
+    current_user.token_version += 1
     db.add(current_user)
     db.commit()
 

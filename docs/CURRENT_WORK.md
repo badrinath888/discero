@@ -1,57 +1,45 @@
 # Current work
 
-Updated: 2026-08-03 after implementing atomic category Undo. Nothing is committed or pushed.
+Updated: 2026-08-03 after implementing per-user JWT invalidation. Nothing is committed or pushed.
 
 ## Baseline and changed files
 
-The work started from clean `main` at `8da0e6d2d84cdbae1afa16fb2aa19a3a498930bd`, matching `origin/main`. No migration or dependency change is required.
+The work started from clean `main` at `a650477e006160561f61ebe18e14f22f80194f0a`, matching `origin/main`.
 
-Current implementation files:
+Backend changes:
 
-- `backend/app/schemas.py`
-- `backend/app/routers/transactions.py`
-- `backend/tests/test_transaction_bulk.py`
+- `backend/app/models.py`
+- `backend/app/security.py`
+- `backend/app/auth.py`
+- `backend/app/routers/auth.py`
+- `backend/app/routers/users.py`
+- `backend/alembic/versions/c4a8d9e2f1b0_add_user_token_version.py` (new)
+- `backend/tests/test_token_version.py` (new)
+
+Frontend changes:
+
 - `frontend/app/lib/api.ts`
-- `frontend/app/transactions/page.tsx`
+- `frontend/app/page.tsx`
 
-Documentation updates are limited to this file, `API_REFERENCE.md`, `IMPLEMENTED_FEATURES.md`, and `ARCHITECTURE.md`.
+Documentation updates are limited to this file, `API_REFERENCE.md`, `ARCHITECTURE.md`, `IMPLEMENTED_FEATURES.md`, and `TESTING_AND_DEPLOYMENT.md`.
 
-## Atomic category Undo
+## JWT invalidation behavior
 
-`PATCH /users/{user_id}/transactions/bulk/categories` accepts one to 100 unique transaction/category pairs. It requires positive IDs and trimmed, nonblank categories no longer than 64 characters. Duplicate IDs are rejected because repeated entries could specify conflicting values. The handler authenticates, enforces path ownership, loads the full owner-scoped set before mutation, sets every `category_locked` flag, commits once, and returns rows in request order. Missing or cross-user IDs reject the entire request with no partial update.
+`User.token_version` is a non-null integer with application and server default zero. Revision `c4a8d9e2f1b0` adds the column without requiring data backfill. Login embeds the current version in the JWT's integer `ver` claim. Authentication decodes the token, loads its subject user, and compares `ver` with the stored value.
 
-The Transactions page captures each previous category before a successful single or bulk change. The committed update is shown immediately with a six-second Undo action. Undo calls the mixed-category endpoint once and replaces the page rows with the atomic response. Failure leaves the newly applied categories visible and surfaces the backend error.
+Successful password and email changes increment the version exactly once in the same commit as the credential change. Every previously issued token then fails immediately with 401 `session expired; please sign in again`. Validation, password verification and email uniqueness failures return before mutation, leaving the version unchanged. New login uses the latest version and produces a working token. Path ownership checks remain unchanged.
 
-Only one Undo action is displayed. Starting another category change replaces the older category opportunity; starting a deletion clears it. Starting a category change hides an existing delete Undo without cancelling the already-scheduled delete, matching the existing close behavior. Category expiry and close only clear browser state and never call the backend. Both timers are cleared on unmount, and category timers use a generation check so stale callbacks cannot clear newer state.
-
-## Atomic bulk endpoints
-
-`PATCH /users/{user_id}/transactions/bulk/category` accepts transaction IDs and a category. `POST /users/{user_id}/transactions/bulk/delete` accepts transaction IDs and returns a deletion count. Both routes are declared before `/transactions/{transaction_id}`.
-
-Shared Pydantic validation:
-
-- requires at least one ID
-- requires positive integer IDs
-- deduplicates repeated IDs while preserving first occurrence
-- allows at most 100 unique IDs
-
-Both handlers authenticate the caller, enforce path-user ownership, and load the complete owner-scoped transaction set before mutation. If any requested ID is missing or belongs to another user, the request returns 404 and changes nothing. Category updates trim and validate the category using the existing single-update constraints, set every `category_locked` flag, commit once, and return transactions in requested order. Delete commits once and returns `{deleted}`. Cross-user and missing-ID errors use the same message to avoid record disclosure.
+Legacy tokens without `ver` are strictly rejected. This deliberately signs out all sessions issued before deployment rather than temporarily treating them as version zero. Missing/non-integer versions use the session-expired response; malformed, expired and unknown-user token handling remains unchanged.
 
 ## Frontend behavior
 
-The API client exposes `bulkUpdateTransactionCategory`, `bulkUpdateTransactionCategories`, and `bulkDeleteTransactions`. The Transactions page uses atomic requests for bulk mutations and category restoration:
+The API client still clears stored authentication on every 401. When the backend detail identifies a version-invalidated session, it additionally stores a one-time message in `sessionStorage`. Existing authenticated pages observe the removed token and redirect to `/`; the login page consumes and displays `Your session expired. Please sign in again.` once. Saving a successful login clears any stale notice. This does not introduce a global router or redirect loop.
 
-- selected category changes use one PATCH request
-- single and bulk category Undo use one mixed-category PATCH request
-- both single and multi-row permanent deletion use one POST request
-- confirmation, selection, optimistic totals, Potential duplicates, notifications, and error restoration are preserved
-- Undo before six seconds cancels the timer and sends no backend delete
-- after six seconds one atomic delete request is sent
-- if it fails, every optimistically removed transaction and aggregate is restored
+Settings retains its existing successful credential-change flow: display the success message briefly, clear the current browser's token and user id, and redirect to login.
 
 ## Tests and verification
 
-Focused backend tests cover successful single-category, mixed-category and delete operations; duplicate IDs; empty/zero/negative IDs; the 100-ID limit; blank categories; missing-ID and cross-user rollback; category locks; no partial updates/deletes; authentication; and deterministic response ordering.
+Focused tests cover version-zero registration/login, working pre-change tokens, exact version increments, old-token rejection after password/email changes, successful post-change login and token use, failed-change non-increment, incorrect and missing version claims, and cross-user authorization.
 
 Run before review:
 
@@ -73,11 +61,11 @@ git status --short
 
 ## Known limitations
 
-- Bulk size is capped at 100 unique IDs.
-- Undo remains in browser memory; navigation/reload before the timer fires can cancel the pending timer through component cleanup while leaving optimistic UI state irrelevant after navigation.
-- The backend has no restore endpoint after a successful delete.
-- The repository still has no frontend automated test harness, so the delayed request behavior is lint/build verified rather than browser-test verified.
+- Token version invalidates every session for a user; there is no per-device/session revocation.
+- There are no refresh tokens, session inventory, remote logout UI, or token denylist.
+- The one-time frontend notice uses browser `sessionStorage`; it does not persist across a fully closed browser session.
+- The repository has no frontend automated test harness, so redirect/message behavior is lint/build verified rather than browser-test verified.
 
 ## Recommended next task
 
-Add a small frontend test harness and cover delayed bulk deletion, category Undo restoration, timer replacement, Undo cancellation, backend failure restoration, and overlapping user actions before changing the UX further.
+Add frontend authentication integration coverage for invalidated-session redirects and the one-time login notice before introducing refresh tokens or per-device session management.

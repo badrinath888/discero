@@ -23,21 +23,29 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user_id = decode_access_token(credentials.credentials)
+    token_data = decode_access_token(credentials.credentials)
 
-    if user_id is None:
+    if token_data is None:
         raise HTTPException(
             status_code=401,
             detail="invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    user_id, token_version = token_data
     user = db.get(User, user_id)
 
     if user is None:
         raise HTTPException(
             status_code=401,
             detail="user not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if token_version != user.token_version:
+        raise HTTPException(
+            status_code=401,
+            detail="session expired; please sign in again",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

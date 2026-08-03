@@ -195,7 +195,11 @@ export default function SettingsPage() {
               </div>
 
               <div className="mt-7 grid gap-4 sm:grid-cols-2">
-                <StatCard label="Email" value={user.email} />
+                <StatCard
+                  label="Email"
+                  value={user.email}
+                  className="sm:col-span-2"
+                />
                 <StatCard label="User ID" value={String(user.id)} />
                 <StatCard
                   label="Connected accounts"
@@ -347,12 +351,16 @@ function PasswordField({
 function StatCard({
   label,
   value,
+  className = "",
 }: {
   label: string;
   value: string;
+  className?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[#183028]/10 bg-[#f8f6ef] p-5">
+    <div
+      className={`rounded-2xl border border-[#183028]/10 bg-[#f8f6ef] p-5 ${className}`}
+    >
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7b8982]">
         {label}
       </p>

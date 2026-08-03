@@ -63,6 +63,8 @@ export default function GoalsPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [pendingDeleteGoal, setPendingDeleteGoal] =
+    useState<SavingsGoal | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -350,8 +352,16 @@ export default function GoalsPage() {
     }
   }
 
-  async function deleteGoal(goal: SavingsGoal) {
-    if (!userId || !window.confirm(`Delete "${goal.name}"?`)) return;
+  function deleteGoal(goal: SavingsGoal) {
+    if (busyId !== null || busy) return;
+
+    setPendingDeleteGoal(goal);
+  }
+
+  async function confirmDeleteGoal() {
+    if (!userId || !pendingDeleteGoal || busyId !== null) return;
+
+    const goal = pendingDeleteGoal;
 
     setBusyId(goal.id);
     setError("");
@@ -362,6 +372,7 @@ export default function GoalsPage() {
       setGoals((current) =>
         current.filter((item) => item.id !== goal.id)
       );
+      setPendingDeleteGoal(null);
       setMessage("Savings goal deleted.");
     } catch (err) {
       setError(
@@ -555,6 +566,21 @@ export default function GoalsPage() {
             onSave={saveGoalChanges}
             onAdd={addContribution}
             onWithdraw={withdrawFunds}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {pendingDeleteGoal && (
+          <GoalDeleteConfirmationModal
+            goalName={pendingDeleteGoal.name}
+            busy={busyId === pendingDeleteGoal.id}
+            onCancel={() => {
+              if (busyId === null) {
+                setPendingDeleteGoal(null);
+              }
+            }}
+            onConfirm={() => void confirmDeleteGoal()}
           />
         )}
       </AnimatePresence>
@@ -985,6 +1011,100 @@ function GoalDrawer({
           </footer>
         )}
       </motion.aside>
+    </motion.div>
+  );
+}
+
+function GoalDeleteConfirmationModal({
+  goalName,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  goalName: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[60] flex items-center justify-center px-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.18 }}
+    >
+      <button
+        type="button"
+        aria-label="Close delete goal confirmation"
+        onClick={onCancel}
+        disabled={busy}
+        className="absolute inset-0 bg-[#14241e]/45 backdrop-blur-[3px]"
+      />
+
+      <motion.section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-goal-title"
+        initial={
+          reduceMotion
+            ? false
+            : { opacity: 0, scale: 0.96, y: 16 }
+        }
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 16 }}
+        transition={{
+          duration: reduceMotion ? 0 : 0.22,
+          ease: [0.22, 1, 0.36, 1],
+        }}
+        className="relative w-full max-w-md rounded-[28px] border border-[#14241e]/10 bg-[#fdfcf8] p-6 shadow-[0_30px_90px_rgba(20,36,30,0.28)] sm:p-7"
+      >
+        <div className="flex items-start gap-4">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#f6e6e1] text-[#a64b3d]">
+            <Trash2 className="h-5 w-5" />
+          </span>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#a64b3d]">
+              Confirm deletion
+            </p>
+
+            <h2
+              id="delete-goal-title"
+              className="mt-2 text-2xl font-semibold tracking-[-0.04em]"
+            >
+              Delete &quot;{goalName}&quot;?
+            </h2>
+          </div>
+        </div>
+
+        <p className="mt-5 text-sm leading-6 text-[#66746e]">
+          This savings goal and its recorded progress will be permanently
+          removed from FinSight.
+        </p>
+
+        <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="min-h-11 rounded-full border border-[#14241e]/10 bg-white px-5 text-sm font-semibold transition hover:bg-[#f5f1e8] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Keep goal
+          </button>
+
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#a64b3d] px-5 text-sm font-semibold text-white transition hover:bg-[#8f3f33] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy ? "Deleting..." : "Delete permanently"}
+          </button>
+        </div>
+      </motion.section>
     </motion.div>
   );
 }

@@ -15,11 +15,11 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
+import Toast from "../components/Toast";
 import {
   EmptyState,
   PageError,
   PageLoading,
-  PageSuccess,
 } from "../components/PageFeedback";
 import {
   AnimatedNumber,
@@ -398,10 +398,9 @@ export default function BudgetsPage() {
             </header>
           </Reveal>
 
-          {(error || success) && (
-            <div className="mt-5 space-y-3">
-              {error && <PageError message={error} />}
-              {success && <PageSuccess message={success} />}
+          {error && (
+            <div className="mt-5">
+              <PageError message={error} />
             </div>
           )}
 
@@ -554,6 +553,11 @@ export default function BudgetsPage() {
           />
         )}
       </AnimatePresence>
+      <Toast
+        message={success}
+        type="success"
+        onClose={() => setSuccess("")}
+      />
     </main>
   );
 }

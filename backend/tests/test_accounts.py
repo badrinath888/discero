@@ -88,6 +88,7 @@ def test_accounts_return_safe_account_details(
     body = response.json()
 
     assert len(body) == 1
+    assert body[0]["plaid_item_id"] == item.id
     assert body[0]["institution_name"] == (
         "First Platypus Bank"
     )

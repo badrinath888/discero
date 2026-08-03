@@ -266,6 +266,7 @@ export type PlaidLinkToken = {
 
 export type FinancialAccount = {
   id: number;
+  plaid_item_id: number;
   institution_name: string | null;
   name: string;
   official_name: string | null;
@@ -630,6 +631,15 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
     }).then((res) => handle<PlaidSyncResult>(res)),
+
+  disconnectPlaidItem: (
+    userId: number,
+    itemId: number
+  ): Promise<void> =>
+    fetch(`${API_URL}/users/${userId}/plaid/items/${itemId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(handleEmpty),
 };
 
 export function formatCents(

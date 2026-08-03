@@ -51,6 +51,7 @@ def list_accounts(
     return [
         ConnectedAccountOut(
             id=account.id,
+            plaid_item_id=item.id,
             institution_name=item.institution_name,
             name=account.name,
             official_name=account.official_name,

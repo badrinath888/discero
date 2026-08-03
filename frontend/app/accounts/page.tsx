@@ -87,6 +87,8 @@ export default function AccountsPage() {
   const [activeAccountId, setActiveAccountId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [disconnectingItemId, setDisconnectingItemId] =
+    useState<number | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -237,6 +239,44 @@ export default function AccountsPage() {
       );
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function handleDisconnect(
+    itemId: number,
+    institutionName: string | null
+  ) {
+    if (!userId || disconnectingItemId !== null) return;
+
+    const confirmed = window.confirm(
+      `Disconnect ${institutionName ?? "this institution"}? ` +
+        "Imported transactions will remain in FinSight."
+    );
+
+    if (!confirmed) return;
+
+    setDisconnectingItemId(itemId);
+    setError("");
+    setMessage("");
+
+    try {
+      await api.disconnectPlaidItem(userId, itemId);
+
+      setExpandedId(null);
+      setActiveAccountId(null);
+      setMessage(
+        `${institutionName ?? "Institution"} disconnected successfully.`
+      );
+
+      await loadAccounts(userId);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to disconnect institution"
+      );
+    } finally {
+      setDisconnectingItemId(null);
     }
   }
 
@@ -418,6 +458,8 @@ export default function AccountsPage() {
                   setExpandedId((current) => (current === id ? null : id))
                 }
                 onOpenDetails={setActiveAccountId}
+                onDisconnect={handleDisconnect}
+                disconnectingItemId={disconnectingItemId}
               />
 
               <AccountSection
@@ -431,6 +473,8 @@ export default function AccountsPage() {
                   setExpandedId((current) => (current === id ? null : id))
                 }
                 onOpenDetails={setActiveAccountId}
+                onDisconnect={handleDisconnect}
+                disconnectingItemId={disconnectingItemId}
                 liability
               />
             </div>
@@ -490,6 +534,8 @@ function AccountSection({
   expandedId,
   onToggle,
   onOpenDetails,
+  onDisconnect,
+  disconnectingItemId,
   liability = false,
 }: {
   title: string;
@@ -500,6 +546,11 @@ function AccountSection({
   expandedId: number | null;
   onToggle: (id: number) => void;
   onOpenDetails: (id: number) => void;
+  onDisconnect: (
+    itemId: number,
+    institutionName: string | null
+  ) => void;
+  disconnectingItemId: number | null;
   liability?: boolean;
 }) {
   return (
@@ -543,6 +594,15 @@ function AccountSection({
                   .slice(0, 4)}
                 onToggle={() => onToggle(account.id)}
                 onOpenDetails={() => onOpenDetails(account.id)}
+                onDisconnect={() =>
+                  onDisconnect(
+                    account.plaid_item_id,
+                    account.institution_name
+                  )
+                }
+                disconnecting={
+                  disconnectingItemId === account.plaid_item_id
+                }
                 liability={liability}
               />
             ))}
@@ -559,6 +619,8 @@ function AccountRow({
   recentTransactions,
   onToggle,
   onOpenDetails,
+  onDisconnect,
+  disconnecting,
   liability,
 }: {
   account: FinancialAccount;
@@ -566,6 +628,8 @@ function AccountRow({
   recentTransactions: Transaction[];
   onToggle: () => void;
   onOpenDetails: () => void;
+  onDisconnect: () => void;
+  disconnecting: boolean;
   liability: boolean;
 }) {
   const reduceMotion = useReducedMotion();
@@ -656,14 +720,28 @@ function AccountRow({
                   value={account.currency.toUpperCase()}
                 />
 
-                <button
-                  type="button"
-                  onClick={onOpenDetails}
-                  className="inline-flex items-center gap-2 text-sm font-semibold text-[#167c5a]"
-                >
-                  Open account details
-                  <ArrowUpRight className="h-4 w-4" />
-                </button>
+                <div className="flex flex-wrap items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={onOpenDetails}
+                    className="inline-flex items-center gap-2 text-sm font-semibold text-[#167c5a]"
+                  >
+                    Open account details
+                    <ArrowUpRight className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={onDisconnect}
+                    disabled={disconnecting}
+                    className="inline-flex items-center gap-2 text-sm font-semibold text-[#a64b3d] transition hover:text-[#7b3528] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <X className="h-4 w-4" />
+                    {disconnecting
+                      ? "Disconnecting..."
+                      : "Disconnect institution"}
+                  </button>
+                </div>
               </div>
 
               <div>

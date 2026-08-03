@@ -173,6 +173,7 @@ class PlaidItemOut(BaseModel):
 
 class ConnectedAccountOut(BaseModel):
     id: int
+    plaid_item_id: int
     institution_name: str | None
     name: str
     official_name: str | None

@@ -35,11 +35,16 @@ alembic current    # c4a8d9e2f1b0 (head), local SQLite
 alembic history    # one six-revision chain
 
 cd ../frontend
+npm run test:run  # 10 Transactions-page regression tests
 npm run lint       # pass, no findings
 npm run build      # pass; 11 static routes including /_not-found
 ```
 
-Tests use a dependency-overridden isolated SQLite engine and TestClient; Plaid/LLM are mocked. Coverage is strong for backend domain/auth/error paths but there is no coverage measurement threshold, frontend unit/component/E2E suite, live PostgreSQL migration test, live Plaid test, browser export/Undo test, concurrency test, or production smoke suite. Parameterization makes pytest collect 136 cases although there are 113 `test_` functions.
+Backend tests use a dependency-overridden isolated SQLite engine and TestClient; Plaid/LLM are mocked. Frontend component tests use Vitest, React Testing Library, jest-dom and jsdom with API/session/navigation/animation boundaries mocked, so they do not call the backend. The focused Transactions suite covers category and delete bulk workflows, six-second Undo timers, stale selections, backend error details, and Potential Duplicates compatibility.
+
+Run frontend tests in watch mode with `npm test` or once with `npm run test:run`. There is no coverage measurement threshold, browser E2E suite, live PostgreSQL migration test, live Plaid test, CSV-export browser test, concurrency test, or production smoke suite.
+
+The dependency audit reviewed on 2026-08-03 uses narrow overrides for patched PostCSS `8.5.25` and Sharp `0.35.3` without changing Next.js or React. `npm audit --omit=dev` reports zero vulnerabilities. The full `npm audit` retains one high-severity `brace-expansion` advisory confined to ESLint/TypeScript development tooling; no force fix was used.
 
 ## Environment variable names
 

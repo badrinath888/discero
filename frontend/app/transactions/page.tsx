@@ -1034,6 +1034,7 @@ export default function TransactionsPage() {
 
               <div className="flex flex-col gap-2 sm:flex-row">
                 <select
+                  aria-label="Bulk category"
                   value={bulkCategory}
                   disabled={bulkBusy}
                   onChange={(event) =>
@@ -1536,6 +1537,7 @@ function TransactionListRow({
       </button>
 
       <select
+        aria-label={`Category for ${transaction.description}`}
         value={transaction.category}
         disabled={busy}
         onChange={(event) => onCategoryChange(event.target.value)}

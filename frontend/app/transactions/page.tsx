@@ -71,6 +71,11 @@ export default function TransactionsPage() {
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<
+    | { type: "single"; transaction: Transaction }
+    | { type: "bulk"; transactionIds: number[] }
+    | null
+  >(null);
 
   useEffect(() => {
     async function initializePage() {
@@ -318,13 +323,18 @@ export default function TransactionsPage() {
     }
   }
 
-  async function deleteTransaction(transaction: Transaction) {
-    if (
-      !userId ||
-      !window.confirm(`Delete "${transaction.description}"?`)
-    ) {
-      return;
-    }
+  function deleteTransaction(transaction: Transaction) {
+    if (!userId || busyId !== null || bulkBusy) return;
+
+    setMenuId(null);
+    setPendingDelete({
+      type: "single",
+      transaction,
+    });
+  }
+
+  async function confirmSingleDelete(transaction: Transaction) {
+    if (!userId) return;
 
     setBusyId(transaction.id);
     setError("");
@@ -345,6 +355,7 @@ export default function TransactionsPage() {
         setExpandedId(null);
       }
 
+      setPendingDelete(null);
       setMessage("Transaction deleted.");
     } catch (err) {
       setError(
@@ -405,16 +416,17 @@ export default function TransactionsPage() {
     }
   }
 
-  async function deleteSelectedTransactions() {
-    if (
-      !userId ||
-      selectedIds.length === 0 ||
-      !window.confirm(
-        `Delete ${selectedIds.length} selected transactions?`
-      )
-    ) {
-      return;
-    }
+  function deleteSelectedTransactions() {
+    if (!userId || selectedIds.length === 0 || bulkBusy) return;
+
+    setPendingDelete({
+      type: "bulk",
+      transactionIds: [...selectedIds],
+    });
+  }
+
+  async function confirmBulkDelete(transactionIds: number[]) {
+    if (!userId || transactionIds.length === 0) return;
 
     setBulkBusy(true);
     setError("");
@@ -422,12 +434,12 @@ export default function TransactionsPage() {
 
     try {
       await Promise.all(
-        selectedIds.map((transactionId) =>
+        transactionIds.map((transactionId) =>
           api.deleteTransaction(userId, transactionId)
         )
       );
 
-      const deletedIds = new Set(selectedIds);
+      const deletedIds = new Set(transactionIds);
 
       setTransactions((current) =>
         current.filter(
@@ -439,7 +451,8 @@ export default function TransactionsPage() {
         setExpandedId(null);
       }
 
-      setMessage(`${selectedIds.length} transactions deleted.`);
+      setPendingDelete(null);
+      setMessage(`${transactionIds.length} transactions deleted.`);
       setSelectedIds([]);
       setBulkCategory("");
     } catch (err) {
@@ -879,17 +892,53 @@ export default function TransactionsPage() {
       </div>
 
       <AnimatePresence>
-      {activeTransaction && (
-        <TransactionDrawer
-          transaction={activeTransaction}
-          busy={busyId === activeTransaction.id}
-          onClose={() => setExpandedId(null)}
-          onCategoryChange={(nextCategory) =>
-            updateCategory(activeTransaction.id, nextCategory)
-          }
-          onDelete={() => deleteTransaction(activeTransaction)}
-        />
-      )}
+        {activeTransaction && (
+          <TransactionDrawer
+            transaction={activeTransaction}
+            busy={busyId === activeTransaction.id}
+            onClose={() => setExpandedId(null)}
+            onCategoryChange={(nextCategory) =>
+              updateCategory(activeTransaction.id, nextCategory)
+            }
+            onDelete={() => deleteTransaction(activeTransaction)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {pendingDelete && (
+          <DeleteConfirmationModal
+            title={
+              pendingDelete.type === "single"
+                ? `Delete "${pendingDelete.transaction.description}"?`
+                : `Delete ${pendingDelete.transactionIds.length} transactions?`
+            }
+            description={
+              pendingDelete.type === "single"
+                ? "This transaction will be permanently removed from FinSight."
+                : "All selected transactions will be permanently removed from FinSight."
+            }
+            busy={
+              pendingDelete.type === "single"
+                ? busyId === pendingDelete.transaction.id
+                : bulkBusy
+            }
+            onCancel={() => {
+              if (busyId === null && !bulkBusy) {
+                setPendingDelete(null);
+              }
+            }}
+            onConfirm={() => {
+              if (pendingDelete.type === "single") {
+                void confirmSingleDelete(pendingDelete.transaction);
+              } else {
+                void confirmBulkDelete(
+                  pendingDelete.transactionIds
+                );
+              }
+            }}
+          />
+        )}
       </AnimatePresence>
     </main>
   );
@@ -1463,5 +1512,99 @@ function MoreIcon() {
       <circle cx="12" cy="12" r="1.5" />
       <circle cx="19" cy="12" r="1.5" />
     </svg>
+  );
+}
+
+function DeleteConfirmationModal({
+  title,
+  description,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  description: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[60] flex items-center justify-center px-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.18 }}
+    >
+      <button
+        type="button"
+        aria-label="Close delete confirmation"
+        onClick={onCancel}
+        disabled={busy}
+        className="absolute inset-0 bg-[#14241e]/45 backdrop-blur-[3px]"
+      />
+
+      <motion.section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-title"
+        initial={
+          reduceMotion
+            ? false
+            : { opacity: 0, scale: 0.96, y: 16 }
+        }
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 16 }}
+        transition={{
+          duration: reduceMotion ? 0 : 0.22,
+          ease: [0.22, 1, 0.36, 1],
+        }}
+        className="relative w-full max-w-md rounded-[28px] border border-[#14241e]/10 bg-[#fdfcf8] p-6 shadow-[0_30px_90px_rgba(20,36,30,0.28)] sm:p-7"
+      >
+        <div className="flex items-start gap-4">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#f6e6e1] text-xl font-semibold text-[#a64b3d]">
+            ×
+          </span>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#a64b3d]">
+              Confirm deletion
+            </p>
+            <h2
+              id="delete-title"
+              className="mt-2 text-2xl font-semibold tracking-[-0.04em]"
+            >
+              {title}
+            </h2>
+          </div>
+        </div>
+
+        <p className="mt-5 text-sm leading-6 text-[#66746e]">
+          {description}
+        </p>
+
+        <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="min-h-11 rounded-full border border-[#14241e]/10 bg-white px-5 text-sm font-semibold transition hover:bg-[#f5f1e8] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Keep transaction
+          </button>
+
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#a64b3d] px-5 text-sm font-semibold text-white transition hover:bg-[#8f3f33] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy ? "Deleting..." : "Delete permanently"}
+          </button>
+        </div>
+      </motion.section>
+    </motion.div>
   );
 }

@@ -139,6 +139,7 @@ export type TransactionSearchParams = {
   start_date?: string;
   end_date?: string;
   pending?: boolean;
+  duplicates_only?: boolean;
   transaction_type?: "income" | "spending";
   page?: number;
   page_size?: number;

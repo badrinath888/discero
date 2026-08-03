@@ -4,7 +4,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, aliased, joinedload
 
 from app.auth import get_current_user
 from app.database import get_db
@@ -209,6 +209,7 @@ def search_transactions(
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
     pending: bool | None = Query(default=None),
+    duplicates_only: bool | None = Query(default=None),
     transaction_type: str | None = Query(
         default=None,
         pattern="^(income|spending)$",
@@ -263,6 +264,37 @@ def search_transactions(
 
     if pending is not None:
         filters.append(Transaction.pending == pending)
+
+    if duplicates_only:
+        duplicate = aliased(Transaction)
+        transaction_identity = func.lower(
+            func.trim(
+                func.coalesce(
+                    func.nullif(func.trim(Transaction.merchant_name), ""),
+                    Transaction.description,
+                )
+            )
+        )
+        duplicate_identity = func.lower(
+            func.trim(
+                func.coalesce(
+                    func.nullif(func.trim(duplicate.merchant_name), ""),
+                    duplicate.description,
+                )
+            )
+        )
+        filters.append(
+            select(1)
+            .select_from(duplicate)
+            .where(
+                duplicate.user_id == Transaction.user_id,
+                duplicate.id != Transaction.id,
+                duplicate.posted_on == Transaction.posted_on,
+                duplicate.amount_cents == Transaction.amount_cents,
+                duplicate_identity == transaction_identity,
+            )
+            .exists()
+        )
 
     if transaction_type == "income":
         filters.append(Transaction.amount_cents > 0)

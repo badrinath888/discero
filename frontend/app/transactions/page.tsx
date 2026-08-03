@@ -59,6 +59,7 @@ export default function TransactionsPage() {
   const [accountId, setAccountId] = useState("All");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [duplicatesOnly, setDuplicatesOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -163,6 +164,7 @@ export default function TransactionsPage() {
             accountId === "All" ? undefined : Number(accountId),
           start_date: fromDate || undefined,
           end_date: toDate || undefined,
+          duplicates_only: duplicatesOnly || undefined,
           page,
           page_size: PAGE_SIZE,
         });
@@ -209,6 +211,7 @@ export default function TransactionsPage() {
     accountId,
     fromDate,
     toDate,
+    duplicatesOnly,
     page,
     router,
   ]);
@@ -250,6 +253,7 @@ export default function TransactionsPage() {
     accountId !== "All",
     Boolean(fromDate),
     Boolean(toDate),
+    duplicatesOnly,
   ].filter(Boolean).length;
 
   const visibleIds = visibleTransactions.map(({ id }) => id);
@@ -283,6 +287,7 @@ export default function TransactionsPage() {
           accountId === "All" ? undefined : Number(accountId),
         start_date: fromDate || undefined,
         end_date: toDate || undefined,
+        duplicates_only: duplicatesOnly || undefined,
         page: 1,
         page_size: PAGE_SIZE,
       });
@@ -602,6 +607,7 @@ export default function TransactionsPage() {
     setAccountId("All");
     setFromDate("");
     setToDate("");
+    setDuplicatesOnly(false);
     setPage(1);
   }
 
@@ -707,6 +713,35 @@ export default function TransactionsPage() {
                         {activeFilterCount}
                       </span>
                     )}
+                  </button>
+
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={duplicatesOnly}
+                    onClick={() => {
+                      setDuplicatesOnly((current) => !current);
+                      setPage(1);
+                    }}
+                    className={`inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${
+                      duplicatesOnly
+                        ? "border-[#167c5a] bg-[#e7f3eb] text-[#126a4d]"
+                        : "border-[#14241e]/10 bg-white hover:bg-[#f9f7f1]"
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`relative h-5 w-9 rounded-full transition ${
+                        duplicatesOnly ? "bg-[#167c5a]" : "bg-[#c9cfcc]"
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${
+                          duplicatesOnly ? "left-[18px]" : "left-0.5"
+                        }`}
+                      />
+                    </span>
+                    Potential duplicates
                   </button>
 
                   <div className="flex h-11 items-center rounded-xl border border-[#14241e]/10 bg-white p-1">
@@ -913,22 +948,32 @@ export default function TransactionsPage() {
               <div className="p-5">
                 <EmptyState
                   title={
-                    total === 0 && activeFilterCount === 0 && !search.trim()
+                    duplicatesOnly
+                      ? "No potential duplicates found"
+                      : total === 0 && activeFilterCount === 0 && !search.trim()
                       ? "No transactions yet"
                       : "No transactions match your filters"
                   }
                   description={
-                    total === 0 && activeFilterCount === 0 && !search.trim()
+                    duplicatesOnly
+                      ? "No transactions match another transaction by date, amount, and merchant or description."
+                      : total === 0 && activeFilterCount === 0 && !search.trim()
                       ? "Upload a CSV file or synchronize a connected account to add financial activity."
                       : "Adjust or clear your current filters to see more transactions."
                   }
                   actionLabel={
-                    total === 0 && activeFilterCount === 0 && !search.trim()
+                    !duplicatesOnly &&
+                    total === 0 &&
+                    activeFilterCount === 0 &&
+                    !search.trim()
                       ? undefined
                       : "Clear filters"
                   }
                   onAction={
-                    total === 0 && activeFilterCount === 0 && !search.trim()
+                    !duplicatesOnly &&
+                    total === 0 &&
+                    activeFilterCount === 0 &&
+                    !search.trim()
                       ? undefined
                       : clearFilters
                   }

@@ -1,0 +1,76 @@
+# Architecture
+
+## System context
+
+```text
+Browser / Next.js 16 (Vercel)
+  localStorage JWT + user id
+  HTTPS JSON/multipart REST
+FastAPI (Render)
+  auth + domain routers
+  SQLAlchemy 2 / Alembic
+  SQLite local/test | configured PostgreSQL production
+  ├─ Plaid Sandbox API
+  └─ Anthropic API (optional; deterministic fallback)
+```
+
+The frontend is a client-rendered App Router application. Each authenticated page validates the local session through `/users/me` and redirects to `/` when missing/invalid. `app/lib/api.ts` centralizes the base URL, bearer header, JSON/error handling, and a 15-second abort timeout. The backend registers CORS and six routers in `app/main.py`; all user-domain routes depend on `get_current_user` and compare the JWT subject to the path `user_id`.
+
+## Database model
+
+- `User`: unique indexed email, Argon2 password hash, creation time. Owns transactions, budgets, goals, and Plaid items with delete-orphan cascades.
+- `Transaction`: user; optional financial account (`SET NULL` on account removal); globally unique optional Plaid transaction id; date, description, optional merchant, signed integer cents, category, category lock, source, pending flag, timestamps. Positive is income; negative is expense.
+- `Budget`: user/category/`YYYY-MM` unique tuple, positive limit in cents.
+- `SavingsGoal`: user, name, positive target, nonnegative saved amount, optional target date, timestamps.
+- `PlaidItem`: user, globally unique provider item id, institution metadata, encrypted access token, status, cursor and sync timestamps. Owns financial accounts.
+- `FinancialAccount`: Plaid item, globally unique provider account id, names/type/subtype/mask, current/available balances, currency, timestamps. Relates to transactions.
+
+Alembic is linear: `93dcf675c7ee` initial user/transaction/budget schema → `f77d39a9c4e0` Plaid items/accounts → `ac2645f928d0` transaction Plaid fields → `383774abbeb5` category lock → `568820dfb45d` savings goals. Audit commands show one head and the local SQLite database at head.
+
+## Authentication lifecycle
+
+Registration normalizes email and rejects duplicates, then hashes the password with pwdlib's recommended Argon2 hasher. Login verifies the hash and issues an HS256 JWT containing string `sub` (user id), `iat`, and `exp`; default lifetime is 60 minutes. The browser stores the JWT and user id in `localStorage`, sends `Authorization: Bearer`, clears storage on API 401, and has a sidebar logout that only clears the browser.
+
+Email and password changes require the current password. Email is normalized, must differ, and must be unique. New password must differ and meet the schema's 8-character minimum. The Settings UI clears local storage after a successful credential change. **The server does not revoke already-issued JWTs**, so tokens in this or other browsers remain valid until expiration. There are no refresh tokens, token version, denylist, password reset, email verification, rate limiting, or account deletion.
+
+## Data flows
+
+### CSV import
+
+`POST /transactions/upload` accepts only a filename ending `.csv`. UTF-8 BOM is tolerated. Case-insensitive aliases are: date (`date`, `posted_on`, `transaction date`, `posted date`), description (`description`, `name`, `memo`, `details`), and amount (`amount`, `amount_cents`, `value`). Dates accept ISO, US long/short, or `DD-MM-YYYY`; money is parsed with decimal half-up to cents. Bad rows are reported without aborting valid rows.
+
+Duplicates are prevented per user by exact date + trimmed/lowercased description + amount, against stored transactions and earlier rows in the same upload. This does not normalize punctuation/internal whitespace or use merchant, account, or source. Accepted descriptions are categorized in one batch and stored as CSV-source transactions.
+
+### Categorization
+
+Deterministic keyword rules cover nine categories with `Uncategorized` fallback. With `ANTHROPIC_API_KEY`, `LLMCategorizer` batches distinct uncached descriptions, asks for one allowed category per item, caches in process memory, and falls back to rules for errors, invalid categories, or wrong-length output. The broad exception handler preserves imports but hides provider error detail; cache is not persistent or user-correction-aware.
+
+### Plaid
+
+The browser requests a link token, Plaid Link supplies a public token, and the API exchanges it, encrypts the access token with Fernet, upserts the item/accounts, and returns safe account fields. Sync decrypts each active item token, pages through Plaid transaction sync, updates accounts, applies added/modified/removed transactions and cursors, preserves manually locked categories, and commits. Disconnect calls Plaid first; on success it nulls linked transaction account references, deletes the local item/accounts, and keeps transaction history. Provider/config/encryption failures map to 502/503/500 responses. Provider item/account/transaction uniqueness is global rather than `(user, provider id)`.
+
+### Analytics
+
+Summary endpoints compute overview, category/month totals, recurring patterns, insights, and cash-flow forecasts from stored transactions/accounts. Recurring detection ignores pending activity, normalizes merchant/reference noise, requires three completed occurrences, recognizes weekly/biweekly/monthly cadence with tolerance, and emits confidence/price-change signals. Forecasts combine liquid balances, income pace, and recurring items; these are estimates, not guarantees.
+
+## Frontend architecture and routes
+
+All authenticated pages use `AppSidebar`, responsive desktop/mobile navigation, reusable motion respecting reduced-motion preferences, and page-specific loading/error/empty states.
+
+- `/`: marketing plus login/register; validates existing token; form validation and inline auth errors.
+- `/dashboard`: loads overview, categories, budgets, all transactions, goals, forecast; charts/KPIs, CSV upload, links to detail pages; bespoke loading/error/empty presentation.
+- `/transactions`: server search/filter/pagination, accounts, category edit, Plaid sync, bulk selection/category/delete, confirmation, success/error and six-second Undo toasts, detail drawer.
+- `/accounts`: accounts plus transactions; portfolio totals/grouping/detail drawer, Plaid connect/sync/disconnect with confirmation and toast.
+- `/budgets`: monthly budgets/progress; save/edit drawer, copy previous month, overwrite choice, progress visuals and toast.
+- `/recurring`: recurring API; totals, due timing, warnings, rows/detail drawer; transaction CTA when empty.
+- `/forecast`: forecast API; balance scenario, upcoming flows, risk/empty state and detail drawer.
+- `/goals`: goal CRUD, contribution/withdrawal, status/progress, form/detail drawers, deletion confirmation/toast.
+- `/insights`: selected-month insights, metrics/severity filtering, rows/detail drawer and empty CTA.
+- `/settings`: profile, account/transaction counts, password/email changes, logout, client-side CSV export; password visibility and toast errors/success.
+- `/_not-found`: Next.js generated not-found route; there is no repository-authored page.
+
+See [FILE_MAP.md](FILE_MAP.md) for component responsibilities and [API_REFERENCE.md](API_REFERENCE.md) for calls.
+
+## Deployment
+
+GitHub Actions validates backend on Python 3.12 and frontend on Node 24 for pushes to `main` and pull requests. `backend/start.sh` applies `alembic upgrade head` and starts Uvicorn on `$PORT` (default 8000), matching Render-style deployment. The Dockerfile starts Uvicorn but does **not** run migrations. Vercel builds the Next app using `NEXT_PUBLIC_API_URL`; the repository has no `vercel.json` or checked-in Render blueprint, so dashboard configuration is external. Production health/readiness and the supplied URLs were not network-verified during this audit.

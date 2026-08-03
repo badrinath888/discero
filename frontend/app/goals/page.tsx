@@ -17,11 +17,11 @@ import {
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
 import ConfirmationModal from "../components/ConfirmationModal";
+import Toast from "../components/Toast";
 import {
   EmptyState,
   PageError,
   PageLoading,
-  PageSuccess,
 } from "../components/PageFeedback";
 import {
   AnimatedNumber,
@@ -418,10 +418,9 @@ export default function GoalsPage() {
             </header>
           </Reveal>
 
-          {(message || error) && (
-            <div className="mt-5 space-y-3">
-              {message && <PageSuccess message={message} />}
-              {error && <PageError message={error} />}
+          {error && (
+            <div className="mt-5">
+              <PageError message={error} />
             </div>
           )}
 
@@ -570,6 +569,12 @@ export default function GoalsPage() {
           />
         )}
       </AnimatePresence>
+
+      <Toast
+        message={message}
+        type="success"
+        onClose={() => setMessage("")}
+      />
 
       <AnimatePresence>
         {pendingDeleteGoal && (

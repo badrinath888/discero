@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import AppSidebar from "../components/AppSidebar";
 import ConfirmationModal from "../components/ConfirmationModal";
+import Toast from "../components/Toast";
 import {
   EmptyState,
   PageError,
   PageLoading,
-  PageSuccess,
 } from "../components/PageFeedback";
 import {
   api,
@@ -560,10 +560,9 @@ export default function TransactionsPage() {
           </section>
           </Reveal>
 
-          {(message || error) && (
-            <div className="mt-4 space-y-3">
-              {message && <PageSuccess message={message} />}
-              {error && <PageError message={error} />}
+          {error && (
+            <div className="mt-4">
+              <PageError message={error} />
             </div>
           )}
 
@@ -905,6 +904,12 @@ export default function TransactionsPage() {
           />
         )}
       </AnimatePresence>
+
+      <Toast
+        message={message}
+        type="success"
+        onClose={() => setMessage("")}
+      />
 
       <AnimatePresence>
         {pendingDelete && (

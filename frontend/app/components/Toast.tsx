@@ -9,12 +9,16 @@ type ToastProps = {
   message: string;
   type: ToastType;
   onClose: () => void;
+  actionLabel?: string;
+  onAction?: () => void;
 };
 
 export default function Toast({
   message,
   type,
   onClose,
+  actionLabel,
+  onAction,
 }: ToastProps) {
   const reduceMotion = useReducedMotion();
   const isSuccess = type === "success";
@@ -57,6 +61,16 @@ export default function Toast({
           <p className="min-w-0 flex-1 text-sm font-semibold leading-6">
             {message}
           </p>
+
+          {actionLabel && onAction && (
+            <button
+              type="button"
+              onClick={onAction}
+              className="shrink-0 rounded-lg px-2.5 py-1.5 text-sm font-bold underline decoration-2 underline-offset-4 transition hover:bg-black/[0.06]"
+            >
+              {actionLabel}
+            </button>
+          )}
 
           <button
             type="button"

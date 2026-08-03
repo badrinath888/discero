@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import AppSidebar from "../components/AppSidebar";
@@ -72,11 +72,21 @@ export default function TransactionsPage() {
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [undoTransactions, setUndoTransactions] = useState<Transaction[]>([]);
+  const deleteTimerRef = useRef<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<
     | { type: "single"; transaction: Transaction }
     | { type: "bulk"; transactionIds: number[] }
     | null
   >(null);
+
+  useEffect(() => {
+    return () => {
+      if (deleteTimerRef.current !== null) {
+        window.clearTimeout(deleteTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     async function initializePage() {
@@ -334,39 +344,12 @@ export default function TransactionsPage() {
     });
   }
 
-  async function confirmSingleDelete(transaction: Transaction) {
+  function confirmSingleDelete(transaction: Transaction) {
     if (!userId) return;
 
-    setBusyId(transaction.id);
-    setError("");
-    setMessage("");
+    scheduleDeletion([transaction]);
+    setPendingDelete(null);
     setMenuId(null);
-
-    try {
-      await api.deleteTransaction(userId, transaction.id);
-
-      setTransactions((current) =>
-        current.filter(({ id }) => id !== transaction.id)
-      );
-      setSelectedIds((current) =>
-        current.filter((id) => id !== transaction.id)
-      );
-
-      if (expandedId === transaction.id) {
-        setExpandedId(null);
-      }
-
-      setPendingDelete(null);
-      setMessage("Transaction deleted.");
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to delete transaction"
-      );
-    } finally {
-      setBusyId(null);
-    }
   }
 
   async function updateSelectedCategory() {
@@ -426,45 +409,162 @@ export default function TransactionsPage() {
     });
   }
 
-  async function confirmBulkDelete(transactionIds: number[]) {
+  function confirmBulkDelete(transactionIds: number[]) {
     if (!userId || transactionIds.length === 0) return;
 
-    setBulkBusy(true);
-    setError("");
-    setMessage("");
+    const selectedTransactions = transactions.filter((transaction) =>
+      transactionIds.includes(transaction.id)
+    );
 
-    try {
-      await Promise.all(
-        transactionIds.map((transactionId) =>
-          api.deleteTransaction(userId, transactionId)
-        )
-      );
+    scheduleDeletion(selectedTransactions);
+    setPendingDelete(null);
+    setSelectedIds([]);
+    setBulkCategory("");
+  }
 
-      const deletedIds = new Set(transactionIds);
+  function scheduleDeletion(
+    deletedTransactions: Transaction[]
+  ) {
+    if (!userId || deletedTransactions.length === 0) return;
 
-      setTransactions((current) =>
-        current.filter(
-          (transaction) => !deletedIds.has(transaction.id)
-        )
-      );
-
-      if (expandedId && deletedIds.has(expandedId)) {
-        setExpandedId(null);
-      }
-
-      setPendingDelete(null);
-      setMessage(`${transactionIds.length} transactions deleted.`);
-      setSelectedIds([]);
-      setBulkCategory("");
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to delete selected transactions"
-      );
-    } finally {
-      setBulkBusy(false);
+    if (deleteTimerRef.current !== null) {
+      window.clearTimeout(deleteTimerRef.current);
+      deleteTimerRef.current = null;
     }
+
+    const deletedIds = new Set(
+      deletedTransactions.map((transaction) => transaction.id)
+    );
+
+    setError("");
+    setUndoTransactions(deletedTransactions);
+    setTransactions((current) =>
+      current.filter((transaction) => !deletedIds.has(transaction.id))
+    );
+    setSelectedIds((current) =>
+      current.filter((id) => !deletedIds.has(id))
+    );
+
+    if (expandedId && deletedIds.has(expandedId)) {
+      setExpandedId(null);
+    }
+
+    const removedIncome = deletedTransactions.reduce(
+      (sum, transaction) =>
+        sum +
+        (transaction.amount_cents > 0
+          ? transaction.amount_cents
+          : 0),
+      0
+    );
+    const removedSpending = deletedTransactions.reduce(
+      (sum, transaction) =>
+        sum +
+        (transaction.amount_cents < 0
+          ? Math.abs(transaction.amount_cents)
+          : 0),
+      0
+    );
+    const removedNet = deletedTransactions.reduce(
+      (sum, transaction) => sum + transaction.amount_cents,
+      0
+    );
+
+    setTotal((current) =>
+      Math.max(0, current - deletedTransactions.length)
+    );
+    setTotalIncome((current) => current - removedIncome);
+    setTotalSpending((current) => current - removedSpending);
+    setNet((current) => current - removedNet);
+    setMessage(
+      deletedTransactions.length === 1
+        ? "Transaction deleted."
+        : `${deletedTransactions.length} transactions deleted.`
+    );
+
+    deleteTimerRef.current = window.setTimeout(async () => {
+      setBulkBusy(true);
+
+      try {
+        await Promise.all(
+          deletedTransactions.map((transaction) =>
+            api.deleteTransaction(userId, transaction.id)
+          )
+        );
+
+        setUndoTransactions([]);
+        setMessage("");
+      } catch (err) {
+        restoreDeletedTransactions(deletedTransactions);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to delete transactions"
+        );
+      } finally {
+        setBulkBusy(false);
+        deleteTimerRef.current = null;
+      }
+    }, 6_000);
+  }
+
+  function restoreDeletedTransactions(
+    deletedTransactions = undoTransactions
+  ) {
+    if (deletedTransactions.length === 0) return;
+
+    if (deleteTimerRef.current !== null) {
+      window.clearTimeout(deleteTimerRef.current);
+      deleteTimerRef.current = null;
+    }
+
+    setTransactions((current) => {
+      const currentIds = new Set(
+        current.map((transaction) => transaction.id)
+      );
+
+      return [...current, ...deletedTransactions]
+        .filter((transaction) => {
+          if (currentIds.has(transaction.id)) {
+            return false;
+          }
+
+          currentIds.add(transaction.id);
+          return true;
+        })
+        .sort((a, b) => {
+          const dateComparison = b.posted_on.localeCompare(a.posted_on);
+          return dateComparison || b.id - a.id;
+        });
+    });
+
+    const restoredIncome = deletedTransactions.reduce(
+      (sum, transaction) =>
+        sum +
+        (transaction.amount_cents > 0
+          ? transaction.amount_cents
+          : 0),
+      0
+    );
+    const restoredSpending = deletedTransactions.reduce(
+      (sum, transaction) =>
+        sum +
+        (transaction.amount_cents < 0
+          ? Math.abs(transaction.amount_cents)
+          : 0),
+      0
+    );
+    const restoredNet = deletedTransactions.reduce(
+      (sum, transaction) => sum + transaction.amount_cents,
+      0
+    );
+
+    setTotal((current) => current + deletedTransactions.length);
+    setTotalIncome((current) => current + restoredIncome);
+    setTotalSpending((current) => current + restoredSpending);
+    setNet((current) => current + restoredNet);
+    setUndoTransactions([]);
+    setMessage("Deletion undone.");
   }
 
   function toggleSelection(transactionId: number) {
@@ -908,6 +1008,14 @@ export default function TransactionsPage() {
       <Toast
         message={message}
         type="success"
+        actionLabel={
+          undoTransactions.length > 0 ? "Undo" : undefined
+        }
+        onAction={
+          undoTransactions.length > 0
+            ? () => restoreDeletedTransactions()
+            : undefined
+        }
         onClose={() => setMessage("")}
       />
 

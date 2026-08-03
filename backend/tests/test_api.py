@@ -74,6 +74,85 @@ def test_duplicate_email_rejected(
     assert second.status_code == 409
 
 
+def test_change_password(
+    client: TestClient,
+) -> None:
+    email = "password-change@example.com"
+    _, headers = register_and_login(client, email)
+    new_password = "UpdatedPassword456!"
+
+    response = client.patch(
+        "/users/me/password",
+        headers=headers,
+        json={
+            "current_password": PASSWORD,
+            "new_password": new_password,
+        },
+    )
+
+    assert response.status_code == 204
+
+    old_login = client.post(
+        "/users/login",
+        json={
+            "email": email,
+            "password": PASSWORD,
+        },
+    )
+    new_login = client.post(
+        "/users/login",
+        json={
+            "email": email,
+            "password": new_password,
+        },
+    )
+
+    assert old_login.status_code == 401
+    assert new_login.status_code == 200
+
+
+def test_change_password_rejects_wrong_current_password(
+    client: TestClient,
+) -> None:
+    _, headers = register_and_login(
+        client,
+        "wrong-password@example.com",
+    )
+
+    response = client.patch(
+        "/users/me/password",
+        headers=headers,
+        json={
+            "current_password": "WrongPassword123!",
+            "new_password": "UpdatedPassword456!",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "current password is incorrect"
+
+
+def test_change_password_rejects_same_password(
+    client: TestClient,
+) -> None:
+    _, headers = register_and_login(
+        client,
+        "same-password@example.com",
+    )
+
+    response = client.patch(
+        "/users/me/password",
+        headers=headers,
+        json={
+            "current_password": PASSWORD,
+            "new_password": PASSWORD,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "new password must be different"
+
+
 def test_upload_flow_and_summary(
     client: TestClient,
     user_id: int,

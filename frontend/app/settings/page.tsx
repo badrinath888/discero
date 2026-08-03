@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { KeyRound, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
+import Toast from "../components/Toast";
+import {
+  PageError,
+  PageLoading,
+} from "../components/PageFeedback";
 import {
   api,
   session,
@@ -16,14 +22,36 @@ type AccountStats = {
 
 export default function SettingsPage() {
   const router = useRouter();
+
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<AccountStats | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [savingPassword, setSavingPassword] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     async function loadProfile() {
+      const id = session.getUserId();
+      const token = session.getToken();
+
+      if (!id || !token) {
+        session.clear();
+        router.replace("/");
+        return;
+      }
+
       try {
         const currentUser = await api.getMe();
+
+        if (currentUser.id !== id) {
+          session.clear();
+          router.replace("/");
+          return;
+        }
 
         const [accounts, transactionPage] = await Promise.all([
           api.getAccounts(currentUser.id),
@@ -39,16 +67,79 @@ export default function SettingsPage() {
           transactions: transactionPage.total,
         });
       } catch (err) {
+        if (!session.getToken()) {
+          router.replace("/");
+          return;
+        }
+
         setError(
           err instanceof Error
             ? err.message
             : "Unable to load profile"
         );
+      } finally {
+        setLoading(false);
       }
     }
 
     void loadProfile();
-  }, []);
+  }, [router]);
+
+  useEffect(() => {
+    if (!message) return;
+
+    const timeout = window.setTimeout(
+      () => setMessage(""),
+      5_000
+    );
+
+    return () => window.clearTimeout(timeout);
+  }, [message]);
+
+  async function changePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!currentPassword) {
+      setError("Enter your current password.");
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setError("New password must contain at least 8 characters.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError("New password and confirmation do not match.");
+      return;
+    }
+
+    if (currentPassword === newPassword) {
+      setError("New password must be different.");
+      return;
+    }
+
+    setSavingPassword(true);
+    setError("");
+    setMessage("");
+
+    try {
+      await api.changePassword(currentPassword, newPassword);
+
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setMessage("Password updated successfully.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to update password"
+      );
+    } finally {
+      setSavingPassword(false);
+    }
+  }
 
   function signOut() {
     session.clear();
@@ -59,31 +150,51 @@ export default function SettingsPage() {
     <main className="min-h-screen bg-[#f4f1e8] text-[#17241f] lg:pl-64">
       <AppSidebar />
 
-      <div className="mx-auto max-w-5xl px-5 py-20 sm:px-8 lg:px-10 lg:py-10">
-        <header>
-          <p className="text-sm font-semibold text-[#167c5a]">
+      <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 lg:px-10 lg:py-10">
+        <header className="border-b border-[#183028]/10 pb-7">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
             Account
           </p>
 
-          <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
+          <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
             Profile & settings
           </h1>
 
-          <p className="mt-3 text-sm text-[#65736c]">
-            Review your FinSight account and manage your session.
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#65736c]">
+            Review your FinSight profile, protect your account, and manage
+            your active session.
           </p>
         </header>
 
-        <section className="mt-8 rounded-3xl border border-[#183028]/10 bg-white p-6 shadow-sm">
-          {error ? (
-            <p className="text-sm text-rose-600">{error}</p>
-          ) : !user || !stats ? (
-            <p className="text-sm text-[#65736c]">
-              Loading profile...
-            </p>
-          ) : (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2">
+        {error && (
+          <div className="mt-5">
+            <PageError message={error} />
+          </div>
+        )}
+
+        {loading ? (
+          <div className="mt-8">
+            <PageLoading message="Loading account settings..." />
+          </div>
+        ) : user && stats ? (
+          <div className="mt-8 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+            <section className="rounded-[28px] border border-[#183028]/10 bg-white p-6 shadow-sm sm:p-7">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+                    Profile
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+                    Account overview
+                  </h2>
+                </div>
+
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#edf5ee] text-[#167c5a]">
+                  <UserRound className="h-5 w-5" />
+                </span>
+              </div>
+
+              <div className="mt-7 grid gap-4 sm:grid-cols-2">
                 <StatCard label="Email" value={user.email} />
                 <StatCard label="User ID" value={String(user.id)} />
                 <StatCard
@@ -96,20 +207,140 @@ export default function SettingsPage() {
                 />
               </div>
 
-              <div className="mt-6 border-t border-[#183028]/10 pt-5">
+              <div className="mt-6 rounded-2xl bg-[#14241e] p-5 text-white">
+                <div className="flex items-start gap-3">
+                  <ShieldCheck className="mt-0.5 h-5 w-5 text-[#83dcb9]" />
+
+                  <div>
+                    <p className="text-sm font-semibold">
+                      Protected account
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-white/55">
+                      Your password is securely hashed and your authenticated
+                      requests use protected access tokens.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-[28px] border border-[#183028]/10 bg-white p-6 shadow-sm sm:p-7">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+                    Security
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+                    Change password
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-[#65736c]">
+                    Use at least eight characters and choose a password you
+                    have not used for this account.
+                  </p>
+                </div>
+
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f7e8b5] text-[#8b6518]">
+                  <KeyRound className="h-5 w-5" />
+                </span>
+              </div>
+
+              <form onSubmit={changePassword} className="mt-7 space-y-4">
+                <PasswordField
+                  label="Current password"
+                  value={currentPassword}
+                  onChange={setCurrentPassword}
+                  autoComplete="current-password"
+                />
+
+                <PasswordField
+                  label="New password"
+                  value={newPassword}
+                  onChange={setNewPassword}
+                  autoComplete="new-password"
+                />
+
+                <PasswordField
+                  label="Confirm new password"
+                  value={confirmPassword}
+                  onChange={setConfirmPassword}
+                  autoComplete="new-password"
+                />
+
+                <button
+                  type="submit"
+                  disabled={savingPassword}
+                  className="min-h-11 w-full rounded-xl bg-[#14241e] px-5 text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {savingPassword
+                    ? "Updating password..."
+                    : "Update password"}
+                </button>
+              </form>
+            </section>
+
+            <section className="rounded-[28px] border border-[#183028]/10 bg-white p-6 shadow-sm xl:col-span-2 sm:p-7">
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#a64b3d]">
+                    Session
+                  </p>
+                  <h2 className="mt-2 text-xl font-semibold">
+                    Sign out of FinSight
+                  </h2>
+                  <p className="mt-2 text-sm text-[#65736c]">
+                    This removes the current access token from this browser.
+                  </p>
+                </div>
+
                 <button
                   type="button"
                   onClick={signOut}
-                  className="rounded-xl bg-[#183028] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#24463a]"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#a64b3d] px-5 text-sm font-semibold text-white transition hover:bg-[#8f3f33]"
                 >
+                  <LogOut className="h-4 w-4" />
                   Sign out
                 </button>
               </div>
-            </>
-          )}
-        </section>
+            </section>
+          </div>
+        ) : null}
       </div>
+
+      <Toast
+        message={message}
+        type="success"
+        onClose={() => setMessage("")}
+      />
     </main>
+  );
+}
+
+function PasswordField({
+  label,
+  value,
+  onChange,
+  autoComplete,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  autoComplete: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-sm font-semibold text-[#30423a]">
+        {label}
+      </span>
+
+      <input
+        type="password"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        autoComplete={autoComplete}
+        required
+        className="mt-2 h-11 w-full rounded-xl border border-[#183028]/12 bg-[#faf8f3] px-4 text-sm outline-none transition placeholder:text-[#9ba59f] focus:border-[#167c5a]/50 focus:ring-4 focus:ring-[#167c5a]/10"
+      />
+    </label>
   );
 }
 

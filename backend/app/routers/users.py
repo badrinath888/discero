@@ -5,7 +5,13 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.database import get_db
 from app.models import User
-from app.schemas import TokenOut, UserCreate, UserLogin, UserOut
+from app.schemas import (
+    PasswordChangeRequest,
+    TokenOut,
+    UserCreate,
+    UserLogin,
+    UserOut,
+)
 from app.security import (
     create_access_token,
     hash_password,
@@ -73,6 +79,35 @@ def login(
         access_token=create_access_token(user.id),
         user=UserOut.model_validate(user),
     )
+
+
+@router.patch("/me/password", status_code=204)
+def change_password(
+    payload: PasswordChangeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    if not verify_password(
+        payload.current_password,
+        current_user.password_hash,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="current password is incorrect",
+        )
+
+    if verify_password(
+        payload.new_password,
+        current_user.password_hash,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="new password must be different",
+        )
+
+    current_user.password_hash = hash_password(payload.new_password)
+    db.add(current_user)
+    db.commit()
 
 
 @router.get("/me", response_model=UserOut)

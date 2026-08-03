@@ -386,6 +386,19 @@ export const api = {
       headers: authHeaders(),
     }).then((res) => handle<User>(res)),
 
+  changePassword: (
+    currentPassword: string,
+    newPassword: string
+  ): Promise<void> =>
+    fetchWithTimeout(`${API_URL}/users/me/password`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    }).then(handleEmpty),
+
   getUser: (id: number): Promise<User> =>
     fetchWithTimeout(`${API_URL}/users/${id}`, {
       headers: authHeaders(),

@@ -167,6 +167,11 @@ export type BulkTransactionDeleteResult = {
   deleted: number;
 };
 
+export type TransactionCategoryUpdateInput = {
+  transaction_id: number;
+  category: string;
+};
+
 export type CategoryTotal = {
   category: string;
   total_cents: number;
@@ -510,6 +515,19 @@ export const api = {
           transaction_ids: transactionIds,
           category,
         }),
+      }
+    ).then((res) => handle<Transaction[]>(res)),
+
+  bulkUpdateTransactionCategories: (
+    userId: number,
+    updates: TransactionCategoryUpdateInput[]
+  ): Promise<Transaction[]> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/transactions/bulk/categories`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ updates }),
       }
     ).then((res) => handle<Transaction[]>(res)),
 

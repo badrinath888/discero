@@ -55,9 +55,11 @@ Summary endpoints compute overview, category/month totals, recurring patterns, i
 
 ### Transaction bulk mutations and Undo
 
-Bulk category and delete requests validate and deduplicate up to 100 positive transaction IDs, then load the complete owner-scoped set before changing any row. A missing or cross-user ID produces a 404 before mutation, preventing partial writes and avoiding disclosure of another user's records. Category updates set `category_locked=true` and return rows in first-requested-ID order; deletes return the number removed. Each endpoint commits once.
+Bulk category and delete requests validate up to 100 positive transaction IDs, then load the complete owner-scoped set before changing any row. A missing or cross-user ID produces a 404 before mutation, preventing partial writes and avoiding disclosure of another user's records. The single-category endpoint deduplicates IDs in first-occurrence order. The mixed-category endpoint rejects repeated IDs, applies one validated category per transaction, locks every category, and returns rows in request order. Deletes return the number removed. Each endpoint commits once.
 
-The Transactions page optimistically removes selected rows but waits six seconds before calling the atomic bulk-delete endpoint. Undo clears that timer and restores local state without making a delete request. Once the timer expires, one request deletes the entire set; a request failure restores every optimistically removed row. Single-row deletion uses the same bulk endpoint with one ID. Bulk category changes likewise use one request rather than per-row calls.
+The Transactions page optimistically removes selected rows but waits six seconds before calling the atomic bulk-delete endpoint. Delete Undo clears that timer and restores local state without making a delete request. Once the timer expires, one request deletes the entire set; a request failure restores every optimistically removed row. Single-row deletion uses the same bulk endpoint with one ID.
+
+Single and bulk category changes commit immediately, capture the exact previous values in browser memory, and expose Undo for six seconds. Category Undo sends one mixed-category request so restoration is atomic even when prior categories differ. Expiry or toast dismissal only clears the local opportunity; it sends no request. Generation-guarded timers prevent an older callback from clearing a newer operation. A new category or delete operation replaces the prior category Undo, and one shared action toast prevents category and delete Undo from appearing together.
 
 ## Frontend architecture and routes
 

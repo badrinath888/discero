@@ -58,6 +58,54 @@ class BulkTransactionCategoryUpdate(BulkTransactionIds):
     category: str = Field(min_length=1, max_length=64)
 
 
+class TransactionCategoryUpdate(BaseModel):
+    transaction_id: int
+    category: str = Field(min_length=1, max_length=64)
+
+    @field_validator("transaction_id")
+    @classmethod
+    def validate_transaction_id(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("transaction IDs must be positive")
+
+        return value
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str) -> str:
+        category = value.strip()
+
+        if not category:
+            raise ValueError("category cannot be empty")
+
+        return category
+
+
+class BulkTransactionCategoriesUpdate(BaseModel):
+    updates: list[TransactionCategoryUpdate]
+
+    @field_validator("updates")
+    @classmethod
+    def validate_updates(
+        cls,
+        value: list[TransactionCategoryUpdate],
+    ) -> list[TransactionCategoryUpdate]:
+        if not value:
+            raise ValueError("at least one transaction update is required")
+
+        transaction_ids = [update.transaction_id for update in value]
+
+        if len(set(transaction_ids)) != len(transaction_ids):
+            raise ValueError("transaction IDs must be unique")
+
+        if len(transaction_ids) > 100:
+            raise ValueError(
+                "no more than 100 transaction updates are allowed"
+            )
+
+        return value
+
+
 class BulkTransactionDelete(BulkTransactionIds):
     pass
 

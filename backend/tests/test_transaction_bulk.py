@@ -160,6 +160,215 @@ def test_bulk_category_update_supports_full_twenty_row_page(
     }
 
 
+def test_bulk_categories_updates_mixed_values_in_request_order(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    transaction_ids = add_transactions(user_id)
+    requested_updates = [
+        {
+            "transaction_id": transaction_ids[2],
+            "category": " Groceries ",
+        },
+        {
+            "transaction_id": transaction_ids[0],
+            "category": "Shopping",
+        },
+        {
+            "transaction_id": transaction_ids[1],
+            "category": "Utilities",
+        },
+    ]
+
+    response = client.patch(
+        f"/users/{user_id}/transactions/bulk/categories",
+        json={"updates": requested_updates},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert [
+        (transaction["id"], transaction["category"])
+        for transaction in response.json()
+    ] == [
+        (transaction_ids[2], "Groceries"),
+        (transaction_ids[0], "Shopping"),
+        (transaction_ids[1], "Utilities"),
+    ]
+    assert transaction_state(transaction_ids) == {
+        transaction_ids[0]: ("Shopping", True),
+        transaction_ids[1]: ("Utilities", True),
+        transaction_ids[2]: ("Groceries", True),
+    }
+
+
+def test_bulk_categories_supports_single_update(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    transaction_id = add_transactions(user_id, count=1)[0]
+
+    response = client.patch(
+        f"/users/{user_id}/transactions/bulk/categories",
+        json={
+            "updates": [
+                {
+                    "transaction_id": transaction_id,
+                    "category": "Health",
+                }
+            ]
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == transaction_id
+    assert transaction_state([transaction_id]) == {
+        transaction_id: ("Health", True)
+    }
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ([], "at least one transaction update is required"),
+        (
+            [
+                {"transaction_id": 1, "category": "Dining"},
+                {"transaction_id": 1, "category": "Groceries"},
+            ],
+            "transaction IDs must be unique",
+        ),
+        (
+            [{"transaction_id": 0, "category": "Dining"}],
+            "transaction IDs must be positive",
+        ),
+        (
+            [{"transaction_id": -1, "category": "Dining"}],
+            "transaction IDs must be positive",
+        ),
+        (
+            [{"transaction_id": 1, "category": "   "}],
+            "category cannot be empty",
+        ),
+        (
+            [
+                {
+                    "transaction_id": transaction_id,
+                    "category": "Dining",
+                }
+                for transaction_id in range(1, 102)
+            ],
+            "no more than 100 transaction updates are allowed",
+        ),
+    ],
+)
+def test_bulk_categories_validates_updates(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    updates: list[dict[str, object]],
+    message: str,
+) -> None:
+    response = client.patch(
+        f"/users/{user_id}/transactions/bulk/categories",
+        json={"updates": updates},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+    assert message in response.text
+
+
+def test_bulk_categories_missing_transaction_causes_no_partial_update(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    transaction_ids = add_transactions(user_id)
+
+    response = client.patch(
+        f"/users/{user_id}/transactions/bulk/categories",
+        json={
+            "updates": [
+                {
+                    "transaction_id": transaction_ids[0],
+                    "category": "Groceries",
+                },
+                {
+                    "transaction_id": 999_999,
+                    "category": "Shopping",
+                },
+            ]
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == (
+        "one or more transactions were not found"
+    )
+    assert transaction_state(transaction_ids) == {
+        transaction_id: ("Dining", False)
+        for transaction_id in transaction_ids
+    }
+
+
+def test_bulk_categories_cross_user_transaction_causes_no_partial_update(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    transaction_ids = add_transactions(user_id)
+    other_transaction_id = add_other_user_transaction()
+
+    response = client.patch(
+        f"/users/{user_id}/transactions/bulk/categories",
+        json={
+            "updates": [
+                {
+                    "transaction_id": transaction_ids[0],
+                    "category": "Groceries",
+                },
+                {
+                    "transaction_id": other_transaction_id,
+                    "category": "Shopping",
+                },
+            ]
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert transaction_state(
+        [*transaction_ids, other_transaction_id]
+    ) == {
+        **{
+            transaction_id: ("Dining", False)
+            for transaction_id in transaction_ids
+        },
+        other_transaction_id: ("Dining", False),
+    }
+
+
+def test_bulk_categories_requires_authentication(
+    client: TestClient,
+    user_id: int,
+) -> None:
+    response = client.patch(
+        f"/users/{user_id}/transactions/bulk/categories",
+        json={
+            "updates": [
+                {"transaction_id": 1, "category": "Dining"}
+            ]
+        },
+    )
+
+    assert response.status_code == 401
+
+
 def test_bulk_delete_deduplicates_and_deletes_once(
     client: TestClient,
     user_id: int,

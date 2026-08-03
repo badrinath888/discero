@@ -14,6 +14,7 @@ from app.llm_categorization import LLMCategorizer
 from app.models import FinancialAccount, PlaidItem, Transaction, User
 from app.recurring import detect_recurring
 from app.schemas import (
+    BulkTransactionCategoriesUpdate,
     BulkTransactionCategoryUpdate,
     BulkTransactionDelete,
     BulkTransactionDeleteResult,
@@ -434,6 +435,31 @@ def bulk_update_transaction_category(
 
     for transaction in transactions:
         transaction.category = category
+        transaction.category_locked = True
+
+    db.commit()
+    return transactions
+
+
+@router.patch(
+    "/transactions/bulk/categories",
+    response_model=list[TransactionOut],
+)
+def bulk_update_transaction_categories(
+    user_id: int,
+    payload: BulkTransactionCategoriesUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[Transaction]:
+    _authorize_user(user_id, current_user)
+    transactions = _get_owned_transactions(
+        user_id,
+        [update.transaction_id for update in payload.updates],
+        db,
+    )
+
+    for transaction, update in zip(transactions, payload.updates):
+        transaction.category = update.category
         transaction.category_locked = True
 
     db.commit()

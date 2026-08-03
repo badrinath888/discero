@@ -42,6 +42,12 @@ const PAGE_SIZE = 20;
 
 type Density = "compact" | "comfortable";
 
+type CategoryUndoItem = {
+  transactionId: number;
+  previousCategory: string;
+  newCategory: string;
+};
+
 export default function TransactionsPage() {
   const router = useRouter();
 
@@ -74,7 +80,10 @@ export default function TransactionsPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [undoTransactions, setUndoTransactions] = useState<Transaction[]>([]);
+  const [categoryUndo, setCategoryUndo] = useState<CategoryUndoItem[]>([]);
   const deleteTimerRef = useRef<number | null>(null);
+  const categoryUndoTimerRef = useRef<number | null>(null);
+  const categoryUndoGenerationRef = useRef(0);
   const [pendingDelete, setPendingDelete] = useState<
     | { type: "single"; transaction: Transaction }
     | { type: "bulk"; transactionIds: number[] }
@@ -85,6 +94,10 @@ export default function TransactionsPage() {
     return () => {
       if (deleteTimerRef.current !== null) {
         window.clearTimeout(deleteTimerRef.current);
+      }
+
+      if (categoryUndoTimerRef.current !== null) {
+        window.clearTimeout(categoryUndoTimerRef.current);
       }
     };
   }, []);
@@ -261,6 +274,31 @@ export default function TransactionsPage() {
     visibleIds.length > 0 &&
     visibleIds.every((id) => selectedIds.includes(id));
 
+  function clearCategoryUndo() {
+    categoryUndoGenerationRef.current += 1;
+
+    if (categoryUndoTimerRef.current !== null) {
+      window.clearTimeout(categoryUndoTimerRef.current);
+      categoryUndoTimerRef.current = null;
+    }
+
+    setCategoryUndo([]);
+  }
+
+  function showCategoryUndo(updates: CategoryUndoItem[]) {
+    clearCategoryUndo();
+    setUndoTransactions([]);
+    setCategoryUndo(updates);
+
+    const generation = categoryUndoGenerationRef.current;
+    categoryUndoTimerRef.current = window.setTimeout(() => {
+      if (categoryUndoGenerationRef.current !== generation) return;
+
+      categoryUndoTimerRef.current = null;
+      setCategoryUndo([]);
+    }, 6_000);
+  }
+
   async function syncTransactions() {
     if (!userId) return;
 
@@ -320,6 +358,14 @@ export default function TransactionsPage() {
   ) {
     if (!userId) return;
 
+    const previousTransaction = transactions.find(
+      (transaction) => transaction.id === transactionId
+    );
+
+    if (!previousTransaction) return;
+
+    clearCategoryUndo();
+    setUndoTransactions([]);
     setBusyId(transactionId);
     setError("");
     setMessage("");
@@ -337,7 +383,13 @@ export default function TransactionsPage() {
         )
       );
 
-      setMessage("Transaction category updated.");
+      showCategoryUndo([
+        {
+          transactionId,
+          previousCategory: previousTransaction.category,
+          newCategory: updated.category,
+        },
+      ]);
     } catch (err) {
       setError(
         err instanceof Error
@@ -373,6 +425,8 @@ export default function TransactionsPage() {
     setBulkBusy(true);
     setError("");
     setMessage("");
+    clearCategoryUndo();
+    setUndoTransactions([]);
 
     try {
       const loadedIds = new Set(
@@ -416,6 +470,17 @@ export default function TransactionsPage() {
         return;
       }
 
+      const previousCategories = selectedIds.map((transactionId) => {
+        const transaction = transactions.find(
+          (item) => item.id === transactionId
+        );
+
+        return {
+          transactionId,
+          previousCategory: transaction!.category,
+        };
+      });
+
       const updatedTransactions =
         await api.bulkUpdateTransactionCategory(
           userId,
@@ -439,8 +504,18 @@ export default function TransactionsPage() {
 
       setSelectedIds([]);
       setBulkCategory("");
-      setMessage(
-        `${updatedTransactions.length} transactions updated.`
+      const updatedByIdForUndo = new Map(
+        updatedTransactions.map((transaction) => [
+          transaction.id,
+          transaction.category,
+        ])
+      );
+      showCategoryUndo(
+        previousCategories.map((update) => ({
+          ...update,
+          newCategory:
+            updatedByIdForUndo.get(update.transactionId) ?? bulkCategory,
+        }))
       );
     } catch (err) {
       setError(
@@ -479,6 +554,8 @@ export default function TransactionsPage() {
     deletedTransactions: Transaction[]
   ) {
     if (!userId || deletedTransactions.length === 0) return;
+
+    clearCategoryUndo();
 
     if (deleteTimerRef.current !== null) {
       window.clearTimeout(deleteTimerRef.current);
@@ -612,6 +689,49 @@ export default function TransactionsPage() {
     setNet((current) => current + restoredNet);
     setUndoTransactions([]);
     setMessage("Deletion undone.");
+  }
+
+  async function restorePreviousCategories() {
+    if (!userId || categoryUndo.length === 0) return;
+
+    const undoItems = categoryUndo;
+    clearCategoryUndo();
+    setBulkBusy(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const restoredTransactions =
+        await api.bulkUpdateTransactionCategories(
+          userId,
+          undoItems.map((item) => ({
+            transaction_id: item.transactionId,
+            category: item.previousCategory,
+          }))
+        );
+      const restoredById = new Map(
+        restoredTransactions.map((transaction) => [
+          transaction.id,
+          transaction,
+        ])
+      );
+
+      setTransactions((current) =>
+        current.map(
+          (transaction) =>
+            restoredById.get(transaction.id) ?? transaction
+        )
+      );
+      setMessage("Category change undone.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to undo category change"
+      );
+    } finally {
+      setBulkBusy(false);
+    }
   }
 
   function toggleSelection(transactionId: number) {
@@ -1093,29 +1213,47 @@ export default function TransactionsPage() {
       </AnimatePresence>
 
       <Toast
-        message={message}
+        message={
+          categoryUndo.length > 0 || undoTransactions.length > 0
+            ? ""
+            : message
+        }
         type="success"
         onClose={() => setMessage("")}
       />
 
       <Toast
         message={
-          undoTransactions.length === 0
-            ? ""
-            : undoTransactions.length === 1
-              ? "Transaction deleted."
-              : `${undoTransactions.length} transactions deleted.`
+          categoryUndo.length > 0
+            ? categoryUndo.length === 1
+              ? "Category updated."
+              : `${categoryUndo.length} transactions updated.`
+            : undoTransactions.length === 0
+              ? ""
+              : undoTransactions.length === 1
+                ? "Transaction deleted."
+                : `${undoTransactions.length} transactions deleted.`
         }
         type="success"
         actionLabel={
-          undoTransactions.length > 0 ? "Undo" : undefined
+          categoryUndo.length > 0 || undoTransactions.length > 0
+            ? "Undo"
+            : undefined
         }
         onAction={
-          undoTransactions.length > 0
+          categoryUndo.length > 0
+            ? () => void restorePreviousCategories()
+            : undoTransactions.length > 0
             ? () => restoreDeletedTransactions()
             : undefined
         }
-        onClose={() => setUndoTransactions([])}
+        onClose={() => {
+          if (categoryUndo.length > 0) {
+            clearCategoryUndo();
+          } else {
+            setUndoTransactions([]);
+          }
+        }}
       />
 
       <AnimatePresence>

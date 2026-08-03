@@ -1,20 +1,28 @@
 # Current work
 
-Updated: 2026-08-03 after implementing atomic transaction bulk operations. Nothing is committed or pushed.
+Updated: 2026-08-03 after implementing atomic category Undo. Nothing is committed or pushed.
 
 ## Baseline and changed files
 
-The work started from clean `main` at `dcca7ef98c5e199c0b83df07c0b068f8b1ea8cfd`, matching `origin/main`. No migration or dependency change is required.
+The work started from clean `main` at `8da0e6d2d84cdbae1afa16fb2aa19a3a498930bd`, matching `origin/main`. No migration or dependency change is required.
 
 Current implementation files:
 
 - `backend/app/schemas.py`
 - `backend/app/routers/transactions.py`
-- `backend/tests/test_transaction_bulk.py` (new)
+- `backend/tests/test_transaction_bulk.py`
 - `frontend/app/lib/api.ts`
 - `frontend/app/transactions/page.tsx`
 
 Documentation updates are limited to this file, `API_REFERENCE.md`, `IMPLEMENTED_FEATURES.md`, and `ARCHITECTURE.md`.
+
+## Atomic category Undo
+
+`PATCH /users/{user_id}/transactions/bulk/categories` accepts one to 100 unique transaction/category pairs. It requires positive IDs and trimmed, nonblank categories no longer than 64 characters. Duplicate IDs are rejected because repeated entries could specify conflicting values. The handler authenticates, enforces path ownership, loads the full owner-scoped set before mutation, sets every `category_locked` flag, commits once, and returns rows in request order. Missing or cross-user IDs reject the entire request with no partial update.
+
+The Transactions page captures each previous category before a successful single or bulk change. The committed update is shown immediately with a six-second Undo action. Undo calls the mixed-category endpoint once and replaces the page rows with the atomic response. Failure leaves the newly applied categories visible and surfaces the backend error.
+
+Only one Undo action is displayed. Starting another category change replaces the older category opportunity; starting a deletion clears it. Starting a category change hides an existing delete Undo without cancelling the already-scheduled delete, matching the existing close behavior. Category expiry and close only clear browser state and never call the backend. Both timers are cleared on unmount, and category timers use a generation check so stale callbacks cannot clear newer state.
 
 ## Atomic bulk endpoints
 
@@ -31,9 +39,10 @@ Both handlers authenticate the caller, enforce path-user ownership, and load the
 
 ## Frontend behavior
 
-The API client exposes `bulkUpdateTransactionCategory` and `bulkDeleteTransactions`. The Transactions page no longer uses `Promise.all` for bulk mutations:
+The API client exposes `bulkUpdateTransactionCategory`, `bulkUpdateTransactionCategories`, and `bulkDeleteTransactions`. The Transactions page uses atomic requests for bulk mutations and category restoration:
 
 - selected category changes use one PATCH request
+- single and bulk category Undo use one mixed-category PATCH request
 - both single and multi-row permanent deletion use one POST request
 - confirmation, selection, optimistic totals, Potential duplicates, notifications, and error restoration are preserved
 - Undo before six seconds cancels the timer and sends no backend delete
@@ -42,7 +51,7 @@ The API client exposes `bulkUpdateTransactionCategory` and `bulkDeleteTransactio
 
 ## Tests and verification
 
-Focused backend tests cover successful category/delete, duplicate IDs, empty/zero/negative IDs, the 100-ID limit, blank category, missing-ID rollback, cross-user rollback, category locks, no partial updates/deletes, authentication, and deterministic response ordering.
+Focused backend tests cover successful single-category, mixed-category and delete operations; duplicate IDs; empty/zero/negative IDs; the 100-ID limit; blank categories; missing-ID and cross-user rollback; category locks; no partial updates/deletes; authentication; and deterministic response ordering.
 
 Run before review:
 
@@ -71,4 +80,4 @@ git status --short
 
 ## Recommended next task
 
-Add a small frontend test harness and cover delayed bulk deletion, Undo cancellation, backend failure restoration, and overlapping user actions before changing the UX further.
+Add a small frontend test harness and cover delayed bulk deletion, category Undo restoration, timer replacement, Undo cancellation, backend failure restoration, and overlapping user actions before changing the UX further.

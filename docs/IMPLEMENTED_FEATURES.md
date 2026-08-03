@@ -21,6 +21,7 @@ Status vocabulary: **verified** means current automated validation covers it or 
 | Password/email change and visibility; browser sign-out | Backend tests + build verified; server revocation absent | `fc4f4fe`–`b62c03b`. |
 | Settings CSV export | Build verified; client-side export of all fetched transactions | `0d4896e`. |
 | Atomic bulk category/delete | Verified by backend rollback/validation tests and frontend lint/build | Bulk category locks every row and returns request-order results; bulk delete returns a count. The UI sends one request after selection/confirmation, with deletion delayed six seconds for Undo. |
+| Atomic mixed-category update and category Undo | Verified by backend validation/rollback tests and frontend lint/build | `PATCH /transactions/bulk/categories` applies up to 100 distinct per-transaction categories in one commit. Single and bulk category changes expose a six-second Undo that restores exact prior values with one atomic request. |
 | Six-second optimistic Undo deletion | Build verified only; no frontend E2E/unit tests | `523514d` plus `faba3d2`, `9da720b`, `6633c2f`. Undo cancels a local timer before DELETE; after DELETE fires there is no restore. |
 | Potential Duplicates | Verified by focused backend tests and frontend lint/build | Correlated `EXISTS` over same user/date/amount and normalized merchant-or-description identity; transaction-page toggle reuses selection, bulk delete, confirmation and Undo. See [CURRENT_WORK.md](CURRENT_WORK.md). |
 
@@ -28,7 +29,7 @@ Status vocabulary: **verified** means current automated validation covers it or 
 
 Every authenticated route is responsive through Tailwind breakpoints and `AppSidebar` mobile navigation. Motion uses Framer Motion and shared helpers that respect `prefers-reduced-motion`. Transactions/accounts/goals use detail drawers; destructive account, goal and transaction actions use `ConfirmationModal`; mutation success/error uses `Toast` where implemented. Forecast/recurring/insights have page errors, empty CTAs and animated drawers. Budgets have loading/error/empty, copy confirmation state and success toast. Settings uses loading plus two toast channels but no confirmation for browser logout or CSV export. Dashboard has its own loading/error/empty blocks and upload result messaging.
 
-Known UI limitations: no frontend automated tests; session logic is repeated per page; JWT is in localStorage; no global error boundary/auth provider; bulk operations can partially succeed; the Undo state is client-memory-only; closing the Undo toast hides the action while the deletion timer continues; pagination can be stale after optimistic deletion; and the landing page displays stale “111 Backend tests.”
+Known UI limitations: no frontend automated tests; session logic is repeated per page; JWT is in localStorage; no global error boundary/auth provider; Undo state is client-memory-only; closing the delete Undo toast hides the action while the deletion timer continues; pagination can be stale after optimistic deletion; and the landing page displays stale “111 Backend tests.”
 
 ## Commit history summary
 

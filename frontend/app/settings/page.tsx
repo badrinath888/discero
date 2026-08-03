@@ -13,10 +13,7 @@ import {
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
 import Toast from "../components/Toast";
-import {
-  PageError,
-  PageLoading,
-} from "../components/PageFeedback";
+import { PageLoading } from "../components/PageFeedback";
 import {
   api,
   session,
@@ -225,12 +222,6 @@ export default function SettingsPage() {
           </p>
         </header>
 
-        {error && (
-          <div className="mt-5">
-            <PageError message={error} />
-          </div>
-        )}
-
         {loading ? (
           <div className="mt-8">
             <PageLoading message="Loading account settings..." />
@@ -429,6 +420,12 @@ export default function SettingsPage() {
         message={message}
         type="success"
         onClose={() => setMessage("")}
+      />
+
+      <Toast
+        message={error}
+        type="error"
+        onClose={() => setError("")}
       />
     </main>
   );

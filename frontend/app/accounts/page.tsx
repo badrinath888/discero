@@ -20,6 +20,7 @@ import {
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
 import ConnectBankButton from "../components/ConnectBankButton";
+import ConfirmationModal from "../components/ConfirmationModal";
 import {
   EmptyState,
   PageError,
@@ -536,11 +537,19 @@ export default function AccountsPage() {
 
       <AnimatePresence>
         {pendingDisconnect && (
-          <DisconnectConfirmationModal
-            institutionName={pendingDisconnect.institutionName}
-            disconnecting={
+          <ConfirmationModal
+            eyebrow="Disconnect institution"
+            title={`Disconnect ${
+              pendingDisconnect.institutionName ?? "this institution"
+            }?`}
+            description="FinSight will stop syncing accounts from this institution. Your previously imported transactions will remain available."
+            cancelLabel="Keep connected"
+            confirmLabel="Disconnect institution"
+            busyLabel="Disconnecting..."
+            busy={
               disconnectingItemId === pendingDisconnect.itemId
             }
+            icon={<X className="h-5 w-5" />}
             onCancel={() => {
               if (disconnectingItemId === null) {
                 setPendingDisconnect(null);
@@ -1057,104 +1066,5 @@ function DrawerDetail({
       </dt>
       <dd className="text-sm font-medium sm:text-right">{value}</dd>
     </div>
-  );
-}
-
-function DisconnectConfirmationModal({
-  institutionName,
-  disconnecting,
-  onCancel,
-  onConfirm,
-}: {
-  institutionName: string | null;
-  disconnecting: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const reduceMotion = useReducedMotion();
-  const name = institutionName ?? "this institution";
-
-  return (
-    <motion.div
-      className="fixed inset-0 z-[60] flex items-center justify-center px-4"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: reduceMotion ? 0 : 0.18 }}
-    >
-      <button
-        type="button"
-        aria-label="Close disconnect confirmation"
-        onClick={onCancel}
-        disabled={disconnecting}
-        className="absolute inset-0 bg-[#14241e]/45 backdrop-blur-[3px]"
-      />
-
-      <motion.section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="disconnect-title"
-        initial={
-          reduceMotion
-            ? false
-            : { opacity: 0, scale: 0.96, y: 16 }
-        }
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 16 }}
-        transition={{
-          duration: reduceMotion ? 0 : 0.22,
-          ease: [0.22, 1, 0.36, 1],
-        }}
-        className="relative w-full max-w-md rounded-[28px] border border-[#14241e]/10 bg-[#fdfcf8] p-6 shadow-[0_30px_90px_rgba(20,36,30,0.28)] sm:p-7"
-      >
-        <div className="flex items-start gap-4">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#f6e6e1] text-[#a64b3d]">
-            <X className="h-5 w-5" />
-          </span>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#a64b3d]">
-              Disconnect institution
-            </p>
-            <h2
-              id="disconnect-title"
-              className="mt-2 text-2xl font-semibold tracking-[-0.04em]"
-            >
-              Disconnect {name}?
-            </h2>
-          </div>
-        </div>
-
-        <p className="mt-5 text-sm leading-6 text-[#66746e]">
-          FinSight will stop syncing accounts from this institution.
-          Your previously imported transactions will remain available.
-        </p>
-
-        <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={disconnecting}
-            className="min-h-11 rounded-full border border-[#14241e]/10 bg-white px-5 text-sm font-semibold transition hover:bg-[#f5f1e8] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Keep connected
-          </button>
-
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={disconnecting}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[#a64b3d] px-5 text-sm font-semibold text-white transition hover:bg-[#8f3f33] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {disconnecting && (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            )}
-            {disconnecting
-              ? "Disconnecting..."
-              : "Disconnect institution"}
-          </button>
-        </div>
-      </motion.section>
-    </motion.div>
   );
 }

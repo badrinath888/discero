@@ -3,6 +3,38 @@ const API_URL =
 
 const TOKEN_KEY = "accessToken";
 const USER_ID_KEY = "userId";
+const REQUEST_TIMEOUT_MS = 15_000;
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {}
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    REQUEST_TIMEOUT_MS
+  );
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (
+      error instanceof DOMException &&
+      error.name === "AbortError"
+    ) {
+      throw new Error(
+        "The server took too long to respond. Please try again."
+      );
+    }
+
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -329,7 +361,7 @@ export const api = {
     email: string,
     password: string
   ): Promise<User> =>
-    fetch(`${API_URL}/users`, {
+    fetchWithTimeout(`${API_URL}/users`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -341,7 +373,7 @@ export const api = {
     email: string,
     password: string
   ): Promise<AuthResponse> =>
-    fetch(`${API_URL}/users/login`, {
+    fetchWithTimeout(`${API_URL}/users/login`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -350,12 +382,12 @@ export const api = {
     }).then((res) => handle<AuthResponse>(res)),
 
   getMe: (): Promise<User> =>
-    fetch(`${API_URL}/users/me`, {
+    fetchWithTimeout(`${API_URL}/users/me`, {
       headers: authHeaders(),
     }).then((res) => handle<User>(res)),
 
   getUser: (id: number): Promise<User> =>
-    fetch(`${API_URL}/users/${id}`, {
+    fetchWithTimeout(`${API_URL}/users/${id}`, {
       headers: authHeaders(),
     }).then((res) => handle<User>(res)),
 
@@ -366,7 +398,7 @@ export const api = {
     const form = new FormData();
     form.append("file", file);
 
-    return fetch(
+    return fetchWithTimeout(
       `${API_URL}/users/${userId}/transactions/upload`,
       {
         method: "POST",
@@ -379,7 +411,7 @@ export const api = {
   getTransactions: (
     userId: number
   ): Promise<Transaction[]> =>
-    fetch(`${API_URL}/users/${userId}/transactions`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/transactions`, {
       headers: authHeaders(),
     }).then((res) => handle<Transaction[]>(res)),
 
@@ -404,7 +436,7 @@ export const api = {
       ? `?${query.toString()}`
       : "";
 
-    return fetch(
+    return fetchWithTimeout(
       `${API_URL}/users/${userId}/transactions/search${suffix}`,
       {
         headers: authHeaders(),
@@ -417,7 +449,7 @@ export const api = {
     transactionId: number,
     category: string
   ): Promise<Transaction> =>
-    fetch(
+    fetchWithTimeout(
       `${API_URL}/users/${userId}/transactions/${transactionId}`,
       {
         method: "PATCH",
@@ -430,7 +462,7 @@ export const api = {
     userId: number,
     transactionId: number
   ): Promise<void> =>
-    fetch(
+    fetchWithTimeout(
       `${API_URL}/users/${userId}/transactions/${transactionId}`,
       {
         method: "DELETE",
@@ -439,26 +471,26 @@ export const api = {
     ).then(handleEmpty),
 
   overview: (userId: number): Promise<Overview> =>
-    fetch(`${API_URL}/users/${userId}/summary/overview`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/summary/overview`, {
       headers: authHeaders(),
     }).then((res) => handle<Overview>(res)),
 
   byCategory: (
     userId: number
   ): Promise<CategoryTotal[]> =>
-    fetch(`${API_URL}/users/${userId}/summary/by-category`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/summary/by-category`, {
       headers: authHeaders(),
     }).then((res) => handle<CategoryTotal[]>(res)),
 
   byMonth: (userId: number): Promise<MonthTotal[]> =>
-    fetch(`${API_URL}/users/${userId}/summary/by-month`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/summary/by-month`, {
       headers: authHeaders(),
     }).then((res) => handle<MonthTotal[]>(res)),
 
   getRecurringPayments: (
     userId: number
   ): Promise<RecurringPayment[]> =>
-    fetch(`${API_URL}/users/${userId}/summary/recurring`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/summary/recurring`, {
       headers: authHeaders(),
     }).then((res) => handle<RecurringPayment[]>(res)),
 
@@ -466,7 +498,7 @@ export const api = {
     userId: number,
     month: string
   ): Promise<MonthlyInsights> =>
-    fetch(
+    fetchWithTimeout(
       `${API_URL}/users/${userId}/summary/insights?month=${encodeURIComponent(
         month
       )}`,
@@ -483,7 +515,7 @@ export const api = {
       ? `?as_of=${encodeURIComponent(asOf)}`
       : "";
 
-    return fetch(
+    return fetchWithTimeout(
       `${API_URL}/users/${userId}/summary/cash-flow-forecast${query}`,
       {
         headers: authHeaders(),
@@ -495,7 +527,7 @@ export const api = {
     userId: number,
     month: string
   ): Promise<Budget[]> =>
-    fetch(
+    fetchWithTimeout(
       `${API_URL}/users/${userId}/budgets?month=${encodeURIComponent(
         month
       )}`,
@@ -510,7 +542,7 @@ export const api = {
     month: string,
     limitCents: number
   ): Promise<Budget> =>
-    fetch(`${API_URL}/users/${userId}/budgets`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/budgets`, {
       method: "PUT",
       headers: jsonHeaders(),
       body: JSON.stringify({
@@ -524,7 +556,7 @@ export const api = {
     userId: number,
     month: string
   ): Promise<BudgetProgress[]> =>
-    fetch(
+    fetchWithTimeout(
       `${API_URL}/users/${userId}/budgets/progress?month=${encodeURIComponent(
         month
       )}`,
@@ -539,7 +571,7 @@ export const api = {
     month: string,
     overwrite = false
   ): Promise<BudgetCopyResult> =>
-    fetch(
+    fetchWithTimeout(
       `${API_URL}/users/${userId}/budgets/copy-previous?month=${encodeURIComponent(
         month
       )}&overwrite=${overwrite}`,
@@ -552,7 +584,7 @@ export const api = {
   getSavingsGoals: (
     userId: number
   ): Promise<SavingsGoal[]> =>
-    fetch(`${API_URL}/users/${userId}/goals`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/goals`, {
       headers: authHeaders(),
     }).then((res) => handle<SavingsGoal[]>(res)),
 
@@ -560,7 +592,7 @@ export const api = {
     userId: number,
     payload: SavingsGoalCreate
   ): Promise<SavingsGoal> =>
-    fetch(`${API_URL}/users/${userId}/goals`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/goals`, {
       method: "POST",
       headers: jsonHeaders(),
       body: JSON.stringify(payload),
@@ -571,7 +603,7 @@ export const api = {
     goalId: number,
     payload: SavingsGoalUpdate
   ): Promise<SavingsGoal> =>
-    fetch(`${API_URL}/users/${userId}/goals/${goalId}`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/goals/${goalId}`, {
       method: "PATCH",
       headers: jsonHeaders(),
       body: JSON.stringify(payload),
@@ -581,7 +613,7 @@ export const api = {
     userId: number,
     goalId: number
   ): Promise<void> =>
-    fetch(`${API_URL}/users/${userId}/goals/${goalId}`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/goals/${goalId}`, {
       method: "DELETE",
       headers: authHeaders(),
     }).then(handleEmpty),
@@ -589,7 +621,7 @@ export const api = {
   createPlaidLinkToken: (
     userId: number
   ): Promise<PlaidLinkToken> =>
-    fetch(
+    fetchWithTimeout(
       `${API_URL}/users/${userId}/plaid/link-token`,
       {
         method: "POST",
@@ -603,7 +635,7 @@ export const api = {
     institutionId?: string | null,
     institutionName?: string | null
   ): Promise<PlaidConnection> =>
-    fetch(
+    fetchWithTimeout(
       `${API_URL}/users/${userId}/plaid/exchange-token`,
       {
         method: "POST",
@@ -619,7 +651,7 @@ export const api = {
   getAccounts: (
     userId: number
   ): Promise<FinancialAccount[]> =>
-    fetch(`${API_URL}/users/${userId}/accounts`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/accounts`, {
       headers: authHeaders(),
     }).then((res) => handle<FinancialAccount[]>(res)),
 
@@ -627,7 +659,7 @@ export const api = {
   syncPlaidTransactions: (
     userId: number
   ): Promise<PlaidSyncResult> =>
-    fetch(`${API_URL}/users/${userId}/plaid/sync`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/plaid/sync`, {
       method: "POST",
       headers: authHeaders(),
     }).then((res) => handle<PlaidSyncResult>(res)),
@@ -636,7 +668,7 @@ export const api = {
     userId: number,
     itemId: number
   ): Promise<void> =>
-    fetch(`${API_URL}/users/${userId}/plaid/items/${itemId}`, {
+    fetchWithTimeout(`${API_URL}/users/${userId}/plaid/items/${itemId}`, {
       method: "DELETE",
       headers: authHeaders(),
     }).then(handleEmpty),

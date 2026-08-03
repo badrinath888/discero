@@ -40,7 +40,7 @@ export default function Toast({
             duration: reduceMotion ? 0 : 0.2,
             ease: [0.22, 1, 0.36, 1],
           }}
-          className={`fixed right-4 top-20 z-[70] flex w-[calc(100%-2rem)] max-w-sm items-start gap-3 rounded-2xl border px-4 py-3.5 shadow-[0_20px_55px_rgba(20,36,30,0.22)] sm:right-6 sm:top-6 ${
+          className={`fixed right-4 top-20 z-[70] flex w-auto max-w-[calc(100%-2rem)] items-center gap-2.5 rounded-2xl border px-4 py-3 shadow-[0_20px_55px_rgba(20,36,30,0.22)] sm:right-6 sm:top-6 ${
             isSuccess
               ? "border-[#167c5a]/25 bg-[#edf7f0] text-[#0f5f43]"
               : "border-[#a64b3d]/25 bg-[#fff3ef] text-[#8f3f33]"
@@ -58,7 +58,7 @@ export default function Toast({
             )}
           </span>
 
-          <p className="min-w-0 flex-1 text-sm font-semibold leading-6">
+          <p className="min-w-0 whitespace-nowrap text-sm font-semibold leading-5">
             {message}
           </p>
 
@@ -66,7 +66,7 @@ export default function Toast({
             <button
               type="button"
               onClick={onAction}
-              className="shrink-0 rounded-lg px-2.5 py-1.5 text-sm font-bold underline decoration-2 underline-offset-4 transition hover:bg-black/[0.06]"
+              className="shrink-0 rounded-lg px-2 py-1 text-sm font-bold underline decoration-2 underline-offset-4 transition hover:bg-black/[0.06]"
             >
               {actionLabel}
             </button>

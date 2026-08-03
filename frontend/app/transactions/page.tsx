@@ -375,15 +375,12 @@ export default function TransactionsPage() {
     setMessage("");
 
     try {
-      const updatedTransactions = await Promise.all(
-        selectedIds.map((transactionId) =>
-          api.updateTransaction(
-            userId,
-            transactionId,
-            bulkCategory
-          )
-        )
-      );
+      const updatedTransactions =
+        await api.bulkUpdateTransactionCategory(
+          userId,
+          selectedIds,
+          bulkCategory
+        );
 
       const updatedById = new Map(
         updatedTransactions.map((transaction) => [
@@ -500,10 +497,9 @@ export default function TransactionsPage() {
       setBulkBusy(true);
 
       try {
-        await Promise.all(
-          deletedTransactions.map((transaction) =>
-            api.deleteTransaction(userId, transaction.id)
-          )
+        await api.bulkDeleteTransactions(
+          userId,
+          deletedTransactions.map((transaction) => transaction.id)
         );
       } catch (err) {
         restoreDeletedTransactions(deletedTransactions);

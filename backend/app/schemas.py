@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class TransactionOut(BaseModel):
@@ -32,6 +32,38 @@ class TransactionPage(BaseModel):
 
 class TransactionUpdate(BaseModel):
     category: str = Field(min_length=1, max_length=64)
+
+
+class BulkTransactionIds(BaseModel):
+    transaction_ids: list[int]
+
+    @field_validator("transaction_ids")
+    @classmethod
+    def validate_transaction_ids(cls, value: list[int]) -> list[int]:
+        unique_ids = list(dict.fromkeys(value))
+
+        if not unique_ids:
+            raise ValueError("at least one transaction ID is required")
+
+        if any(transaction_id <= 0 for transaction_id in unique_ids):
+            raise ValueError("transaction IDs must be positive")
+
+        if len(unique_ids) > 100:
+            raise ValueError("no more than 100 transaction IDs are allowed")
+
+        return unique_ids
+
+
+class BulkTransactionCategoryUpdate(BulkTransactionIds):
+    category: str = Field(min_length=1, max_length=64)
+
+
+class BulkTransactionDelete(BulkTransactionIds):
+    pass
+
+
+class BulkTransactionDeleteResult(BaseModel):
+    deleted: int
 
 
 class UploadSummary(BaseModel):

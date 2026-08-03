@@ -14,6 +14,9 @@ from app.llm_categorization import LLMCategorizer
 from app.models import FinancialAccount, PlaidItem, Transaction, User
 from app.recurring import detect_recurring
 from app.schemas import (
+    BulkTransactionCategoryUpdate,
+    BulkTransactionDelete,
+    BulkTransactionDeleteResult,
     CategoryTotal,
     CashFlowForecastOut,
     FinancialInsightOut,
@@ -75,6 +78,41 @@ def _user_transactions(
     )
 
     return list(db.scalars(statement).all())
+
+
+def _get_owned_transactions(
+    user_id: int,
+    transaction_ids: list[int],
+    db: Session,
+) -> list[Transaction]:
+    transactions = list(
+        db.scalars(
+            select(Transaction)
+            .options(
+                joinedload(Transaction.financial_account).joinedload(
+                    FinancialAccount.plaid_item
+                )
+            )
+            .where(
+                Transaction.user_id == user_id,
+                Transaction.id.in_(transaction_ids),
+            )
+        ).all()
+    )
+
+    if len(transactions) != len(transaction_ids):
+        raise HTTPException(
+            status_code=404,
+            detail="one or more transactions were not found",
+        )
+
+    transactions_by_id = {
+        transaction.id: transaction for transaction in transactions
+    }
+    return [
+        transactions_by_id[transaction_id]
+        for transaction_id in transaction_ids
+    ]
 
 
 @router.post(
@@ -367,6 +405,63 @@ def search_transactions(
         total_spending_cents=total_spending_cents,
         net_cents=total_income_cents - total_spending_cents,
     )
+
+
+@router.patch(
+    "/transactions/bulk/category",
+    response_model=list[TransactionOut],
+)
+def bulk_update_transaction_category(
+    user_id: int,
+    payload: BulkTransactionCategoryUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[Transaction]:
+    _authorize_user(user_id, current_user)
+    category = payload.category.strip()
+
+    if not category:
+        raise HTTPException(
+            status_code=422,
+            detail="category cannot be empty",
+        )
+
+    transactions = _get_owned_transactions(
+        user_id,
+        payload.transaction_ids,
+        db,
+    )
+
+    for transaction in transactions:
+        transaction.category = category
+        transaction.category_locked = True
+
+    db.commit()
+    return transactions
+
+
+@router.post(
+    "/transactions/bulk/delete",
+    response_model=BulkTransactionDeleteResult,
+)
+def bulk_delete_transactions(
+    user_id: int,
+    payload: BulkTransactionDelete,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BulkTransactionDeleteResult:
+    _authorize_user(user_id, current_user)
+    transactions = _get_owned_transactions(
+        user_id,
+        payload.transaction_ids,
+        db,
+    )
+
+    for transaction in transactions:
+        db.delete(transaction)
+
+    db.commit()
+    return BulkTransactionDeleteResult(deleted=len(transactions))
 
 
 @router.patch(

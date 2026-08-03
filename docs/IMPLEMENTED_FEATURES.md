@@ -20,7 +20,7 @@ Status vocabulary: **verified** means current automated validation covers it or 
 | Confirmations and success/error toasts | Build verified | `51ea95e` through `ffddc69`, shared modal/toast commits. |
 | Password/email change and visibility; browser sign-out | Backend tests + build verified; server revocation absent | `fc4f4fe`–`b62c03b`. |
 | Settings CSV export | Build verified; client-side export of all fetched transactions | `0d4896e`. |
-| Bulk category/delete | Build verified; implemented as multiple requests (`Promise.all`), no atomic backend endpoint | Transactions page current code. |
+| Atomic bulk category/delete | Verified by backend rollback/validation tests and frontend lint/build | Bulk category locks every row and returns request-order results; bulk delete returns a count. The UI sends one request after selection/confirmation, with deletion delayed six seconds for Undo. |
 | Six-second optimistic Undo deletion | Build verified only; no frontend E2E/unit tests | `523514d` plus `faba3d2`, `9da720b`, `6633c2f`. Undo cancels a local timer before DELETE; after DELETE fires there is no restore. |
 | Potential Duplicates | Verified by focused backend tests and frontend lint/build | Correlated `EXISTS` over same user/date/amount and normalized merchant-or-description identity; transaction-page toggle reuses selection, bulk delete, confirmation and Undo. See [CURRENT_WORK.md](CURRENT_WORK.md). |
 

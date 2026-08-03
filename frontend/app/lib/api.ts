@@ -156,6 +156,10 @@ export type TransactionPage = {
   net_cents: number;
 };
 
+export type BulkTransactionDeleteResult = {
+  deleted: number;
+};
+
 export type CategoryTotal = {
   category: string;
   total_cents: number;
@@ -485,17 +489,35 @@ export const api = {
       }
     ).then((res) => handle<Transaction>(res)),
 
-  deleteTransaction: (
+  bulkUpdateTransactionCategory: (
     userId: number,
-    transactionId: number
-  ): Promise<void> =>
+    transactionIds: number[],
+    category: string
+  ): Promise<Transaction[]> =>
     fetchWithTimeout(
-      `${API_URL}/users/${userId}/transactions/${transactionId}`,
+      `${API_URL}/users/${userId}/transactions/bulk/category`,
       {
-        method: "DELETE",
-        headers: authHeaders(),
+        method: "PATCH",
+        headers: jsonHeaders(),
+        body: JSON.stringify({
+          transaction_ids: transactionIds,
+          category,
+        }),
       }
-    ).then(handleEmpty),
+    ).then((res) => handle<Transaction[]>(res)),
+
+  bulkDeleteTransactions: (
+    userId: number,
+    transactionIds: number[]
+  ): Promise<BulkTransactionDeleteResult> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/transactions/bulk/delete`,
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ transaction_ids: transactionIds }),
+      }
+    ).then((res) => handle<BulkTransactionDeleteResult>(res)),
 
   overview: (userId: number): Promise<Overview> =>
     fetchWithTimeout(`${API_URL}/users/${userId}/summary/overview`, {

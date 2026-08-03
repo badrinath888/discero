@@ -53,6 +53,12 @@ The browser requests a link token, Plaid Link supplies a public token, and the A
 
 Summary endpoints compute overview, category/month totals, recurring patterns, insights, and cash-flow forecasts from stored transactions/accounts. Recurring detection ignores pending activity, normalizes merchant/reference noise, requires three completed occurrences, recognizes weekly/biweekly/monthly cadence with tolerance, and emits confidence/price-change signals. Forecasts combine liquid balances, income pace, and recurring items; these are estimates, not guarantees.
 
+### Transaction bulk mutations and Undo
+
+Bulk category and delete requests validate and deduplicate up to 100 positive transaction IDs, then load the complete owner-scoped set before changing any row. A missing or cross-user ID produces a 404 before mutation, preventing partial writes and avoiding disclosure of another user's records. Category updates set `category_locked=true` and return rows in first-requested-ID order; deletes return the number removed. Each endpoint commits once.
+
+The Transactions page optimistically removes selected rows but waits six seconds before calling the atomic bulk-delete endpoint. Undo clears that timer and restores local state without making a delete request. Once the timer expires, one request deletes the entire set; a request failure restores every optimistically removed row. Single-row deletion uses the same bulk endpoint with one ID. Bulk category changes likewise use one request rather than per-row calls.
+
 ## Frontend architecture and routes
 
 All authenticated pages use `AppSidebar`, responsive desktop/mobile navigation, reusable motion respecting reduced-motion preferences, and page-specific loading/error/empty states.

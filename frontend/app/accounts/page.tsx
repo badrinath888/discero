@@ -116,6 +116,17 @@ export default function AccountsPage() {
   }, []);
 
   useEffect(() => {
+    if (message.length === 0) return;
+
+    const timeout = window.setTimeout(
+      () => setMessage(""),
+      5_000
+    );
+
+    return () => window.clearTimeout(timeout);
+  }, [message]);
+
+  useEffect(() => {
     async function initializeAccounts() {
       const id = session.getUserId();
       const token = session.getToken();

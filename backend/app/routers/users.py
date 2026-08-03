@@ -6,6 +6,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models import User
 from app.schemas import (
+    EmailChangeRequest,
     PasswordChangeRequest,
     TokenOut,
     UserCreate,
@@ -79,6 +80,49 @@ def login(
         access_token=create_access_token(user.id),
         user=UserOut.model_validate(user),
     )
+
+
+@router.patch("/me/email", response_model=UserOut)
+def change_email(
+    payload: EmailChangeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    if not verify_password(
+        payload.current_password,
+        current_user.password_hash,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="current password is incorrect",
+        )
+
+    new_email = payload.new_email.lower().strip()
+
+    if new_email == current_user.email.lower():
+        raise HTTPException(
+            status_code=400,
+            detail="new email must be different",
+        )
+
+    existing = db.scalar(
+        select(User).where(
+            func.lower(User.email) == new_email
+        )
+    )
+
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="email already registered",
+        )
+
+    current_user.email = new_email
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user
 
 
 @router.patch("/me/password", status_code=204)

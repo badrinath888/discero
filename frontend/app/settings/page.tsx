@@ -6,6 +6,7 @@ import {
   EyeOff,
   KeyRound,
   LogOut,
+  Mail,
   ShieldCheck,
   UserRound,
 } from "lucide-react";
@@ -32,6 +33,9 @@ export default function SettingsPage() {
 
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<AccountStats | null>(null);
+  const [newEmail, setNewEmail] = useState("");
+  const [emailPassword, setEmailPassword] = useState("");
+  const [savingEmail, setSavingEmail] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -69,6 +73,7 @@ export default function SettingsPage() {
         ]);
 
         setUser(currentUser);
+        setNewEmail(currentUser.email);
         setStats({
           connectedAccounts: accounts.length,
           transactions: transactionPage.total,
@@ -102,6 +107,53 @@ export default function SettingsPage() {
 
     return () => window.clearTimeout(timeout);
   }, [message]);
+
+  async function changeEmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!user) return;
+
+    const email = newEmail.trim().toLowerCase();
+
+    if (!email) {
+      setError("Enter a valid email address.");
+      return;
+    }
+
+    if (email === user.email.toLowerCase()) {
+      setError("New email must be different.");
+      return;
+    }
+
+    if (!emailPassword) {
+      setError("Enter your current password to change your email.");
+      return;
+    }
+
+    setSavingEmail(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const updatedUser = await api.changeEmail(
+        email,
+        emailPassword
+      );
+
+      setUser(updatedUser);
+      setNewEmail(updatedUser.email);
+      setEmailPassword("");
+      setMessage("Email address updated successfully.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to update email address"
+      );
+    } finally {
+      setSavingEmail(false);
+    }
+  }
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -285,6 +337,62 @@ export default function SettingsPage() {
                   {savingPassword
                     ? "Updating password..."
                     : "Update password"}
+                </button>
+              </form>
+            </section>
+
+            <section className="rounded-[28px] border border-[#183028]/10 bg-white p-6 shadow-sm xl:col-span-2 sm:p-7">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+                    Contact
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+                    Change email address
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-[#65736c]">
+                    Your new email will be used the next time you sign in.
+                    Confirm this change using your current password.
+                  </p>
+                </div>
+
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#edf5ee] text-[#167c5a]">
+                  <Mail className="h-5 w-5" />
+                </span>
+              </div>
+
+              <form
+                onSubmit={changeEmail}
+                className="mt-7 grid gap-4 lg:grid-cols-[1fr_1fr_auto] lg:items-end"
+              >
+                <label className="block">
+                  <span className="text-sm font-semibold text-[#30423a]">
+                    New email
+                  </span>
+
+                  <input
+                    type="email"
+                    value={newEmail}
+                    onChange={(event) => setNewEmail(event.target.value)}
+                    autoComplete="email"
+                    required
+                    className="mt-2 h-11 w-full rounded-xl border border-[#183028]/12 bg-[#faf8f3] px-4 text-sm outline-none transition focus:border-[#167c5a]/50 focus:ring-4 focus:ring-[#167c5a]/10"
+                  />
+                </label>
+
+                <PasswordField
+                  label="Current password"
+                  value={emailPassword}
+                  onChange={setEmailPassword}
+                  autoComplete="current-password"
+                />
+
+                <button
+                  type="submit"
+                  disabled={savingEmail}
+                  className="min-h-11 rounded-xl bg-[#14241e] px-6 text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {savingEmail ? "Updating..." : "Update email"}
                 </button>
               </form>
             </section>

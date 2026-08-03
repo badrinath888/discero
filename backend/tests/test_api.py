@@ -74,6 +74,106 @@ def test_duplicate_email_rejected(
     assert second.status_code == 409
 
 
+def test_change_email(
+    client: TestClient,
+) -> None:
+    old_email = "old-email@example.com"
+    new_email = "new-email@example.com"
+    _, headers = register_and_login(client, old_email)
+
+    response = client.patch(
+        "/users/me/email",
+        headers=headers,
+        json={
+            "new_email": new_email,
+            "current_password": PASSWORD,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["email"] == new_email
+
+    old_login = client.post(
+        "/users/login",
+        json={
+            "email": old_email,
+            "password": PASSWORD,
+        },
+    )
+    new_login = client.post(
+        "/users/login",
+        json={
+            "email": new_email,
+            "password": PASSWORD,
+        },
+    )
+
+    assert old_login.status_code == 401
+    assert new_login.status_code == 200
+
+
+def test_change_email_rejects_wrong_password(
+    client: TestClient,
+) -> None:
+    _, headers = register_and_login(
+        client,
+        "email-password@example.com",
+    )
+
+    response = client.patch(
+        "/users/me/email",
+        headers=headers,
+        json={
+            "new_email": "updated@example.com",
+            "current_password": "WrongPassword123!",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "current password is incorrect"
+
+
+def test_change_email_rejects_duplicate(
+    client: TestClient,
+) -> None:
+    register_and_login(client, "existing-email@example.com")
+    _, headers = register_and_login(
+        client,
+        "email-owner@example.com",
+    )
+
+    response = client.patch(
+        "/users/me/email",
+        headers=headers,
+        json={
+            "new_email": "existing-email@example.com",
+            "current_password": PASSWORD,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "email already registered"
+
+
+def test_change_email_rejects_same_email(
+    client: TestClient,
+) -> None:
+    email = "same-email@example.com"
+    _, headers = register_and_login(client, email)
+
+    response = client.patch(
+        "/users/me/email",
+        headers=headers,
+        json={
+            "new_email": email,
+            "current_password": PASSWORD,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "new email must be different"
+
+
 def test_change_password(
     client: TestClient,
 ) -> None:

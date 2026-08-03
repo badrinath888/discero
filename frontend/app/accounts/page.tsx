@@ -194,13 +194,24 @@ export default function AccountsPage() {
   const institutionCount = useMemo(
     () =>
       new Set(
-        accounts.map(
-          (account) =>
-            account.institution_name ?? "Connected institution"
-        )
+        accounts.map((account) => account.plaid_item_id)
       ).size,
     [accounts]
   );
+
+  const disconnectAccountIds = useMemo(() => {
+    const seenItems = new Set<number>();
+    const accountIds = new Set<number>();
+
+    for (const account of accounts) {
+      if (!seenItems.has(account.plaid_item_id)) {
+        seenItems.add(account.plaid_item_id);
+        accountIds.add(account.id);
+      }
+    }
+
+    return accountIds;
+  }, [accounts]);
 
   const activeAccount =
     accounts.find((account) => account.id === activeAccountId) ?? null;
@@ -460,6 +471,7 @@ export default function AccountsPage() {
                 onOpenDetails={setActiveAccountId}
                 onDisconnect={handleDisconnect}
                 disconnectingItemId={disconnectingItemId}
+                disconnectAccountIds={disconnectAccountIds}
               />
 
               <AccountSection
@@ -475,6 +487,7 @@ export default function AccountsPage() {
                 onOpenDetails={setActiveAccountId}
                 onDisconnect={handleDisconnect}
                 disconnectingItemId={disconnectingItemId}
+                disconnectAccountIds={disconnectAccountIds}
                 liability
               />
             </div>
@@ -536,6 +549,7 @@ function AccountSection({
   onOpenDetails,
   onDisconnect,
   disconnectingItemId,
+  disconnectAccountIds,
   liability = false,
 }: {
   title: string;
@@ -551,6 +565,7 @@ function AccountSection({
     institutionName: string | null
   ) => void;
   disconnectingItemId: number | null;
+  disconnectAccountIds: Set<number>;
   liability?: boolean;
 }) {
   return (
@@ -603,6 +618,7 @@ function AccountSection({
                 disconnecting={
                   disconnectingItemId === account.plaid_item_id
                 }
+                showDisconnect={disconnectAccountIds.has(account.id)}
                 liability={liability}
               />
             ))}
@@ -621,6 +637,7 @@ function AccountRow({
   onOpenDetails,
   onDisconnect,
   disconnecting,
+  showDisconnect,
   liability,
 }: {
   account: FinancialAccount;
@@ -630,6 +647,7 @@ function AccountRow({
   onOpenDetails: () => void;
   onDisconnect: () => void;
   disconnecting: boolean;
+  showDisconnect: boolean;
   liability: boolean;
 }) {
   const reduceMotion = useReducedMotion();
@@ -730,17 +748,19 @@ function AccountRow({
                     <ArrowUpRight className="h-4 w-4" />
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={onDisconnect}
-                    disabled={disconnecting}
-                    className="inline-flex items-center gap-2 text-sm font-semibold text-[#a64b3d] transition hover:text-[#7b3528] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <X className="h-4 w-4" />
-                    {disconnecting
-                      ? "Disconnecting..."
-                      : "Disconnect institution"}
-                  </button>
+                  {showDisconnect && (
+                    <button
+                      type="button"
+                      onClick={onDisconnect}
+                      disabled={disconnecting}
+                      className="inline-flex items-center gap-2 text-sm font-semibold text-[#a64b3d] transition hover:text-[#7b3528] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <X className="h-4 w-4" />
+                      {disconnecting
+                        ? "Disconnecting..."
+                        : "Disconnect institution"}
+                    </button>
+                  )}
                 </div>
               </div>
 

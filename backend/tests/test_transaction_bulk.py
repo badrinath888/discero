@@ -134,6 +134,32 @@ def test_bulk_category_update_deduplicates_locks_and_preserves_input_order(
     }
 
 
+def test_bulk_category_update_supports_full_twenty_row_page(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    transaction_ids = add_transactions(user_id, count=20)
+
+    response = client.patch(
+        f"/users/{user_id}/transactions/bulk/category",
+        json={
+            "transaction_ids": transaction_ids,
+            "category": "Groceries",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert [transaction["id"] for transaction in response.json()] == (
+        transaction_ids
+    )
+    assert transaction_state(transaction_ids) == {
+        transaction_id: ("Groceries", True)
+        for transaction_id in transaction_ids
+    }
+
+
 def test_bulk_delete_deduplicates_and_deletes_once(
     client: TestClient,
     user_id: int,
@@ -284,6 +310,9 @@ def test_cross_user_transaction_causes_full_rollback(
         )
 
     assert response.status_code == 404
+    assert response.json()["detail"] == (
+        "one or more transactions were not found"
+    )
     assert transaction_state(
         [*transaction_ids, other_transaction_id]
     ) == {

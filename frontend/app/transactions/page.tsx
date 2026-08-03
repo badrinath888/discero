@@ -375,6 +375,47 @@ export default function TransactionsPage() {
     setMessage("");
 
     try {
+      const loadedIds = new Set(
+        transactions.map((transaction) => transaction.id)
+      );
+      const hasStaleSelection = selectedIds.some(
+        (transactionId) => !loadedIds.has(transactionId)
+      );
+
+      if (hasStaleSelection) {
+        setSelectedIds([]);
+
+        const refreshed = await api.searchTransactions(userId, {
+          search: search.trim() || undefined,
+          category: category === "All" ? undefined : category,
+          source:
+            source === "All" || source === "Pending"
+              ? undefined
+              : source.toLowerCase(),
+          pending: source === "Pending" ? true : undefined,
+          account_id:
+            accountId === "All" ? undefined : Number(accountId),
+          start_date: fromDate || undefined,
+          end_date: toDate || undefined,
+          duplicates_only: duplicatesOnly || undefined,
+          page,
+          page_size: PAGE_SIZE,
+        });
+
+        setTransactions(refreshed.items);
+        setTotal(refreshed.total);
+        setTotalPages(refreshed.total_pages);
+        setTotalIncome(refreshed.total_income_cents);
+        setTotalSpending(refreshed.total_spending_cents);
+        setNet(refreshed.net_cents);
+        setExpandedId(null);
+        setError(
+          "Your selection was out of date. The transaction page was " +
+            "refreshed; please select the transactions again."
+        );
+        return;
+      }
+
       const updatedTransactions =
         await api.bulkUpdateTransactionCategory(
           userId,

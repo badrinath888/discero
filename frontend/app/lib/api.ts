@@ -68,19 +68,26 @@ function clearSession(): void {
 
 async function getErrorMessage(res: Response): Promise<string> {
   const body = await res.json().catch(() => ({}));
+  const status = `${res.status}${
+    res.statusText ? ` ${res.statusText}` : ""
+  }`;
 
   if (typeof body.detail === "string") {
-    return body.detail;
+    return `${body.detail} (${status})`;
   }
 
   if (Array.isArray(body.detail)) {
-    return body.detail
+    const detail = body.detail
       .map((item: { msg?: string }) => item.msg)
       .filter(Boolean)
       .join(", ");
+
+    if (detail) {
+      return `${detail} (${status})`;
+    }
   }
 
-  return `Request failed (${res.status})`;
+  return `Request failed (${status})`;
 }
 
 async function handle<T>(res: Response): Promise<T> {

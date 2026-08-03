@@ -1,7 +1,14 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { KeyRound, LogOut, ShieldCheck, UserRound } from "lucide-react";
+import {
+  Eye,
+  EyeOff,
+  KeyRound,
+  LogOut,
+  ShieldCheck,
+  UserRound,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
 import Toast from "../components/Toast";
@@ -330,20 +337,37 @@ function PasswordField({
   onChange: (value: string) => void;
   autoComplete: string;
 }) {
+  const [visible, setVisible] = useState(false);
+
   return (
     <label className="block">
       <span className="text-sm font-semibold text-[#30423a]">
         {label}
       </span>
 
-      <input
-        type="password"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        autoComplete={autoComplete}
-        required
-        className="mt-2 h-11 w-full rounded-xl border border-[#183028]/12 bg-[#faf8f3] px-4 text-sm outline-none transition placeholder:text-[#9ba59f] focus:border-[#167c5a]/50 focus:ring-4 focus:ring-[#167c5a]/10"
-      />
+      <div className="relative mt-2">
+        <input
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          autoComplete={autoComplete}
+          required
+          className="h-11 w-full rounded-xl border border-[#183028]/12 bg-[#faf8f3] px-4 pr-12 text-sm outline-none transition placeholder:text-[#9ba59f] focus:border-[#167c5a]/50 focus:ring-4 focus:ring-[#167c5a]/10"
+        />
+
+        <button
+          type="button"
+          onClick={() => setVisible((current) => !current)}
+          aria-label={visible ? `Hide ${label}` : `Show ${label}`}
+          className="absolute inset-y-0 right-1 flex w-10 items-center justify-center rounded-lg text-[#65736c] transition hover:bg-[#183028]/5 hover:text-[#17241f]"
+        >
+          {visible ? (
+            <EyeOff className="h-4 w-4" />
+          ) : (
+            <Eye className="h-4 w-4" />
+          )}
+        </button>
+      </div>
     </label>
   );
 }

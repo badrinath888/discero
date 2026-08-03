@@ -1006,18 +1006,46 @@ export default function TransactionsPage() {
       </AnimatePresence>
 
       <Toast
-        message={message}
+        message={undoTransactions.length > 0 ? "" : message}
         type="success"
-        actionLabel={
-          undoTransactions.length > 0 ? "Undo" : undefined
-        }
-        onAction={
-          undoTransactions.length > 0
-            ? () => restoreDeletedTransactions()
-            : undefined
-        }
         onClose={() => setMessage("")}
       />
+
+      <AnimatePresence>
+        {undoTransactions.length > 0 && (
+          <motion.div
+            role="status"
+            aria-live="polite"
+            initial={{ opacity: 0, y: 24, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 24, scale: 0.97 }}
+            transition={{
+              duration: 0.22,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+            className="fixed bottom-5 left-1/2 z-[80] flex w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 items-center justify-between gap-4 rounded-2xl bg-[#14241e] px-5 py-4 text-white shadow-[0_22px_65px_rgba(20,36,30,0.35)]"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">
+                {undoTransactions.length === 1
+                  ? "Transaction removed"
+                  : `${undoTransactions.length} transactions removed`}
+              </p>
+              <p className="mt-0.5 text-xs text-white/60">
+                Permanent deletion occurs in six seconds.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => restoreDeletedTransactions()}
+              className="min-h-10 shrink-0 rounded-xl bg-[#83dcb9] px-4 text-sm font-bold text-[#103d2e] transition hover:bg-[#a3e8cc]"
+            >
+              Undo deletion
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {pendingDelete && (

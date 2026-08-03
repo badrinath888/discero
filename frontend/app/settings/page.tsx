@@ -140,7 +140,12 @@ export default function SettingsPage() {
       setUser(updatedUser);
       setNewEmail(updatedUser.email);
       setEmailPassword("");
-      setMessage("Email address updated successfully.");
+      setMessage("Email updated. Signing you out...");
+
+      window.setTimeout(() => {
+        session.clear();
+        router.replace("/");
+      }, 1_500);
     } catch (err) {
       setError(
         err instanceof Error
@@ -185,7 +190,12 @@ export default function SettingsPage() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setMessage("Password updated successfully.");
+      setMessage("Password updated. Signing you out...");
+
+      window.setTimeout(() => {
+        session.clear();
+        router.replace("/");
+      }, 1_500);
     } catch (err) {
       setError(
         err instanceof Error

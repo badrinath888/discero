@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import {
   Eye,
   EyeOff,
+  FileDown,
   KeyRound,
   LogOut,
   Mail,
@@ -38,6 +39,7 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -204,6 +206,82 @@ export default function SettingsPage() {
       );
     } finally {
       setSavingPassword(false);
+    }
+  }
+
+  async function exportTransactions() {
+    if (!user) return;
+
+    setError("");
+    setMessage("");
+    setExporting(true);
+
+    try {
+      const transactions = await api.getTransactions(user.id);
+
+      const escapeCsv = (value: string | number | boolean | null) => {
+        const normalized = value === null ? "" : String(value);
+        return `"${normalized.replaceAll('"', '""')}"`;
+      };
+
+      const rows = transactions.map((transaction) => [
+        transaction.posted_on,
+        transaction.description,
+        transaction.merchant_name,
+        transaction.category,
+        (transaction.amount_cents / 100).toFixed(2),
+        transaction.source,
+        transaction.pending ? "Pending" : "Posted",
+        transaction.account_name,
+        transaction.institution_name,
+      ]);
+
+      const csv = [
+        [
+          "Date",
+          "Description",
+          "Merchant",
+          "Category",
+          "Amount",
+          "Source",
+          "Status",
+          "Account",
+          "Institution",
+        ],
+        ...rows,
+      ]
+        .map((row) => row.map(escapeCsv).join(","))
+        .join("\n");
+
+      const blob = new Blob([csv], {
+        type: "text/csv;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = `finsight-transactions-${
+        new Date().toISOString().split("T")[0]
+      }.csv`;
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+
+      setMessage(
+        transactions.length
+          ? `Exported ${transactions.length.toLocaleString()} transactions.`
+          : "Exported an empty transaction file."
+      );
+    } catch (exportError) {
+      setError(
+        exportError instanceof Error
+          ? exportError.message
+          : "Unable to export transactions."
+      );
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -396,6 +474,33 @@ export default function SettingsPage() {
                   {savingEmail ? "Updating..." : "Update email"}
                 </button>
               </form>
+            </section>
+
+            <section className="rounded-[28px] border border-[#183028]/10 bg-white p-6 shadow-sm xl:col-span-2 sm:p-7">
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+                    Your data
+                  </p>
+                  <h2 className="mt-2 text-xl font-semibold">
+                    Export transactions
+                  </h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-[#65736c]">
+                    Download all of your FinSight transactions as a CSV file
+                    for spreadsheets, reporting, or personal backup.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={exportTransactions}
+                  disabled={exporting}
+                  className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#14241e] px-5 text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <FileDown className="h-4 w-4" />
+                  {exporting ? "Preparing..." : "Download CSV"}
+                </button>
+              </div>
             </section>
 
             <section className="rounded-[28px] border border-[#183028]/10 bg-white p-6 shadow-sm xl:col-span-2 sm:p-7">

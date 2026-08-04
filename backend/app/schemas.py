@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -152,6 +153,64 @@ class RecurringPaymentOut(BaseModel):
     confidence_score: float
     price_change_percent: float
     price_change_warning: bool
+
+class RecurringItemCreate(BaseModel):
+    merchant: str = Field(min_length=1, max_length=255)
+    normalized_merchant: str = Field(min_length=1, max_length=255)
+    category: str | None = Field(default=None, max_length=64)
+    amount_cents: int = Field(gt=0)
+    frequency: Literal[
+        "Weekly",
+        "Biweekly",
+        "Monthly",
+    ]
+    last_payment: date
+    next_payment: date
+    status: Literal[
+        "suggested",
+        "active",
+        "dismissed",
+    ] = "suggested"
+    confidence_score: float = Field(ge=0, le=100)
+    price_change_percent: float = 0.0
+    price_change_warning: bool = False
+
+
+class RecurringItemUpdate(BaseModel):
+    category: str | None = Field(default=None, max_length=64)
+    amount_cents: int | None = Field(default=None, gt=0)
+    frequency: Literal[
+        "Weekly",
+        "Biweekly",
+        "Monthly",
+    ] | None = None
+    next_payment: date | None = None
+    status: Literal[
+        "suggested",
+        "active",
+        "paused",
+        "cancelled",
+        "dismissed",
+    ] | None = None
+
+
+class RecurringItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    merchant: str
+    normalized_merchant: str
+    category: str | None
+    amount_cents: int
+    frequency: str
+    last_payment: date
+    next_payment: date
+    status: str
+    confidence_score: float
+    price_change_percent: float
+    price_change_warning: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class BudgetCreate(BaseModel):

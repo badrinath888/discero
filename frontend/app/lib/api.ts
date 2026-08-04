@@ -332,6 +332,52 @@ export type RecurringPayment = {
   price_change_warning: boolean;
 };
 
+export type RecurringItemStatus =
+  | "suggested"
+  | "active"
+  | "paused"
+  | "cancelled"
+  | "dismissed";
+
+export type RecurringItem = {
+  id: number;
+  merchant: string;
+  normalized_merchant: string;
+  category: string | null;
+  amount_cents: number;
+  frequency: "Weekly" | "Biweekly" | "Monthly";
+  last_payment: string;
+  next_payment: string;
+  status: RecurringItemStatus;
+  confidence_score: number;
+  price_change_percent: number;
+  price_change_warning: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RecurringItemCreate = {
+  merchant: string;
+  normalized_merchant: string;
+  category?: string | null;
+  amount_cents: number;
+  frequency: "Weekly" | "Biweekly" | "Monthly";
+  last_payment: string;
+  next_payment: string;
+  status?: "suggested" | "active" | "dismissed";
+  confidence_score: number;
+  price_change_percent?: number;
+  price_change_warning?: boolean;
+};
+
+export type RecurringItemUpdate = {
+  category?: string | null;
+  amount_cents?: number;
+  frequency?: "Weekly" | "Biweekly" | "Monthly";
+  next_payment?: string;
+  status?: RecurringItemStatus;
+};
+
 export type PlaidLinkToken = {
   link_token: string;
 };
@@ -645,6 +691,55 @@ export const api = {
     fetchWithTimeout(`${API_URL}/users/${userId}/summary/recurring`, {
       headers: authHeaders(),
     }).then((res) => handle<RecurringPayment[]>(res)),
+
+  getRecurringItems: (
+    userId: number
+  ): Promise<RecurringItem[]> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/recurring-items`,
+      {
+        headers: authHeaders(),
+      }
+    ).then((res) => handle<RecurringItem[]>(res)),
+
+  createRecurringItem: (
+    userId: number,
+    payload: RecurringItemCreate
+  ): Promise<RecurringItem> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/recurring-items`,
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify(payload),
+      }
+    ).then((res) => handle<RecurringItem>(res)),
+
+  updateRecurringItem: (
+    userId: number,
+    itemId: number,
+    payload: RecurringItemUpdate
+  ): Promise<RecurringItem> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/recurring-items/${itemId}`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(),
+        body: JSON.stringify(payload),
+      }
+    ).then((res) => handle<RecurringItem>(res)),
+
+  deleteRecurringItem: (
+    userId: number,
+    itemId: number
+  ): Promise<void> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/recurring-items/${itemId}`,
+      {
+        method: "DELETE",
+        headers: authHeaders(),
+      }
+    ).then(handleEmpty),
 
   getMonthlyInsights: (
     userId: number,

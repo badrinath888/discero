@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import { api, session } from "./lib/api";
 import { PageReveal, Reveal } from "./components/PremiumMotion";
@@ -1349,6 +1350,15 @@ function AuthenticationCard({
               className="mt-2 w-full rounded-xl border border-[#14241e]/12 bg-[#f7f4ed] px-4 py-3 text-sm outline-none transition placeholder:text-[#9aa39f] focus:border-[#167c5a]"
             />
           </label>
+        )}
+
+        {mode === "login" && (
+          <Link
+            href="/forgot-password"
+            className="block text-right text-sm font-semibold text-[#167c5a]"
+          >
+            Forgot password?
+          </Link>
         )}
 
         {error && (

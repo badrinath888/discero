@@ -20,6 +20,18 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
 
+    app_env: Literal["development", "test", "production"] = "production"
+    frontend_url: str = "http://localhost:3000"
+    email_backend: Literal["console", "smtp"] = "console"
+    email_from: str = "FinSight <no-reply@example.com>"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_use_tls: bool = True
+    password_reset_expire_minutes: int = 30
+    email_verification_expire_hours: int = 24
+
     token_encryption_key: str | None = None
 
     anthropic_api_key: str | None = None

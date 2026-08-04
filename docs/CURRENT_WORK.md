@@ -1,51 +1,40 @@
 # Current work
 
-Updated: 2026-08-03 after adding the focused Transactions-page frontend test foundation. Nothing is committed or pushed.
+Updated: 2026-08-03. Nothing is committed or pushed.
 
-## Baseline and changed files
+## Baseline and scope
 
-The work started from clean `main` at `f100a43052ab4196a23648255fda7a127195b144`, matching `origin/main`.
+This isolated worktree started clean at requested main baseline `eb9e2082577de39519450b006ade25276c9a335c`. The active change implements secure password recovery, email verification, vendor-neutral email delivery, focused backend/frontend tests, one coordinated Alembic migration, and the required documentation updates.
 
-Frontend test and configuration changes:
+## Design decisions
 
-- `frontend/app/transactions/page.test.tsx` (new)
-- `frontend/test/setup.ts` (new)
-- `frontend/vitest.config.mts` (new)
-- `frontend/package.json`
-- `frontend/package-lock.json`
+- Raw reset and verification tokens are generated with `secrets.token_urlsafe(32)`, delivered once, and represented in the database only by SHA-256 hashes.
+- Reset tokens expire after 30 minutes; verification tokens expire after 24 hours. Both durations are configurable.
+- Conditional database updates atomically validate expiration and consume token hashes, preventing sequential reuse and concurrent double-submit.
+- Successful password reset replaces the Argon2 hash, increments `token_version`, invalidates all JWTs, and clears the reset fields in the same transaction.
+- Forgot-password and resend-verification responses do not reveal account existence or verification state.
+- Unverified users may continue to log in and use FinSight. This preserves existing registration/login behavior. Email changes mark the new address unverified.
+- The development environment template uses console email delivery. Runtime defaults are fail-closed production mode, where console delivery is blocked; the vendor-neutral SMTP backend uses TLS by default and does not log raw links or tokens.
 
-Production-facing adjustment:
+## Files and validation
 
-- `frontend/app/transactions/page.tsx` adds accessible labels to the existing bulk and row category controls; behavior is unchanged.
+Backend changes touch the user model/config/security/router/schemas, one email service, one migration, `.env.example`, and focused recovery tests. Frontend changes add three recovery routes, a shared recovery card, API methods, a login link, and five mocked component tests.
 
-Documentation updates are limited to this file, `IMPLEMENTED_FEATURES.md`, and `TESTING_AND_DEPLOYMENT.md`.
-
-## Test foundation
-
-The frontend now uses Vitest, React Testing Library, `@testing-library/jest-dom`, and jsdom. Vitest resolves the existing `@/` alias, loads a shared DOM setup, and supports deterministic fake-timer tests. The suite mocks authentication/session state, frontend API calls, Next navigation, the sidebar, and Framer Motion; it never calls the backend.
-
-Run the watch mode with `npm test` and the deterministic one-shot suite with `npm run test:run`.
-
-## Transactions regression coverage
-
-Ten rendered-page tests cover bulk category success, stale-selection rejection and refresh, exact mixed-category Undo, category Undo expiry and replacement, optimistic delete Undo, one atomic delete after expiry, full row restoration on delete failure, backend error-detail rendering, and Potential Duplicates compatibility with bulk actions.
-
-## Validation
+Current results: 186 backend tests pass; all 15 frontend tests pass; frontend lint and production build pass; Alembic reports the single head `e7b1c9d4a2f6`. The default worktree database is fresh/unversioned, so `alembic current` is blank; the full SQLite upgrade, downgrade of this revision, and re-upgrade were verified against a disposable database at head.
 
 Run before review:
 
 ```bash
-cd frontend
-npm install
-npm run test:run
-npm run lint
-npm run build
-
-cd ../backend
+cd backend
 source venv/bin/activate
 pytest -q
 alembic heads
 alembic current
+
+cd ../frontend
+npm run test:run
+npm run lint
+npm run build
 
 cd ..
 git diff --check
@@ -54,11 +43,7 @@ git status --short
 
 ## Known limitations
 
-- Coverage is intentionally focused on the highest-risk Transactions workflows; authentication redirects, CSV export, sync, filter combinations, pagination, responsive layout, and other pages remain without frontend automated coverage.
-- The suite uses mocked API and animation boundaries, so it does not replace browser E2E, live-backend integration, accessibility auditing, or production smoke tests.
-- No coverage threshold or coverage-reporting dependency was added.
-- The final production dependency audit is clean. One high-severity `brace-expansion` advisory remains confined to ESLint/TypeScript development tooling; no force fix or unrelated framework upgrade was applied.
-
-## Recommended next task
-
-Add focused frontend authentication tests for invalidated-session redirects and the one-time login notice, using this test foundation without introducing a broad component rewrite.
+- The existing stack has no shared rate limiter. Production should add datastore-backed throttling for forgot-password and resend-verification.
+- SMTP delivery needs environment-specific integration/smoke testing; automated tests replace delivery with a capture function.
+- Verification is advisory, not an authorization gate.
+- The application has no browser E2E suite, live PostgreSQL migration test, or production email smoke test.

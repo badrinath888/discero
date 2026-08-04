@@ -202,11 +202,28 @@ class EmailChangeRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
 
 
+class EmailRequest(BaseModel):
+    email: EmailStr
+
+
+class TokenRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=512)
+
+
+class PasswordResetRequest(TokenRequest):
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class PublicMessage(BaseModel):
+    message: str
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     email: str
+    email_verified: bool
 
 
 class TokenOut(BaseModel):

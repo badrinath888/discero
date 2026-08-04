@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+from secrets import token_urlsafe
 
 import jwt
 from jwt.exceptions import InvalidTokenError
@@ -19,6 +21,15 @@ def verify_password(
     hashed_password: str,
 ) -> bool:
     return password_hash.verify(password, hashed_password)
+
+
+def create_one_time_token() -> tuple[str, str]:
+    token = token_urlsafe(32)
+    return token, hash_one_time_token(token)
+
+
+def hash_one_time_token(token: str) -> str:
+    return sha256(token.encode("utf-8")).hexdigest()
 
 
 def create_access_token(user_id: int, token_version: int) -> str:

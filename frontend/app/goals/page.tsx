@@ -102,7 +102,17 @@ export default function GoalsPage() {
   const [pendingDeleteContribution, setPendingDeleteContribution] =
     useState<GoalContribution | null>(null);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+const [message, setMessage] = useState("");
+
+useEffect(() => {
+  if (!error) return;
+
+  const timeout = window.setTimeout(() => {
+    setError("");
+  }, 8000);
+
+  return () => window.clearTimeout(timeout);
+}, [error]);
 
   const activeGoal =
     goals.find((goal) => goal.id === activeGoalId) ?? null;
@@ -521,11 +531,11 @@ export default function GoalsPage() {
             </header>
           </Reveal>
 
-          {error && (
-            <div className="mt-5">
-              <PageError message={error} />
-            </div>
-          )}
+          {error && !drawerMode && (
+  <div className="mt-5">
+    <PageError message={error} />
+  </div>
+)}
 
           <Reveal delay={0.06}>
             <section className="mt-6 grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
@@ -618,7 +628,13 @@ export default function GoalsPage() {
       <AnimatePresence>
         {drawerMode && (
           <DrawerShell onClose={closeDrawer}>
-            {drawerMode === "create" && (
+  {error && (
+    <div className="mb-5">
+      <PageError message={error} />
+    </div>
+  )}
+
+  {drawerMode === "create" && (
               <GoalEditor
                 title="Create a savings goal"
                 description="Set a target and optionally record an opening balance."

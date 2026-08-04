@@ -315,8 +315,36 @@ export type SavingsGoalCreate = {
 export type SavingsGoalUpdate = {
   name?: string;
   target_cents?: number;
-  saved_cents?: number;
   target_date?: string | null;
+};
+
+export type GoalContributionType =
+  | "deposit"
+  | "withdrawal";
+
+export type GoalContribution = {
+  id: number;
+  goal_id: number;
+  amount_cents: number;
+  contribution_type: GoalContributionType;
+  contributed_on: string;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GoalContributionCreate = {
+  amount_cents: number;
+  contribution_type?: GoalContributionType;
+  contributed_on?: string;
+  note?: string | null;
+};
+
+export type GoalContributionUpdate = {
+  amount_cents?: number;
+  contribution_type?: GoalContributionType;
+  contributed_on?: string;
+  note?: string | null;
 };
 
 export type RecurringPayment = {
@@ -875,10 +903,66 @@ export const api = {
     userId: number,
     goalId: number
   ): Promise<void> =>
-    fetchWithTimeout(`${API_URL}/users/${userId}/goals/${goalId}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    }).then(handleEmpty),
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/goals/${goalId}`,
+      {
+        method: "DELETE",
+        headers: authHeaders(),
+      }
+    ).then(handleEmpty),
+
+  getGoalContributions: (
+    userId: number,
+    goalId: number
+  ): Promise<GoalContribution[]> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/goals/${goalId}/contributions`,
+      {
+        headers: authHeaders(),
+      }
+    ).then((res) => handle<GoalContribution[]>(res)),
+
+  createGoalContribution: (
+    userId: number,
+    goalId: number,
+    payload: GoalContributionCreate
+  ): Promise<GoalContribution> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/goals/${goalId}/contributions`,
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify(payload),
+      }
+    ).then((res) => handle<GoalContribution>(res)),
+
+  updateGoalContribution: (
+    userId: number,
+    goalId: number,
+    contributionId: number,
+    payload: GoalContributionUpdate
+  ): Promise<GoalContribution> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/goals/${goalId}/contributions/${contributionId}`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(),
+        body: JSON.stringify(payload),
+      }
+    ).then((res) => handle<GoalContribution>(res)),
+
+  deleteGoalContribution: (
+    userId: number,
+    goalId: number,
+    contributionId: number
+  ): Promise<void> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/goals/${goalId}/contributions/${contributionId}`,
+      {
+        method: "DELETE",
+        headers: authHeaders(),
+      }
+    ).then(handleEmpty),
 
   createPlaidLinkToken: (
     userId: number

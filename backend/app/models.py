@@ -82,6 +82,7 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+
     recurring_items: Mapped[list["RecurringItem"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -230,6 +231,7 @@ class Budget(Base):
         back_populates="budgets",
     )
 
+
 class RecurringItem(Base):
     __tablename__ = "recurring_items"
 
@@ -316,6 +318,7 @@ class RecurringItem(Base):
         back_populates="recurring_items",
     )
 
+
 class SavingsGoal(Base):
     __tablename__ = "savings_goals"
 
@@ -357,6 +360,59 @@ class SavingsGoal(Base):
 
     user: Mapped["User"] = relationship(
         back_populates="savings_goals",
+    )
+
+    contributions: Mapped[list["GoalContribution"]] = relationship(
+        back_populates="goal",
+        cascade="all, delete-orphan",
+        order_by="GoalContribution.contributed_on.desc()",
+    )
+
+
+class GoalContribution(Base):
+    __tablename__ = "goal_contributions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    goal_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "savings_goals.id",
+            ondelete="CASCADE",
+        ),
+        index=True,
+    )
+
+    amount_cents: Mapped[int] = mapped_column(Integer)
+
+    contribution_type: Mapped[str] = mapped_column(
+        String(16),
+        index=True,
+    )
+
+    contributed_on: Mapped[date] = mapped_column(
+        Date,
+        default=date.today,
+        index=True,
+    )
+
+    note: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utcnow,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utcnow,
+        onupdate=_utcnow,
+    )
+
+    goal: Mapped["SavingsGoal"] = relationship(
+        back_populates="contributions",
     )
 
 
@@ -450,7 +506,10 @@ class FinancialAccount(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
 
     plaid_item_id: Mapped[int] = mapped_column(
-        ForeignKey("plaid_items.id", ondelete="CASCADE"),
+        ForeignKey(
+            "plaid_items.id",
+            ondelete="CASCADE",
+        ),
         index=True,
     )
 

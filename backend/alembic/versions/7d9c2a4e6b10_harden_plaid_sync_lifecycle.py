@@ -1,7 +1,7 @@
 """harden plaid sync lifecycle
 
 Revision ID: 7d9c2a4e6b10
-Revises: c4a8d9e2f1b0
+Revises: e7b1c9d4a2f6
 Create Date: 2026-08-03
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "7d9c2a4e6b10"
-down_revision: Union[str, None] = "c4a8d9e2f1b0"
+down_revision: Union[str, None] = "e7b1c9d4a2f6"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

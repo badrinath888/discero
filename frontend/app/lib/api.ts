@@ -132,6 +132,11 @@ async function handleEmpty(res: Response): Promise<void> {
 export type User = {
   id: number;
   email: string;
+  email_verified: boolean;
+};
+
+export type PublicMessage = {
+  message: string;
 };
 
 export type AuthResponse = {
@@ -274,6 +279,7 @@ export type BudgetProgress = {
   remaining_cents: number;
   percent_used: number;
   over_budget_cents: number;
+  overspent: boolean;
 };
 
 
@@ -438,6 +444,37 @@ export const api = {
       },
       body: JSON.stringify({ email, password }),
     }).then((res) => handle<AuthResponse>(res)),
+
+  forgotPassword: (email: string): Promise<PublicMessage> =>
+    fetchWithTimeout(`${API_URL}/users/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    }).then((res) => handle<PublicMessage>(res)),
+
+  resetPassword: (
+    token: string,
+    newPassword: string
+  ): Promise<PublicMessage> =>
+    fetchWithTimeout(`${API_URL}/users/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, new_password: newPassword }),
+    }).then((res) => handle<PublicMessage>(res)),
+
+  verifyEmail: (token: string): Promise<PublicMessage> =>
+    fetchWithTimeout(`${API_URL}/users/verify-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    }).then((res) => handle<PublicMessage>(res)),
+
+  resendVerification: (email: string): Promise<PublicMessage> =>
+    fetchWithTimeout(`${API_URL}/users/resend-verification`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    }).then((res) => handle<PublicMessage>(res)),
 
   getMe: (): Promise<User> =>
     fetchWithTimeout(`${API_URL}/users/me`, {
@@ -680,21 +717,36 @@ export const api = {
       }
     ).then((res) => handle<BudgetProgress[]>(res)),
 
-
-  copyPreviousMonthBudgets: (
+  deleteBudget: (
     userId: number,
-    month: string,
-    overwrite = false
-  ): Promise<BudgetCopyResult> =>
+    category: string,
+    month: string
+  ): Promise<void> =>
     fetchWithTimeout(
-      `${API_URL}/users/${userId}/budgets/copy-previous?month=${encodeURIComponent(
-        month
-      )}&overwrite=${overwrite}`,
+      `${API_URL}/users/${userId}/budgets/${encodeURIComponent(
+        category
+      )}?month=${encodeURIComponent(month)}`,
       {
-        method: "POST",
+        method: "DELETE",
         headers: authHeaders(),
       }
-    ).then((res) => handle<BudgetCopyResult>(res)),
+    ).then(handleEmpty),
+
+  copyBudgets: (
+    userId: number,
+    sourceMonth: string,
+    targetMonth: string,
+    overwrite = false
+  ): Promise<BudgetCopyResult> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/budgets/copy`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        source_month: sourceMonth,
+        target_month: targetMonth,
+        overwrite,
+      }),
+    }).then((res) => handle<BudgetCopyResult>(res)),
 
   getSavingsGoals: (
     userId: number

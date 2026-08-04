@@ -1,29 +1,70 @@
 # Current work
 
-Updated: 2026-08-03 for Plaid synchronization and connected-account lifecycle hardening. Nothing is committed or pushed.
+Updated: 2026-08-04.
 
-## Baseline and scope
+## Integrated scope
 
-This isolated worktree started clean at `eb9e2082577de39519450b006ade25276c9a335c`. Authentication recovery work, budgets, Next.js, and React were not changed. One migration was added; no environment variables or real Plaid credentials were introduced.
+FinSight now includes:
 
-## Implementation
+- Secure password recovery and advisory email verification
+- Vendor-neutral SMTP email delivery
+- Fully month-specific budgets
+- Hardened Plaid synchronization and connected-account lifecycle
 
-- Manual `POST /users/{user_id}/plaid/sync` now persists per-item `syncing`, `succeeded`, or `failed` lifecycle state and attempted/successful timestamps. Recent claims return 409; claims at least 15 minutes old can be reclaimed by one atomic UTC-guarded update.
-- `GET /users/{user_id}/plaid/sync/status` returns safe owner-scoped item status; account responses carry the same lifecycle metadata.
-- Each item's added/modified/removed transaction changes and final cursor commit atomically. Provider transaction ids are upserted, duplicate/repeated input is idempotent, locked categories remain intact, and account mappings are item-scoped.
-- Failed provider, encryption, mapping, or persistence work retains the prior cursor and successful timestamp, then stores a bounded safe error summary. `ITEM_LOGIN_REQUIRED` marks the item `reconnect_required`; a successful token exchange restores it to active/idle.
-- Disconnect remains provider-first and owner-scoped. Provider failure retains local state; success removes the item/accounts while keeping transactions with null account links.
-- The Accounts page provides Sync Now loading/success/failure feedback, last successful sync, persisted failure/reconnect notices, safe confirmation, and refreshes both accounts and transactions after sync.
+## Authentication recovery
 
-## Tests and validation
+- Reset and verification tokens use 256-bit URL-safe values.
+- Only SHA-256 token hashes are stored.
+- Password reset atomically consumes the token, updates the Argon2 password hash, increments `token_version`, and invalidates all older JWTs.
+- Forgot-password and resend-verification responses do not reveal account existence or verification state.
+- Registration and email changes issue verification links.
+- Unverified users may continue to log in.
+- Production console delivery is prohibited; production email uses configured SMTP.
 
-- Backend: 11 new tests; 186 total passing. Deterministic mocks cover repeated sync, recent-claim rejection, stale-claim recovery/success/failure safety, competing reclaim requests, final cursor progression, failed-cursor preservation, timestamps/status/error, successful retry, reconnect requirement, safe status ownership/authentication, and disconnect authentication in addition to existing success/removal/disconnect coverage.
-- Frontend: 6 new Accounts tests; 16 total passing. No real Plaid API or backend calls.
-- Frontend lint and production build pass.
-- Migration/head/current and final repository checks are run before handoff and reported in the final response.
+## Monthly budgets
+
+- Budgets are uniquely stored by user, category, and canonical `YYYY-MM` month.
+- List, upsert, delete, copy, and progress operations are selected-month scoped.
+- Copy preserves existing target categories by default and supports explicit overwrite through the API.
+- Progress uses negative transactions from the selected month and reports spent, signed remaining, percent used, overage, and overspent status.
+- No budget migration was required because the original schema already supports monthly records.
+
+## Plaid synchronization
+
+- Manual synchronization tracks `idle`, `syncing`, `succeeded`, `failed`, and reconnect-required lifecycle states.
+- Last attempted and last successful synchronization timestamps are persisted separately.
+- One conditional database update atomically acquires synchronization ownership.
+- Active claims remain protected with 409 responses.
+- Claims at least 15 minutes old may be atomically reclaimed.
+- Transaction mutations and final cursor updates commit atomically per institution.
+- Failed synchronization preserves the previous valid cursor and successful-sync timestamp.
+- Repeated provider responses remain idempotent.
+- Removed provider transactions are handled safely.
+- Disconnect remains provider-first and owner-scoped.
+- The Accounts page exposes Sync Now, status, last-sync information, reconnect notices, and safe disconnect confirmation.
+
+## Validation baseline
+
+Expected after complete integration:
+
+- Backend: 203 tests
+- Frontend: 23 tests
+  - 10 Transactions
+  - 5 authentication recovery
+  - 2 Budgets
+  - 6 Accounts/Plaid
+- Frontend lint and production build must pass.
+- Alembic must report one head:
+  `7d9c2a4e6b10`
 
 ## Known limitations
 
-- Sync is a synchronous request; there is no background job or webhook scheduler. A process crash can delay the next manual sync for up to the documented 15-minute claim timeout.
-- Manual sync covers all connected items for the user rather than one selected institution.
-- Live Plaid Sandbox/production, PostgreSQL concurrency, browser E2E, and production deployment are not exercised by the deterministic local suites.
+- Recovery and resend endpoints do not yet have shared datastore-backed rate limiting.
+- Production SMTP requires environment-specific configuration and smoke testing.
+- Email verification is advisory rather than an authorization gate.
+- Pending negative transactions count toward budget spending.
+- Budget category matching is exact and case-sensitive.
+- Arbitrary budget source-month copy and overwrite are API-only.
+- Plaid synchronization remains synchronous and covers all connected institutions for the user.
+- A crashed Plaid request can delay another sync for up to 15 minutes.
+- There is no live Plaid, PostgreSQL concurrency, browser E2E, or production smoke suite.

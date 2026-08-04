@@ -18,20 +18,24 @@ The frontend is a client-rendered App Router application. Each authenticated pag
 
 ## Database model
 
-- `User`: unique indexed email, Argon2 password hash, integer token version defaulting to zero, and creation time. Owns transactions, budgets, goals, and Plaid items with delete-orphan cascades.
+- `User`: unique indexed email, Argon2 password hash, integer token version, email-verification state, nullable SHA-256 reset/verification token hashes and expirations, and creation time. Owns transactions, budgets, goals, and Plaid items with delete-orphan cascades. Raw one-time tokens are never stored.
 - `Transaction`: user; optional financial account (`SET NULL` on account removal); globally unique optional Plaid transaction id; date, description, optional merchant, signed integer cents, category, category lock, source, pending flag, timestamps. Positive is income; negative is expense.
-- `Budget`: user/category/`YYYY-MM` unique tuple, positive limit in cents.
+- `Budget`: user/category/canonical `YYYY-MM` unique tuple, positive limit in cents. The API requires that same ISO month form for list, upsert, delete, copy, and progress operations.
 - `SavingsGoal`: user, name, positive target, nonnegative saved amount, optional target date, timestamps.
 - `PlaidItem`: user, globally unique provider item id, institution metadata, encrypted access token, active/reconnect-required connection status, cursor, sync lifecycle status, safe error summary, and attempted/successful timestamps. Owns financial accounts.
 - `FinancialAccount`: Plaid item, globally unique provider account id, names/type/subtype/mask, current/available balances, currency, timestamps. Relates to transactions.
 
-Alembic is linear: `93dcf675c7ee` initial user/transaction/budget schema → `f77d39a9c4e0` Plaid items/accounts → `ac2645f928d0` transaction Plaid fields → `383774abbeb5` category lock → `568820dfb45d` savings goals → `c4a8d9e2f1b0` user token version. Validation commands show one head and the local SQLite database at head.
+Alembic is linear: `93dcf675c7ee` initial user/transaction/budget schema → `f77d39a9c4e0` Plaid items/accounts → `ac2645f928d0` transaction Plaid fields → `383774abbeb5` category lock → `568820dfb45d` savings goals → `c4a8d9e2f1b0` user token version → `e7b1c9d4a2f6` account recovery and email verification → `7d9c2a4e6b10` Plaid synchronization lifecycle. Monthly-budget expansion required no migration.
 
 ## Authentication lifecycle
 
-Registration normalizes email and rejects duplicates, then hashes the password with pwdlib's recommended Argon2 hasher. New users start with token version zero. Login verifies the hash and issues an HS256 JWT containing string `sub` (user id), integer `ver` (the current user token version), and `exp`; default lifetime is 60 minutes. Authentication loads the user and requires the claim to equal the stored version. Validly signed tokens with a missing, non-integer, or mismatched `ver` receive the generic 401 `session expired; please sign in again`; legacy tokens without `ver` are intentionally rejected. Malformed, expired and unknown-user handling remains separate.
+Registration normalizes email and rejects duplicates, hashes the password with pwdlib's recommended Argon2 hasher, and issues a 24-hour email-verification token. New users start unverified with token version zero. Unverified users may log in, intentionally preserving existing registration/login behavior. Login verifies the hash and issues an HS256 JWT containing string `sub` (user id), integer `ver` (the current user token version), and `exp`; default lifetime is 60 minutes. Authentication loads the user and requires the claim to equal the stored version. Validly signed tokens with a missing, non-integer, or mismatched `ver` receive the generic 401 `session expired; please sign in again`; legacy tokens without `ver` are intentionally rejected. Malformed, expired and unknown-user handling remains separate.
 
-Email and password changes require the current password. Email is normalized, must differ, and must be unique. New password must differ and meet the schema's 8-character minimum. Each successful credential change increments the token version exactly once in the same commit, invalidating every older token immediately; rejected changes do not increment it. The Settings UI continues to show its success state, clears local storage, and redirects to login. Shared frontend 401 handling also clears authentication and carries a one-time sign-in-again notice to the login page for version-invalidated sessions. There are no refresh tokens, per-device sessions, denylist, password reset, email verification, rate limiting, or account deletion.
+Email and password changes require the current password. Email is normalized, must differ, and must be unique; a successful email change marks the new address unverified and sends a new verification link. New password must differ and meet the schema's 8-character minimum. Each successful credential change increments the token version exactly once in the same commit, invalidating every older token immediately; rejected changes do not increment it. The Settings UI clears local storage and redirects to login. Shared frontend 401 handling also clears authentication and carries a one-time sign-in-again notice to the login page for version-invalidated sessions.
+
+Forgot-password and resend-verification accept an email but always return the same public response for unknown, already-verified, and applicable accounts. Tokens use `secrets.token_urlsafe(32)`; only SHA-256 hashes and expirations are persisted. Reset links expire after 30 minutes and verification links after 24 hours by default. Reset and verification consume their hash with one conditional database update, making reuse and concurrent double-submit fail safely. A successful reset replaces the Argon2 hash, increments `token_version`, clears the token, and invalidates every JWT. There are no refresh tokens, per-device sessions, denylist, endpoint rate limits, or account deletion.
+
+Email delivery is isolated in `app/services/email_service.py`. The development environment template enables console delivery and may display links locally; the application itself defaults to production mode, where console delivery is prohibited. Production uses vendor-neutral authenticated SMTP with TLS by default. Delivery failures are logged without message bodies/tokens, while public endpoints retain enumeration-safe responses.
 
 ## Data flows
 
@@ -77,6 +81,9 @@ All authenticated pages use `AppSidebar`, responsive desktop/mobile navigation, 
 - `/goals`: goal CRUD, contribution/withdrawal, status/progress, form/detail drawers, deletion confirmation/toast.
 - `/insights`: selected-month insights, metrics/severity filtering, rows/detail drawer and empty CTA.
 - `/settings`: profile, account/transaction counts, password/email changes, logout, client-side CSV export; password visibility and toast errors/success.
+- `/forgot-password`: public email submission with enumeration-safe success and error/loading states.
+- `/reset-password`: token-based password replacement, invalid/expired state, and local session clearing on success.
+- `/verify-email`: automatic token verification plus a public resend action.
 - `/_not-found`: Next.js generated not-found route; there is no repository-authored page.
 
 See [FILE_MAP.md](FILE_MAP.md) for component responsibilities and [API_REFERENCE.md](API_REFERENCE.md) for calls.

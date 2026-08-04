@@ -159,7 +159,7 @@ class BudgetCreate(BaseModel):
     month: str = Field(
         min_length=7,
         max_length=7,
-        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
+        pattern=r"^[1-9]\d{3}-(0[1-9]|1[0-2])$",
     )
     limit_cents: int = Field(gt=0)
 
@@ -182,6 +182,20 @@ class BudgetCopyResult(BaseModel):
     budgets: list[BudgetOut]
 
 
+class BudgetCopyRequest(BaseModel):
+    source_month: str = Field(
+        min_length=7,
+        max_length=7,
+        pattern=r"^[1-9]\d{3}-(0[1-9]|1[0-2])$",
+    )
+    target_month: str = Field(
+        min_length=7,
+        max_length=7,
+        pattern=r"^[1-9]\d{3}-(0[1-9]|1[0-2])$",
+    )
+    overwrite: bool = False
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
@@ -202,11 +216,28 @@ class EmailChangeRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
 
 
+class EmailRequest(BaseModel):
+    email: EmailStr
+
+
+class TokenRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=512)
+
+
+class PasswordResetRequest(TokenRequest):
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class PublicMessage(BaseModel):
+    message: str
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     email: str
+    email_verified: bool
 
 
 class TokenOut(BaseModel):
@@ -304,6 +335,7 @@ class BudgetProgressOut(BaseModel):
     remaining_cents: int
     percent_used: float
     over_budget_cents: int
+    overspent: bool
 
 
 class SavingsGoalCreate(BaseModel):

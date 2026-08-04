@@ -8,7 +8,7 @@ Status vocabulary: **verified** means current automated validation covers it or 
 | Optional batched/cached LLM categorization with fallback | Verified with mocked unit tests; live Anthropic unverified | `1da3562`; `llm_categorization.py`. |
 | JWT auth, Argon2, user isolation | Verified route tests | `6d62b32`; auth/security/API tests. |
 | Server-side JWT invalidation | Verified by credential, claim, legacy-token and ownership tests | Per-user token version is embedded as `ver`; successful email/password changes invalidate all older tokens. Legacy tokens without `ver` are rejected. |
-| Plaid Sandbox link/exchange/sync/accounts and encrypted tokens | Verified with provider mocks; live Sandbox/production unverified | `6d62b32`, disconnect `eeb6a32`/`803f72c`; Plaid/encryption tests. |
+| Plaid Sandbox link/exchange/sync/accounts and encrypted tokens | Verified with deterministic provider mocks; live Sandbox/production unverified | Manual sync lifecycle, 15-minute atomic stale-claim recovery, safe attempted/success timestamps and errors, reconnect-required state, atomic cursor/data commits, idempotent transaction updates/removals, and owner-scoped disconnect/status are covered by Plaid/account tests. |
 | Alembic schema | Verified single linear head/current | `6d62b32`, goals `2d0c79b`, dependency/start fixes `eafc6ae`/`4a7c3a9`, boolean fix `7bb7d28`. |
 | Search/filter/pagination/totals | Verified backend tests and frontend build | `bd5e74b`. |
 | Category update/lock and transaction delete | Verified backend; UI compiled | Base/auth phases; confirmation `57215c0`, reusable modal `29220c5`. |
@@ -30,7 +30,7 @@ Status vocabulary: **verified** means current automated validation covers it or 
 
 Every authenticated route is responsive through Tailwind breakpoints and `AppSidebar` mobile navigation. Motion uses Framer Motion and shared helpers that respect `prefers-reduced-motion`. Transactions/accounts/goals use detail drawers; destructive account, goal and transaction actions use `ConfirmationModal`; mutation success/error uses `Toast` where implemented. Forecast/recurring/insights have page errors, empty CTAs and animated drawers. Budgets have loading/error/empty, copy confirmation state and success toast. Settings uses loading plus two toast channels but no confirmation for browser logout or CSV export. Dashboard has its own loading/error/empty blocks and upload result messaging.
 
-The frontend now has a focused Vitest/React Testing Library foundation with 10 Transactions-page regression tests covering bulk category/delete, Undo timing and replacement, stale selections, error detail, and Potential Duplicates compatibility.
+The frontend has focused Vitest/React Testing Library coverage: 10 Transactions-page regression tests plus 6 Accounts-page Plaid lifecycle tests for Sync Now success/loading/failure, last-sync display, disconnect confirmation, and reconnect-required presentation. All provider/API boundaries are mocked.
 
 Known UI limitations: frontend automated coverage is limited to the Transactions page; session logic is repeated per page; JWT is in localStorage; no global error boundary/auth provider; Undo state is client-memory-only; closing the delete Undo toast hides the action while the deletion timer continues; pagination can be stale after optimistic deletion; and the landing page displays stale “111 Backend tests.”
 

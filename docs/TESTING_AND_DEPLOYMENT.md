@@ -24,23 +24,23 @@ npm run dev
 
 Frontend is port 3000. Never print or commit either real env file.
 
-## Validation baseline (2026-08-03)
+## Validation baseline (2026-08-03, Plaid lifecycle hardening worktree)
 
 ```bash
 cd backend && source venv/bin/activate && pytest -q
-# 136 passed in 7.42s; two cache-write warnings caused by audit sandbox permissions
+# 186 passed
 
-alembic heads      # c4a8d9e2f1b0 (head)
-alembic current    # c4a8d9e2f1b0 (head), local SQLite
-alembic history    # one six-revision chain
+alembic heads      # 7d9c2a4e6b10 (head)
+alembic current    # 7d9c2a4e6b10 (head), after upgrade
+alembic history    # one seven-revision chain
 
 cd ../frontend
-npm run test:run  # 10 Transactions-page regression tests
+npm run test:run  # 16 tests: 10 Transactions + 6 Accounts
 npm run lint       # pass, no findings
 npm run build      # pass; 11 static routes including /_not-found
 ```
 
-Backend tests use a dependency-overridden isolated SQLite engine and TestClient; Plaid/LLM are mocked. Frontend component tests use Vitest, React Testing Library, jest-dom and jsdom with API/session/navigation/animation boundaries mocked, so they do not call the backend. The focused Transactions suite covers category and delete bulk workflows, six-second Undo timers, stale selections, backend error details, and Potential Duplicates compatibility.
+Backend tests use a dependency-overridden isolated SQLite engine and TestClient; Plaid/LLM are mocked. Plaid coverage includes manual success, repeat idempotency, pagination cursor progression, failure preservation, attempted/success timestamps, safe failure state, retry, recent-claim rejection, atomic 15-minute stale-claim recovery, competing recovery requests, reconnect-required state, removed transactions, disconnect cleanup/ownership, cross-user denial, and authentication. Frontend component tests use Vitest, React Testing Library, jest-dom and jsdom with API/session/navigation/animation boundaries mocked, so they do not call the backend. The Accounts suite covers sync success/loading/failure, last-sync display, disconnect confirmation, reconnect-required state, and post-sync account/transaction refresh.
 
 Run frontend tests in watch mode with `npm test` or once with `npm run test:run`. There is no coverage measurement threshold, browser E2E suite, live PostgreSQL migration test, live Plaid test, CSV-export browser test, concurrency test, or production smoke suite.
 
@@ -54,7 +54,7 @@ Backend: `APP_NAME`, `DATABASE_URL`, `CORS_ORIGINS`, `JWT_SECRET`, `JWT_ALGORITH
 
 Run `alembic upgrade head` from `backend/`. `alembic/env.py` uses `settings.database_url`, not merely the ini default. Review generated revisions and test both upgrade and downgrade on disposable data; do not downgrade production casually. Current chain is documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-Revision `c4a8d9e2f1b0` adds `users.token_version` as a non-null integer with server default zero. Deploy through `backend/start.sh` so the migration completes before the new authentication code serves requests. The release intentionally signs out every browser holding a legacy token without `ver`; users must log in once to receive a versioned token.
+Revision `7d9c2a4e6b10` (down revision `c4a8d9e2f1b0`) adds `plaid_items.last_sync_attempted_at`, non-null indexed `sync_status` with `idle` default, and nullable bounded `sync_error`. Deploy through `backend/start.sh` so the migration completes before the new status fields are served. No environment variables were added.
 
 ## CI and production
 
@@ -69,6 +69,7 @@ Vercel should use `frontend` as root, `npm run build`, and production `NEXT_PUBL
 - 401: expired/invalid bearer or version-invalidated session; browser API clears local authentication. Version mismatches and legacy tokens return `session expired; please sign in again`, which the login page displays once.
 - 403: URL `user_id` differs from JWT subject.
 - Plaid 503: credentials or Fernet key absent/invalid; 502: provider failure.
+- Plaid reconnect: `ITEM_LOGIN_REQUIRED` marks the item `reconnect_required`; reconnect it through Plaid Link, which restores `active` and clears the failed sync state.
 - CORS: ensure exact frontend origin (without trailing slash after normalization) appears in `CORS_ORIGINS`.
 - Build API URL: `NEXT_PUBLIC_*` is embedded at build time; redeploy after changes.
 - Database: confirm `DATABASE_URL`, `alembic current`, and one head before starting.

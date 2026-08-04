@@ -259,7 +259,11 @@ class PlaidItemOut(BaseModel):
     id: int
     institution_name: str | None
     status: str
+    sync_status: str
+    sync_error: str | None
+    last_sync_attempted_at: datetime | None
     last_synced_at: datetime | None
+
 
 class ConnectedAccountOut(BaseModel):
     id: int
@@ -273,7 +277,12 @@ class ConnectedAccountOut(BaseModel):
     current_balance_cents: int | None
     available_balance_cents: int | None
     currency: str
+    connection_status: str
+    sync_status: str
+    sync_error: str | None
+    last_sync_attempted_at: datetime | None
     last_synced_at: datetime | None
+
 
 class PlaidSyncOut(BaseModel):
     added: int
@@ -281,6 +290,10 @@ class PlaidSyncOut(BaseModel):
     removed: int
     items_synced: int
     synced_at: datetime
+
+
+class PlaidSyncStatusOut(BaseModel):
+    items: list[PlaidItemOut]
 
 
 class BudgetProgressOut(BaseModel):

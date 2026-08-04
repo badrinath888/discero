@@ -1,64 +1,29 @@
 # Current work
 
-Updated: 2026-08-03 after adding the focused Transactions-page frontend test foundation. Nothing is committed or pushed.
+Updated: 2026-08-03 for Plaid synchronization and connected-account lifecycle hardening. Nothing is committed or pushed.
 
-## Baseline and changed files
+## Baseline and scope
 
-The work started from clean `main` at `f100a43052ab4196a23648255fda7a127195b144`, matching `origin/main`.
+This isolated worktree started clean at `eb9e2082577de39519450b006ade25276c9a335c`. Authentication recovery work, budgets, Next.js, and React were not changed. One migration was added; no environment variables or real Plaid credentials were introduced.
 
-Frontend test and configuration changes:
+## Implementation
 
-- `frontend/app/transactions/page.test.tsx` (new)
-- `frontend/test/setup.ts` (new)
-- `frontend/vitest.config.mts` (new)
-- `frontend/package.json`
-- `frontend/package-lock.json`
+- Manual `POST /users/{user_id}/plaid/sync` now persists per-item `syncing`, `succeeded`, or `failed` lifecycle state and attempted/successful timestamps. Recent claims return 409; claims at least 15 minutes old can be reclaimed by one atomic UTC-guarded update.
+- `GET /users/{user_id}/plaid/sync/status` returns safe owner-scoped item status; account responses carry the same lifecycle metadata.
+- Each item's added/modified/removed transaction changes and final cursor commit atomically. Provider transaction ids are upserted, duplicate/repeated input is idempotent, locked categories remain intact, and account mappings are item-scoped.
+- Failed provider, encryption, mapping, or persistence work retains the prior cursor and successful timestamp, then stores a bounded safe error summary. `ITEM_LOGIN_REQUIRED` marks the item `reconnect_required`; a successful token exchange restores it to active/idle.
+- Disconnect remains provider-first and owner-scoped. Provider failure retains local state; success removes the item/accounts while keeping transactions with null account links.
+- The Accounts page provides Sync Now loading/success/failure feedback, last successful sync, persisted failure/reconnect notices, safe confirmation, and refreshes both accounts and transactions after sync.
 
-Production-facing adjustment:
+## Tests and validation
 
-- `frontend/app/transactions/page.tsx` adds accessible labels to the existing bulk and row category controls; behavior is unchanged.
-
-Documentation updates are limited to this file, `IMPLEMENTED_FEATURES.md`, and `TESTING_AND_DEPLOYMENT.md`.
-
-## Test foundation
-
-The frontend now uses Vitest, React Testing Library, `@testing-library/jest-dom`, and jsdom. Vitest resolves the existing `@/` alias, loads a shared DOM setup, and supports deterministic fake-timer tests. The suite mocks authentication/session state, frontend API calls, Next navigation, the sidebar, and Framer Motion; it never calls the backend.
-
-Run the watch mode with `npm test` and the deterministic one-shot suite with `npm run test:run`.
-
-## Transactions regression coverage
-
-Ten rendered-page tests cover bulk category success, stale-selection rejection and refresh, exact mixed-category Undo, category Undo expiry and replacement, optimistic delete Undo, one atomic delete after expiry, full row restoration on delete failure, backend error-detail rendering, and Potential Duplicates compatibility with bulk actions.
-
-## Validation
-
-Run before review:
-
-```bash
-cd frontend
-npm install
-npm run test:run
-npm run lint
-npm run build
-
-cd ../backend
-source venv/bin/activate
-pytest -q
-alembic heads
-alembic current
-
-cd ..
-git diff --check
-git status --short
-```
+- Backend: 11 new tests; 186 total passing. Deterministic mocks cover repeated sync, recent-claim rejection, stale-claim recovery/success/failure safety, competing reclaim requests, final cursor progression, failed-cursor preservation, timestamps/status/error, successful retry, reconnect requirement, safe status ownership/authentication, and disconnect authentication in addition to existing success/removal/disconnect coverage.
+- Frontend: 6 new Accounts tests; 16 total passing. No real Plaid API or backend calls.
+- Frontend lint and production build pass.
+- Migration/head/current and final repository checks are run before handoff and reported in the final response.
 
 ## Known limitations
 
-- Coverage is intentionally focused on the highest-risk Transactions workflows; authentication redirects, CSV export, sync, filter combinations, pagination, responsive layout, and other pages remain without frontend automated coverage.
-- The suite uses mocked API and animation boundaries, so it does not replace browser E2E, live-backend integration, accessibility auditing, or production smoke tests.
-- No coverage threshold or coverage-reporting dependency was added.
-- The final production dependency audit is clean. One high-severity `brace-expansion` advisory remains confined to ESLint/TypeScript development tooling; no force fix or unrelated framework upgrade was applied.
-
-## Recommended next task
-
-Add focused frontend authentication tests for invalidated-session redirects and the one-time login notice, using this test foundation without introducing a broad component rewrite.
+- Sync is a synchronous request; there is no background job or webhook scheduler. A process crash can delay the next manual sync for up to the documented 15-minute claim timeout.
+- Manual sync covers all connected items for the user rather than one selected institution.
+- Live Plaid Sandbox/production, PostgreSQL concurrency, browser E2E, and production deployment are not exercised by the deterministic local suites.

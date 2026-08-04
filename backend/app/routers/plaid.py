@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -13,7 +13,9 @@ from app.schemas import (
     PlaidConnectionOut,
     PlaidExchangeRequest,
     PlaidLinkTokenOut,
+    PlaidItemOut,
     PlaidSyncOut,
+    PlaidSyncStatusOut,
 )
 from app.services.plaid_service import (
     PlaidConfigurationError,
@@ -34,6 +36,8 @@ router = APIRouter(
     prefix="/users/{user_id}/plaid",
     tags=["plaid"],
 )
+
+SYNC_CLAIM_TIMEOUT = timedelta(minutes=15)
 
 
 def _authorize_user(
@@ -152,6 +156,8 @@ def exchange_plaid_token(
                 encrypted_access_token
             )
             plaid_item.status = "active"
+            plaid_item.sync_status = "idle"
+            plaid_item.sync_error = None
 
             if payload.institution_id is not None:
                 plaid_item.institution_id = _clean_optional(
@@ -194,7 +200,6 @@ def exchange_plaid_token(
     )
 
 
-
 @router.delete(
     "/items/{item_id}",
     status_code=204,
@@ -218,6 +223,11 @@ def disconnect_plaid_item(
         raise HTTPException(
             status_code=404,
             detail="Plaid connection not found",
+        )
+    if plaid_item.sync_status == "syncing":
+        raise HTTPException(
+            status_code=409,
+            detail="Wait for synchronization to finish before disconnecting",
         )
 
     try:
@@ -283,226 +293,289 @@ def synchronize_plaid_transactions(
             synced_at=synced_at,
         )
 
-    account_rows = list(
-        db.scalars(
-            select(FinancialAccount)
-            .join(PlaidItem)
-            .where(PlaidItem.user_id == user_id)
-        ).all()
-    )
-
-    accounts_by_provider_id = {
-        account.provider_account_id: account
-        for account in account_rows
-    }
-
-    sync_results = []
-
-    try:
-        for plaid_item in plaid_items:
-            access_token = decrypt_token(
-                plaid_item.access_token_ciphertext
-            )
-
-            result = sync_transactions(
-                access_token=access_token,
-                cursor=plaid_item.sync_cursor,
-            )
-
-            sync_results.append(
-                (plaid_item, result)
-            )
-    except PlaidConfigurationError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=str(exc),
-        ) from exc
-    except TokenEncryptionError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=str(exc),
-        ) from exc
-    except PlaidServiceError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=str(exc),
-        ) from exc
-
-    incoming_ids = {
-        transaction.provider_transaction_id
-        for _, result in sync_results
-        for transaction in [
-            *result.added,
-            *result.modified,
-        ]
-    }
-
-    removed_ids = {
-        transaction_id
-        for _, result in sync_results
-        for transaction_id in result.removed
-    }
-
-    relevant_ids = incoming_ids | removed_ids
-
-    existing_transactions = {
-        transaction.provider_transaction_id: transaction
-        for transaction in db.scalars(
-            select(Transaction).where(
-                Transaction.user_id == user_id,
-                Transaction.provider_transaction_id.in_(
-                    relevant_ids
-                ),
-            )
-        ).all()
-        if transaction.provider_transaction_id
-    } if relevant_ids else {}
-
     added_count = 0
     modified_count = 0
     removed_count = 0
 
-    try:
-        for plaid_item, result in sync_results:
-            for data in result.added:
-                account = accounts_by_provider_id.get(
-                    data.provider_account_id
-                )
-
-                if account is None:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(
-                            "Plaid transaction account mapping "
-                            "is missing"
-                        ),
-                    )
-
-                transaction = existing_transactions.get(
-                    data.provider_transaction_id
-                )
-
-                if transaction is None:
-                    transaction = Transaction(
-                        user_id=user_id,
-                        financial_account_id=account.id,
-                        provider_transaction_id=(
-                            data.provider_transaction_id
-                        ),
-                        posted_on=data.posted_on,
-                        description=data.description,
-                        merchant_name=data.merchant_name,
-                        amount_cents=data.amount_cents,
-                        category=data.category,
-                        source="plaid",
-                        pending=data.pending,
-                    )
-
-                    db.add(transaction)
-
-                    existing_transactions[
-                        data.provider_transaction_id
-                    ] = transaction
-
-                    added_count += 1
-                else:
-                    _apply_plaid_transaction(
-                        transaction=transaction,
-                        account=account,
-                        data=data,
-                    )
-
-                    modified_count += 1
-
-            for data in result.modified:
-                account = accounts_by_provider_id.get(
-                    data.provider_account_id
-                )
-
-                if account is None:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(
-                            "Plaid transaction account mapping "
-                            "is missing"
-                        ),
-                    )
-
-                transaction = existing_transactions.get(
-                    data.provider_transaction_id
-                )
-
-                if transaction is None:
-                    transaction = Transaction(
-                        user_id=user_id,
-                        financial_account_id=account.id,
-                        provider_transaction_id=(
-                            data.provider_transaction_id
-                        ),
-                        posted_on=data.posted_on,
-                        description=data.description,
-                        merchant_name=data.merchant_name,
-                        amount_cents=data.amount_cents,
-                        category=data.category,
-                        source="plaid",
-                        pending=data.pending,
-                    )
-
-                    db.add(transaction)
-
-                    existing_transactions[
-                        data.provider_transaction_id
-                    ] = transaction
-
-                    added_count += 1
-                else:
-                    _apply_plaid_transaction(
-                        transaction=transaction,
-                        account=account,
-                        data=data,
-                    )
-
-                    modified_count += 1
-
-            for provider_transaction_id in result.removed:
-                transaction = existing_transactions.get(
-                    provider_transaction_id
-                )
-
-                if transaction is None:
-                    continue
-
-                db.delete(transaction)
-                removed_count += 1
-
-                existing_transactions.pop(
-                    provider_transaction_id,
-                    None,
-                )
-
-            plaid_item.sync_cursor = result.next_cursor
-            plaid_item.last_synced_at = synced_at
-            plaid_item.status = "active"
-
-        db.commit()
-    except HTTPException:
-        db.rollback()
-        raise
-    except SQLAlchemyError as exc:
-        db.rollback()
-
-        raise HTTPException(
-            status_code=500,
-            detail="Unable to save synchronized transactions",
-        ) from exc
+    for plaid_item in plaid_items:
+        counts = _sync_plaid_item(
+            db=db,
+            user_id=user_id,
+            item_id=plaid_item.id,
+            attempted_at=synced_at,
+        )
+        added_count += counts[0]
+        modified_count += counts[1]
+        removed_count += counts[2]
 
     return PlaidSyncOut(
         added=added_count,
         modified=modified_count,
         removed=removed_count,
-        items_synced=len(sync_results),
+        items_synced=len(plaid_items),
         synced_at=synced_at,
     )
+
+
+@router.get(
+    "/sync/status",
+    response_model=PlaidSyncStatusOut,
+)
+def get_plaid_sync_status(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PlaidSyncStatusOut:
+    _authorize_user(user_id, current_user)
+
+    items = list(
+        db.scalars(
+            select(PlaidItem)
+            .where(PlaidItem.user_id == user_id)
+            .order_by(PlaidItem.id)
+        ).all()
+    )
+
+    return PlaidSyncStatusOut(
+        items=[
+            PlaidItemOut(
+                id=item.id,
+                institution_name=item.institution_name,
+                status=item.status,
+                sync_status=item.sync_status,
+                sync_error=item.sync_error,
+                last_sync_attempted_at=item.last_sync_attempted_at,
+                last_synced_at=item.last_synced_at,
+            )
+            for item in items
+        ]
+    )
+
+
+def _sync_plaid_item(
+    db: Session,
+    user_id: int,
+    item_id: int,
+    attempted_at: datetime,
+) -> tuple[int, int, int]:
+    attempted_at = (
+        attempted_at.replace(tzinfo=timezone.utc)
+        if attempted_at.tzinfo is None
+        else attempted_at.astimezone(timezone.utc)
+    )
+    stale_before = attempted_at - SYNC_CLAIM_TIMEOUT
+    claim = db.execute(
+        update(PlaidItem)
+        .where(
+            PlaidItem.id == item_id,
+            PlaidItem.user_id == user_id,
+            or_(
+                PlaidItem.sync_status != "syncing",
+                PlaidItem.last_sync_attempted_at.is_(None),
+                PlaidItem.last_sync_attempted_at <= stale_before,
+            ),
+        )
+        .values(
+            sync_status="syncing",
+            sync_error=None,
+            last_sync_attempted_at=attempted_at,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if claim.rowcount == 0:
+        db.rollback()
+        exists = db.scalar(
+            select(PlaidItem.id).where(
+                PlaidItem.id == item_id,
+                PlaidItem.user_id == user_id,
+            )
+        )
+        if exists is None:
+            raise HTTPException(404, "Plaid connection not found")
+        raise HTTPException(409, "Plaid synchronization is already running")
+    db.commit()
+
+    plaid_item = db.scalar(
+        select(PlaidItem).where(
+            PlaidItem.id == item_id,
+            PlaidItem.user_id == user_id,
+        )
+    )
+    if plaid_item is None:
+        raise HTTPException(404, "Plaid connection not found")
+
+    try:
+        access_token = decrypt_token(plaid_item.access_token_ciphertext)
+        result = sync_transactions(
+            access_token=access_token,
+            cursor=plaid_item.sync_cursor,
+        )
+        return _store_sync_result(
+            db=db,
+            user_id=user_id,
+            item_id=item_id,
+            result=result,
+            synced_at=attempted_at,
+        )
+    except PlaidConfigurationError as exc:
+        _record_sync_failure(
+            db, user_id, item_id, "Plaid integration is unavailable"
+        )
+        raise HTTPException(503, str(exc)) from exc
+    except TokenEncryptionError as exc:
+        _record_sync_failure(
+            db, user_id, item_id, "Stored connection could not be read"
+        )
+        raise HTTPException(503, str(exc)) from exc
+    except PlaidServiceError as exc:
+        _record_sync_failure(
+            db,
+            user_id,
+            item_id,
+            "Reconnect required"
+            if exc.reconnect_required
+            else "Plaid synchronization failed",
+            reconnect_required=exc.reconnect_required,
+        )
+        raise HTTPException(502, str(exc)) from exc
+
+
+def _store_sync_result(
+    db: Session,
+    user_id: int,
+    item_id: int,
+    result,
+    synced_at: datetime,
+) -> tuple[int, int, int]:
+    try:
+        plaid_item = db.scalar(
+            select(PlaidItem).where(
+                PlaidItem.id == item_id,
+                PlaidItem.user_id == user_id,
+            )
+        )
+        if plaid_item is None:
+            raise HTTPException(404, "Plaid connection not found")
+
+        accounts = list(
+            db.scalars(
+                select(FinancialAccount).where(
+                    FinancialAccount.plaid_item_id == plaid_item.id
+                )
+            ).all()
+        )
+        accounts_by_provider_id = {
+            account.provider_account_id: account for account in accounts
+        }
+        account_ids = {account.id for account in accounts}
+        incoming = [*result.added, *result.modified]
+        relevant_ids = {
+            data.provider_transaction_id for data in incoming
+        } | set(result.removed)
+        existing_transactions = {
+            transaction.provider_transaction_id: transaction
+            for transaction in db.scalars(
+                select(Transaction).where(
+                    Transaction.user_id == user_id,
+                    Transaction.provider_transaction_id.in_(relevant_ids),
+                )
+            ).all()
+            if transaction.provider_transaction_id
+        } if relevant_ids else {}
+
+        added_count = 0
+        modified_count = 0
+        for data in incoming:
+            account = accounts_by_provider_id.get(data.provider_account_id)
+            if account is None:
+                raise HTTPException(
+                    409, "Plaid transaction account mapping is missing"
+                )
+            transaction = existing_transactions.get(
+                data.provider_transaction_id
+            )
+            if transaction is None:
+                transaction = Transaction(
+                    user_id=user_id,
+                    financial_account_id=account.id,
+                    provider_transaction_id=data.provider_transaction_id,
+                    posted_on=data.posted_on,
+                    description=data.description,
+                    merchant_name=data.merchant_name,
+                    amount_cents=data.amount_cents,
+                    category=data.category,
+                    source="plaid",
+                    pending=data.pending,
+                )
+                db.add(transaction)
+                existing_transactions[data.provider_transaction_id] = transaction
+                added_count += 1
+            else:
+                if (
+                    transaction.financial_account_id is not None
+                    and transaction.financial_account_id not in account_ids
+                ):
+                    raise HTTPException(
+                        409, "Plaid transaction ownership mismatch"
+                    )
+                _apply_plaid_transaction(transaction, account, data)
+                modified_count += 1
+
+        removed_count = 0
+        for provider_transaction_id in result.removed:
+            transaction = existing_transactions.get(provider_transaction_id)
+            if transaction is None:
+                continue
+            if (
+                transaction.financial_account_id is not None
+                and transaction.financial_account_id not in account_ids
+            ):
+                raise HTTPException(409, "Plaid transaction ownership mismatch")
+            db.delete(transaction)
+            removed_count += 1
+
+        plaid_item.sync_cursor = result.next_cursor
+        plaid_item.last_synced_at = synced_at
+        plaid_item.sync_status = "succeeded"
+        plaid_item.sync_error = None
+        plaid_item.status = "active"
+        db.commit()
+        return added_count, modified_count, removed_count
+    except HTTPException as exc:
+        db.rollback()
+        _record_sync_failure(db, user_id, item_id, str(exc.detail))
+        raise
+    except SQLAlchemyError as exc:
+        db.rollback()
+        _record_sync_failure(
+            db, user_id, item_id, "Synchronized data could not be saved"
+        )
+        raise HTTPException(
+            500, "Unable to save synchronized transactions"
+        ) from exc
+
+
+def _record_sync_failure(
+    db: Session,
+    user_id: int,
+    item_id: int,
+    summary: str,
+    reconnect_required: bool = False,
+) -> None:
+    db.rollback()
+    plaid_item = db.scalar(
+        select(PlaidItem).where(
+            PlaidItem.id == item_id,
+            PlaidItem.user_id == user_id,
+        )
+    )
+    if plaid_item is None:
+        return
+    plaid_item.sync_status = "failed"
+    plaid_item.sync_error = summary[:255]
+    if reconnect_required:
+        plaid_item.status = "reconnect_required"
+    db.commit()
 
 
 def _apply_plaid_transaction(

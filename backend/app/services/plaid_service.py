@@ -29,7 +29,14 @@ class PlaidConfigurationError(RuntimeError):
 
 
 class PlaidServiceError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        reconnect_required: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.reconnect_required = reconnect_required
 
 
 @dataclass(frozen=True)
@@ -185,8 +192,14 @@ def get_accounts(
             )
         )
     except plaid.ApiException as exc:
+        reconnect_required = (
+            _plaid_error_code(exc) == "ITEM_LOGIN_REQUIRED"
+        )
         raise PlaidServiceError(
-            "Unable to retrieve Plaid accounts"
+            "This institution needs to be reconnected"
+            if reconnect_required
+            else "Unable to retrieve Plaid accounts",
+            reconnect_required=reconnect_required,
         ) from exc
 
     return [
@@ -297,8 +310,14 @@ def sync_transactions(
             ):
                 continue
 
+            reconnect_required = (
+                _plaid_error_code(exc) == "ITEM_LOGIN_REQUIRED"
+            )
             raise PlaidServiceError(
-                "Unable to synchronize Plaid transactions"
+                "This institution needs to be reconnected"
+                if reconnect_required
+                else "Unable to synchronize Plaid transactions",
+                reconnect_required=reconnect_required,
             ) from exc
 
     raise PlaidServiceError(

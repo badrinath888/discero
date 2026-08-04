@@ -342,9 +342,24 @@ export type FinancialAccount = {
   current_balance_cents: number | null;
   available_balance_cents: number | null;
   currency: string;
+  connection_status: string;
+  sync_status: "idle" | "syncing" | "succeeded" | "failed";
+  sync_error: string | null;
+  last_sync_attempted_at: string | null;
   last_synced_at: string | null;
 };
 
+export type PlaidSyncStatus = {
+  items: Array<{
+    id: number;
+    institution_name: string | null;
+    status: string;
+    sync_status: "idle" | "syncing" | "succeeded" | "failed";
+    sync_error: string | null;
+    last_sync_attempted_at: string | null;
+    last_synced_at: string | null;
+  }>;
+};
 
 export type PlaidSyncResult = {
   added: number;
@@ -763,6 +778,13 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
     }).then((res) => handle<PlaidSyncResult>(res)),
+
+  getPlaidSyncStatus: (
+    userId: number
+  ): Promise<PlaidSyncStatus> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/plaid/sync/status`, {
+      headers: authHeaders(),
+    }).then((res) => handle<PlaidSyncStatus>(res)),
 
   disconnectPlaidItem: (
     userId: number,

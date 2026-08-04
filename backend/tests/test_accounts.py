@@ -96,6 +96,10 @@ def test_accounts_return_safe_account_details(
     assert body[0]["mask"] == "0000"
     assert body[0]["current_balance_cents"] == 125050
     assert body[0]["available_balance_cents"] == 120000
+    assert body[0]["connection_status"] == "active"
+    assert body[0]["sync_status"] == "idle"
+    assert body[0]["sync_error"] is None
+    assert body[0]["last_sync_attempted_at"] is None
 
     serialized = str(body)
 

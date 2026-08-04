@@ -65,6 +65,10 @@ def list_accounts(
                 account.available_balance_cents
             ),
             currency=account.currency,
+            connection_status=item.status,
+            sync_status=item.sync_status,
+            sync_error=item.sync_error,
+            last_sync_attempted_at=item.last_sync_attempted_at,
             last_synced_at=item.last_synced_at,
         )
         for account, item in db.execute(statement).all()

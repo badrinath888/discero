@@ -22,7 +22,7 @@ The frontend is a client-rendered App Router application. Each authenticated pag
 - `Transaction`: user; optional financial account (`SET NULL` on account removal); globally unique optional Plaid transaction id; date, description, optional merchant, signed integer cents, category, category lock, source, pending flag, timestamps. Positive is income; negative is expense.
 - `Budget`: user/category/`YYYY-MM` unique tuple, positive limit in cents.
 - `SavingsGoal`: user, name, positive target, nonnegative saved amount, optional target date, timestamps.
-- `PlaidItem`: user, globally unique provider item id, institution metadata, encrypted access token, status, cursor and sync timestamps. Owns financial accounts.
+- `PlaidItem`: user, globally unique provider item id, institution metadata, encrypted access token, active/reconnect-required connection status, cursor, sync lifecycle status, safe error summary, and attempted/successful timestamps. Owns financial accounts.
 - `FinancialAccount`: Plaid item, globally unique provider account id, names/type/subtype/mask, current/available balances, currency, timestamps. Relates to transactions.
 
 Alembic is linear: `93dcf675c7ee` initial user/transaction/budget schema → `f77d39a9c4e0` Plaid items/accounts → `ac2645f928d0` transaction Plaid fields → `383774abbeb5` category lock → `568820dfb45d` savings goals → `c4a8d9e2f1b0` user token version. Validation commands show one head and the local SQLite database at head.
@@ -47,7 +47,9 @@ Deterministic keyword rules cover nine categories with `Uncategorized` fallback.
 
 ### Plaid
 
-The browser requests a link token, Plaid Link supplies a public token, and the API exchanges it, encrypts the access token with Fernet, upserts the item/accounts, and returns safe account fields. Sync decrypts each active item token, pages through Plaid transaction sync, updates accounts, applies added/modified/removed transactions and cursors, preserves manually locked categories, and commits. Disconnect calls Plaid first; on success it nulls linked transaction account references, deletes the local item/accounts, and keeps transaction history. Provider/config/encryption failures map to 502/503/500 responses. Provider item/account/transaction uniqueness is global rather than `(user, provider id)`.
+The browser requests a link token, Plaid Link supplies a public token, and the API exchanges it, encrypts the access token with Fernet, upserts the item/accounts, and returns safe account fields. Manual sync works per owner-scoped item: one conditional update atomically claims non-syncing items or UTC claims at least 15 minutes old, refreshes the attempt timestamp, and rejects recent/competing claims. It requests every Plaid cursor page from the last committed cursor, then applies added/modified/removed transactions and the final cursor in one database commit. Provider transaction ids are upserted, repeated pages remain idempotent, account mappings must belong to the item, and manually locked categories are preserved. A failure rolls back data/cursor changes and separately records `failed` with a bounded safe summary; `ITEM_LOGIN_REQUIRED` also marks the connection `reconnect_required`. A retry or stale-claim recovery starts from the last valid cursor.
+
+Disconnect loads the item by both local id and user, calls Plaid before local deletion, and retains local data when the provider call fails. After provider success, deleting the item cascades its accounts while the account foreign key on historical transactions becomes null, preserving transaction history. Provider/config/encryption failures map to 502/503/500 responses. Safe status/account responses exclude access tokens, provider identifiers, and cursors. Provider item/account/transaction uniqueness remains global rather than `(user, provider id)`.
 
 ### Analytics
 

@@ -8,6 +8,7 @@ from app.routers import (
     goals,
     plaid,
     recurring,
+    safe_to_spend,
     transactions,
     users,
 )
@@ -26,6 +27,7 @@ app.include_router(transactions.router)
 app.include_router(budgets.router)
 app.include_router(goals.router)
 app.include_router(recurring.router)
+app.include_router(safe_to_spend.router)
 app.include_router(plaid.router)
 app.include_router(accounts.router)
 

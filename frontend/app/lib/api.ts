@@ -364,6 +364,7 @@ export type RecurringItemCreate = {
   frequency: "Weekly" | "Biweekly" | "Monthly";
   last_payment: string;
   next_payment: string;
+  status?: "suggested" | "active" | "dismissed";
   confidence_score: number;
   price_change_percent?: number;
   price_change_warning?: boolean;

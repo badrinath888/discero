@@ -248,3 +248,23 @@ def test_other_user_cannot_update_recurring_item(
     )
 
     assert response.status_code == 403
+
+def test_create_recurring_item_with_active_status(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(
+        client,
+        "recurring-active",
+    )
+
+    payload = recurring_payload()
+    payload["status"] = "active"
+
+    response = client.post(
+        f"/users/{user_id}/recurring-items",
+        headers=headers,
+        json=payload,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "active"

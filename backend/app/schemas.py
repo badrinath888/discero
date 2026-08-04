@@ -166,6 +166,11 @@ class RecurringItemCreate(BaseModel):
     ]
     last_payment: date
     next_payment: date
+    status: Literal[
+        "suggested",
+        "active",
+        "dismissed",
+    ] = "suggested"
     confidence_score: float = Field(ge=0, le=100)
     price_change_percent: float = 0.0
     price_change_warning: bool = False

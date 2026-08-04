@@ -106,7 +106,7 @@ def create_recurring_item(
         frequency=payload.frequency,
         last_payment=payload.last_payment,
         next_payment=payload.next_payment,
-        status="suggested",
+        status=payload.status,
         confidence_score=payload.confidence_score,
         price_change_percent=payload.price_change_percent,
         price_change_warning=payload.price_change_warning,

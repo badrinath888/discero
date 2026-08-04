@@ -316,6 +316,23 @@ class PlaidItem(Base):
         nullable=True,
     )
 
+    last_sync_attempted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    sync_status: Mapped[str] = mapped_column(
+        String(32),
+        default="idle",
+        server_default="idle",
+        index=True,
+    )
+
+    sync_error: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=_utcnow,

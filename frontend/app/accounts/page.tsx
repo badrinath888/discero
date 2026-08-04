@@ -42,6 +42,18 @@ import {
 
 type AccountGroup = "asset" | "liability";
 
+function formatSyncTime(value: string | null): string {
+  if (!value) return "Never synced";
+
+  return new Date(value).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function getAccountGroup(account: FinancialAccount): AccountGroup {
   const value = `${account.account_type ?? ""} ${account.account_subtype ?? ""}`
     .toLowerCase();
@@ -215,6 +227,20 @@ export default function AccountsPage() {
     [accounts]
   );
 
+  const connectedItems = useMemo(() => {
+    const items = new Map<number, FinancialAccount>();
+
+    for (const account of accounts) {
+      if (!items.has(account.plaid_item_id)) {
+        items.set(account.plaid_item_id, account);
+      }
+    }
+
+    return [...items.values()];
+  }, [accounts]);
+  const syncInProgress =
+    syncing || connectedItems.some((item) => item.sync_status === "syncing");
+
   const disconnectAccountIds = useMemo(() => {
     const seenItems = new Set<number>();
     const accountIds = new Set<number>();
@@ -259,11 +285,12 @@ export default function AccountsPage() {
 
       await loadAccounts(userId);
     } catch (err) {
-      setError(
+      const syncError =
         err instanceof Error
           ? err.message
-          : "Unable to synchronize transactions"
-      );
+          : "Unable to synchronize transactions";
+      await loadAccounts(userId);
+      setError(syncError);
     } finally {
       setSyncing(false);
     }
@@ -346,13 +373,13 @@ export default function AccountsPage() {
                   <button
                     type="button"
                     onClick={handleSync}
-                    disabled={syncing}
+                    disabled={syncInProgress}
                     className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[#14241e]/10 bg-white px-5 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-[#f9f7f1] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <RefreshCw
-                      className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`}
+                      className={`h-4 w-4 ${syncInProgress ? "animate-spin" : ""}`}
                     />
-                    {syncing ? "Syncing..." : "Sync accounts"}
+                    {syncInProgress ? "Syncing..." : "Sync now"}
                   </button>
                 )}
 
@@ -375,6 +402,52 @@ export default function AccountsPage() {
                 }
               />
             </div>
+          )}
+
+          {!loading && connectedItems.length > 0 && (
+            <Reveal delay={0.04}>
+              <section
+                aria-label="Synchronization status"
+                className="mt-5 grid gap-3 lg:grid-cols-2"
+              >
+                {connectedItems.map((item) => (
+                  <article
+                    key={item.plaid_item_id}
+                    className={`rounded-2xl border px-5 py-4 ${
+                      item.connection_status === "reconnect_required"
+                        ? "border-[#a64b3d]/25 bg-[#f6e6e1]"
+                        : item.sync_status === "failed"
+                          ? "border-[#b8792f]/25 bg-[#fbf1df]"
+                          : "border-[#14241e]/10 bg-white"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">
+                          {item.institution_name ?? "Connected institution"}
+                        </p>
+                        <p className="mt-1 text-xs text-[#66746e]">
+                          Last successful sync: {formatSyncTime(item.last_synced_at)}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-[#14241e]/6 px-3 py-1 text-xs font-semibold capitalize text-[#52635b]">
+                        {item.sync_status}
+                      </span>
+                    </div>
+
+                    {item.connection_status === "reconnect_required" ? (
+                      <p className="mt-3 text-sm font-medium text-[#8f3f33]">
+                        Reconnect required. Use Connect bank to restore this institution.
+                      </p>
+                    ) : item.sync_status === "failed" && item.sync_error ? (
+                      <p className="mt-3 text-sm text-[#8a5a20]">
+                        {item.sync_error}
+                      </p>
+                    ) : null}
+                  </article>
+                ))}
+              </section>
+            </Reveal>
           )}
 
           <Reveal delay={0.06}>

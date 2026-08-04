@@ -521,6 +521,17 @@ def test_disconnect_plaid_item_returns_not_found(
     )
 
 
+def test_disconnect_plaid_item_requires_authentication(
+    client: TestClient,
+    user_id: int,
+) -> None:
+    response = client.delete(
+        f"/users/{user_id}/plaid/items/1"
+    )
+
+    assert response.status_code == 401
+
+
 def test_disconnect_plaid_item_rejects_cross_user_access(
     client: TestClient,
     user_id: int,

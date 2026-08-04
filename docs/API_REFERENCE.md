@@ -70,9 +70,12 @@ Base URL is configured by deployment; local default is `http://localhost:8000`. 
 |---|---|---|
 | `POST /users/{user_id}/plaid/link-token` | None | Link token; 503 missing config, 502 provider error. |
 | `POST /users/{user_id}/plaid/exchange-token` | public token, optional institution id/name | 201 item/status/safe accounts. Encrypts access token before persistence; upserts item/accounts. 409 item belongs to another user; 502/503/500 mapped failures. |
-| `POST /users/{user_id}/plaid/sync` | None | Added/modified/removed/items/sync time. Syncs all active user items, applies cursor, preserves locked categories. Empty connections return zero counts. |
-| `DELETE /users/{user_id}/plaid/items/{item_id}` | None | 204 after provider removal; preserves transactions but nulls account link. 404 missing/not owned. Local data is retained if provider removal fails. |
-| `GET /users/{user_id}/accounts` | None | Safe connected-account metadata/balances and last sync; no access tokens/provider ids. |
+| `POST /users/{user_id}/plaid/sync` | None | Manual Sync Now for all of the user's connected items. Returns added/modified/removed counts, items synced, and attempt time. Each item records `syncing`, then `succeeded` or `failed`; transaction changes and the next cursor commit atomically. Empty connections return zero counts. A syncing claim less than 15 minutes old returns 409; a claim at least 15 minutes old is atomically reclaimed. |
+| `GET /users/{user_id}/plaid/sync/status` | None | Safe item-level connection status, sync status/error summary, last attempt, and last successful sync. Never returns access tokens, provider ids, or cursors. |
+| `DELETE /users/{user_id}/plaid/items/{item_id}` | None | 204 after provider removal; owner-scoped. Deletes the local item/accounts and preserves imported transactions with null account links. Local data is retained if provider removal fails; 409 while the item is syncing. |
+| `GET /users/{user_id}/accounts` | None | Safe connected-account metadata/balances plus `connection_status`, `sync_status`, safe `sync_error`, `last_sync_attempted_at`, and `last_synced_at`; no access tokens/provider ids/cursors. |
+
+`PlaidItem.status` is `active` or `reconnect_required` when Plaid reports `ITEM_LOGIN_REQUIRED`. `sync_status` is `idle`, `syncing`, `succeeded`, or `failed`. `last_synced_at` means the last successful commit; a failed attempt updates only `last_sync_attempted_at` and failure metadata, leaving the prior cursor and last-success time unchanged. Claim age is calculated from `last_sync_attempted_at` using UTC; reclaim updates the attempted timestamp in the same conditional database statement, so only one competing request can acquire a stale claim.
 
 Authenticated requests compare the JWT's integer `ver` claim with the current user's stored token version. A mismatch or missing/non-integer claim returns 401 `session expired; please sign in again`. Legacy tokens without `ver` are deliberately rejected rather than treated as version 0. Missing, malformed, expired and unknown-user token handling otherwise remains unchanged.
 

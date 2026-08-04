@@ -1,16 +1,20 @@
 # API reference
 
-Base URL is configured by deployment; local default is `http://localhost:8000`. Except registration, login, health and framework docs, send `Authorization: Bearer <JWT>`. Every `/users/{user_id}/...` handler rejects a JWT/path mismatch with 403; record lookups also scope by owner. FastAPI/Pydantic validation returns 422 unless a handler documents another status.
+Base URL is configured by deployment; local default is `http://localhost:8000`. Except registration, login, account-recovery/email-verification, health and framework docs, send `Authorization: Bearer <JWT>`. Every `/users/{user_id}/...` handler rejects a JWT/path mismatch with 403; record lookups also scope by owner. FastAPI/Pydantic validation returns 422 unless a handler documents another status.
 
 ## Meta and users
 
 | Method/path | Input | Output and behavior |
 |---|---|---|
 | `GET /health` | None; public | `{"status":"ok"}`. |
-| `POST /users` | JSON `email`, password 8–128 | 201 `UserOut`; normalized lowercase email; 409 duplicate. |
+| `POST /users` | JSON `email`, password 8–128 | 201 `UserOut`; normalized lowercase email; 409 duplicate. Creates an unverified user and sends a 24-hour verification link. |
 | `POST /users/login` | JSON email/password | `TokenOut`; 401 invalid credentials. JWT has user id in `sub`, current token version in integer `ver`, and `exp`. |
+| `POST /users/forgot-password` | JSON `email` | Always 200 with the same public message. For a matching account, replaces any prior reset token and sends a single-use link expiring in 30 minutes. |
+| `POST /users/reset-password` | JSON `token`, `new_password` 8–128 | 200 on success; 400 generic invalid/expired detail for unknown, expired, or consumed tokens. Atomically replaces the password, increments token version, clears the token, and invalidates every JWT. |
+| `POST /users/verify-email` | JSON `token` | 200 and marks the email verified; 400 generic invalid/expired detail for unknown, expired, or consumed tokens. |
+| `POST /users/resend-verification` | JSON `email` | Always 200 with the same public message. Replaces the token only for an existing unverified user; unknown and already-verified addresses are indistinguishable. |
 | `GET /users/me` | Bearer | Current `UserOut`. |
-| `PATCH /users/me/email` | `new_email`, `current_password` | Updated `UserOut`; 400 wrong password/same email, 409 duplicate. A successful change increments the user's token version once and immediately invalidates all previously issued JWTs. |
+| `PATCH /users/me/email` | `new_email`, `current_password` | Updated `UserOut`; 400 wrong password/same email, 409 duplicate. A successful change marks the new address unverified, sends a new verification link, increments token version once, and invalidates prior JWTs. |
 | `PATCH /users/me/password` | `current_password`, `new_password` | 204; 400 wrong/same password. A successful change increments the user's token version once and immediately invalidates all previously issued JWTs. |
 | `GET /users/{user_id}` | Bearer | `UserOut`; 403 cross-user. |
 
@@ -69,5 +73,7 @@ Base URL is configured by deployment; local default is `http://localhost:8000`. 
 | `GET /users/{user_id}/accounts` | None | Safe connected-account metadata/balances and last sync; no access tokens/provider ids. |
 
 Authenticated requests compare the JWT's integer `ver` claim with the current user's stored token version. A mismatch or missing/non-integer claim returns 401 `session expired; please sign in again`. Legacy tokens without `ver` are deliberately rejected rather than treated as version 0. Missing, malformed, expired and unknown-user token handling otherwise remains unchanged.
+
+`UserOut` contains `id`, normalized `email`, and `email_verified`. Email verification is currently advisory: unverified users may register, log in, and use authenticated features. This preserves the pre-verification authentication contract.
 
 Common failures are 401 missing/invalid/expired bearer or invalidated session, 403 path ownership mismatch, 404 owner-scoped resource missing, 409 conflicts, 422 validation, 502 Plaid upstream, 503 missing integration/encryption configuration, and 500 persistence/encryption failures. There is no standardized error envelope beyond FastAPI's `detail`.

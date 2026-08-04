@@ -8,6 +8,9 @@ Status vocabulary: **verified** means current automated validation covers it or 
 | Optional batched/cached LLM categorization with fallback | Verified with mocked unit tests; live Anthropic unverified | `1da3562`; `llm_categorization.py`. |
 | JWT auth, Argon2, user isolation | Verified route tests | `6d62b32`; auth/security/API tests. |
 | Server-side JWT invalidation | Verified by credential, claim, legacy-token and ownership tests | Per-user token version is embedded as `ver`; successful email/password changes invalidate all older tokens. Legacy tokens without `ver` are rejected. |
+| Secure password recovery | Verified by focused backend and frontend tests | Enumeration-safe request, 30-minute hash-only token, atomic single use, Argon2 replacement, token-version increment, all-session invalidation, and `/forgot-password` plus `/reset-password` UI. |
+| Email verification | Verified by focused backend and frontend tests | Hash-only 24-hour token, atomic verification, resend rotation, enumeration-safe responses, new-email re-verification, and `/verify-email` UI. Unverified login remains allowed by policy. |
+| Vendor-neutral email delivery | Implemented; console/SMTP delivery requires environment-specific operational validation | Development-only console backend and stdlib SMTP backend; production console use is blocked and production logs omit raw links/tokens. |
 | Plaid Sandbox link/exchange/sync/accounts and encrypted tokens | Verified with provider mocks; live Sandbox/production unverified | `6d62b32`, disconnect `eeb6a32`/`803f72c`; Plaid/encryption tests. |
 | Alembic schema | Verified single linear head/current | `6d62b32`, goals `2d0c79b`, dependency/start fixes `eafc6ae`/`4a7c3a9`, boolean fix `7bb7d28`. |
 | Search/filter/pagination/totals | Verified backend tests and frontend build | `bd5e74b`. |
@@ -30,9 +33,9 @@ Status vocabulary: **verified** means current automated validation covers it or 
 
 Every authenticated route is responsive through Tailwind breakpoints and `AppSidebar` mobile navigation. Motion uses Framer Motion and shared helpers that respect `prefers-reduced-motion`. Transactions/accounts/goals use detail drawers; destructive account, goal and transaction actions use `ConfirmationModal`; mutation success/error uses `Toast` where implemented. Forecast/recurring/insights have page errors, empty CTAs and animated drawers. Budgets have loading/error/empty, copy confirmation state and success toast. Settings uses loading plus two toast channels but no confirmation for browser logout or CSV export. Dashboard has its own loading/error/empty blocks and upload result messaging.
 
-The frontend now has a focused Vitest/React Testing Library foundation with 10 Transactions-page regression tests covering bulk category/delete, Undo timing and replacement, stale selections, error detail, and Potential Duplicates compatibility.
+The frontend has 10 Transactions-page regression tests plus 5 authentication-recovery tests covering forgot/reset/verification/resend behavior, session clearing, and backend error details. All API boundaries are mocked.
 
-Known UI limitations: frontend automated coverage is limited to the Transactions page; session logic is repeated per page; JWT is in localStorage; no global error boundary/auth provider; Undo state is client-memory-only; closing the delete Undo toast hides the action while the deletion timer continues; pagination can be stale after optimistic deletion; and the landing page displays stale “111 Backend tests.”
+Known UI limitations: session logic is repeated per page; JWT is in localStorage; no global error boundary/auth provider; email verification is advisory; Undo state is client-memory-only; closing the delete Undo toast hides the action while the deletion timer continues; pagination can be stale after optimistic deletion; and the landing page displays stale “111 Backend tests.”
 
 ## Commit history summary
 

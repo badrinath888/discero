@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Check, CircleAlert, X } from "lucide-react";
 
@@ -22,6 +23,17 @@ export default function Toast({
 }: ToastProps) {
   const reduceMotion = useReducedMotion();
   const isSuccess = type === "success";
+
+  useEffect(() => {
+    if (!message) return;
+
+    const timeout = window.setTimeout(
+      onClose,
+      isSuccess ? 3500 : 6000
+    );
+
+    return () => window.clearTimeout(timeout);
+  }, [message, isSuccess, onClose]);
 
   return (
     <AnimatePresence>

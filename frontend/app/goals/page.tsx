@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowDownRight,
   ArrowUpRight,
   CalendarDays,
   Edit3,
   Flag,
+  History,
   Plus,
+  Save,
   Target,
   Trash2,
   WalletCards,
@@ -31,6 +33,8 @@ import {
 import {
   api,
   formatCents,
+  GoalContribution,
+  GoalContributionType,
   SavingsGoal,
   session,
 } from "../lib/api";
@@ -44,12 +48,36 @@ type GoalFormState = {
   targetDate: string;
 };
 
-const EMPTY_FORM: GoalFormState = {
+type ContributionFormState = {
+  amount: string;
+  contributionType: GoalContributionType;
+  contributedOn: string;
+  note: string;
+};
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+const EMPTY_GOAL_FORM: GoalFormState = {
   name: "",
   targetAmount: "",
   savedAmount: "",
   targetDate: "",
 };
+
+const EMPTY_CONTRIBUTION_FORM: ContributionFormState = {
+  amount: "",
+  contributionType: "deposit",
+  contributedOn: today(),
+  note: "",
+};
+
+function formatDate(value: string): string {
+  return new Date(`${value}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
 export default function GoalsPage() {
   const router = useRouter();
@@ -58,16 +86,56 @@ export default function GoalsPage() {
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
   const [drawerMode, setDrawerMode] = useState<DrawerMode | null>(null);
   const [activeGoalId, setActiveGoalId] = useState<number | null>(null);
-  const [form, setForm] = useState<GoalFormState>(EMPTY_FORM);
-  const [contribution, setContribution] = useState("");
-  const [withdrawal, setWithdrawal] = useState("");
+  const [goalForm, setGoalForm] =
+    useState<GoalFormState>(EMPTY_GOAL_FORM);
+  const [contributionForm, setContributionForm] =
+    useState<ContributionFormState>(EMPTY_CONTRIBUTION_FORM);
+  const [contributions, setContributions] = useState<GoalContribution[]>([]);
+  const [editingContributionId, setEditingContributionId] =
+    useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [pendingDeleteGoal, setPendingDeleteGoal] =
     useState<SavingsGoal | null>(null);
+  const [pendingDeleteContribution, setPendingDeleteContribution] =
+    useState<GoalContribution | null>(null);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+const [message, setMessage] = useState("");
+
+useEffect(() => {
+  if (!error) return;
+
+  const timeout = window.setTimeout(() => {
+    setError("");
+  }, 8000);
+
+  return () => window.clearTimeout(timeout);
+}, [error]);
+
+  const activeGoal =
+    goals.find((goal) => goal.id === activeGoalId) ?? null;
+
+  const loadGoals = useCallback(async (id: number) => {
+    const result = await api.getSavingsGoals(id);
+    setGoals(result);
+    return result;
+  }, []);
+
+  const loadContributions = useCallback(
+    async (id: number, goalId: number) => {
+      setHistoryLoading(true);
+
+      try {
+        const result = await api.getGoalContributions(id, goalId);
+        setContributions(result);
+      } finally {
+        setHistoryLoading(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     async function initialize() {
@@ -90,7 +158,7 @@ export default function GoalsPage() {
         }
 
         setUserId(id);
-        setGoals(await api.getSavingsGoals(id));
+        await loadGoals(id);
       } catch (err) {
         if (!session.getToken()) {
           router.replace("/");
@@ -108,7 +176,7 @@ export default function GoalsPage() {
     }
 
     void initialize();
-  }, [router]);
+  }, [loadGoals, router]);
 
   const totals = useMemo(
     () =>
@@ -129,85 +197,101 @@ export default function GoalsPage() {
       ? Math.min(Math.round((totals.saved / totals.target) * 100), 100)
       : 0;
 
-  const activeGoal =
-    goals.find((goal) => goal.id === activeGoalId) ?? null;
+  function resetContributionForm() {
+    setContributionForm({
+      ...EMPTY_CONTRIBUTION_FORM,
+      contributedOn: today(),
+    });
+    setEditingContributionId(null);
+  }
+
+  function closeDrawer() {
+    if (busy) return;
+
+    setDrawerMode(null);
+    setActiveGoalId(null);
+    setGoalForm(EMPTY_GOAL_FORM);
+    setContributions([]);
+    resetContributionForm();
+  }
 
   function openCreateDrawer() {
     setDrawerMode("create");
     setActiveGoalId(null);
-    setForm(EMPTY_FORM);
-    setContribution("");
-    setWithdrawal("");
+    setGoalForm(EMPTY_GOAL_FORM);
+    setContributions([]);
+    resetContributionForm();
     setError("");
-    setMessage("");
   }
 
   function openEditDrawer(goal: SavingsGoal) {
     setDrawerMode("edit");
     setActiveGoalId(goal.id);
-    setForm({
+    setGoalForm({
       name: goal.name,
       targetAmount: String(goal.target_cents / 100),
-      savedAmount: String(goal.saved_cents / 100),
+      savedAmount: "",
       targetDate: goal.target_date || "",
     });
-    setContribution("");
-    setWithdrawal("");
+    setContributions([]);
+    resetContributionForm();
     setError("");
-    setMessage("");
   }
 
-  function openFundDrawer(goal: SavingsGoal) {
+  async function openFundDrawer(goal: SavingsGoal) {
+    if (!userId) return;
+
     setDrawerMode("fund");
     setActiveGoalId(goal.id);
-    setContribution("");
-    setWithdrawal("");
+    setGoalForm(EMPTY_GOAL_FORM);
+    resetContributionForm();
     setError("");
-    setMessage("");
-  }
 
-  function closeDrawer() {
-    setDrawerMode(null);
-    setActiveGoalId(null);
-    setForm(EMPTY_FORM);
-    setContribution("");
-    setWithdrawal("");
+    try {
+      await loadContributions(userId, goal.id);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load contribution history"
+      );
+    }
   }
 
   async function createGoal() {
-    const targetCents = Math.round(Number(form.targetAmount) * 100);
-    const savedCents = form.savedAmount
-      ? Math.round(Number(form.savedAmount) * 100)
+    if (!userId) return;
+
+    const targetCents = Math.round(Number(goalForm.targetAmount) * 100);
+    const savedCents = goalForm.savedAmount
+      ? Math.round(Number(goalForm.savedAmount) * 100)
       : 0;
 
     if (
-      !userId ||
-      !form.name.trim() ||
+      !goalForm.name.trim() ||
       !Number.isFinite(targetCents) ||
       targetCents <= 0 ||
       !Number.isFinite(savedCents) ||
       savedCents < 0
     ) {
       setError("Enter a valid goal name and target amount.");
-      setMessage("");
       return;
     }
 
     setBusy(true);
     setError("");
-    setMessage("");
 
     try {
       const created = await api.createSavingsGoal(userId, {
-        name: form.name.trim(),
+        name: goalForm.name.trim(),
         target_cents: targetCents,
         saved_cents: savedCents,
-        target_date: form.targetDate || null,
+        target_date: goalForm.targetDate || null,
       });
 
       setGoals((current) => [created, ...current]);
       setMessage("Savings goal created successfully.");
-      closeDrawer();
+      setDrawerMode(null);
+      setGoalForm(EMPTY_GOAL_FORM);
     } catch (err) {
       setError(
         err instanceof Error
@@ -222,40 +306,37 @@ export default function GoalsPage() {
   async function saveGoalChanges() {
     if (!userId || !activeGoal) return;
 
-    const targetCents = Math.round(Number(form.targetAmount) * 100);
+    const targetCents = Math.round(Number(goalForm.targetAmount) * 100);
 
     if (
-      !form.name.trim() ||
+      !goalForm.name.trim() ||
       !Number.isFinite(targetCents) ||
       targetCents <= 0
     ) {
       setError("Enter a valid goal name and target amount.");
-      setMessage("");
       return;
     }
 
     setBusy(true);
     setError("");
-    setMessage("");
 
     try {
       const updated = await api.updateSavingsGoal(
         userId,
         activeGoal.id,
         {
-          name: form.name.trim(),
+          name: goalForm.name.trim(),
           target_cents: targetCents,
-          target_date: form.targetDate || null,
+          target_date: goalForm.targetDate || null,
         }
       );
 
       setGoals((current) =>
-        current.map((goal) =>
-          goal.id === updated.id ? updated : goal
-        )
+        current.map((goal) => (goal.id === updated.id ? updated : goal))
       );
       setMessage("Savings goal updated.");
-      closeDrawer();
+      setDrawerMode(null);
+      setActiveGoalId(null);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Unable to update savings goal"
@@ -265,108 +346,142 @@ export default function GoalsPage() {
     }
   }
 
-  async function addContribution() {
-    if (!userId || !activeGoal) return;
+  async function refreshFundData() {
+    if (!userId || !activeGoalId) return;
 
-    const contributionCents = Math.round(Number(contribution) * 100);
-
-    if (!Number.isFinite(contributionCents) || contributionCents <= 0) {
-      setError("Enter a valid contribution greater than $0.");
-      setMessage("");
-      return;
-    }
-
-    setBusy(true);
-    setError("");
-    setMessage("");
-
-    try {
-      const updated = await api.updateSavingsGoal(
-        userId,
-        activeGoal.id,
-        {
-          saved_cents: activeGoal.saved_cents + contributionCents,
-        }
-      );
-
-      setGoals((current) =>
-        current.map((goal) =>
-          goal.id === updated.id ? updated : goal
-        )
-      );
-      setContribution("");
-      setMessage(`${formatCents(contributionCents)} added.`);
-      closeDrawer();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to add contribution"
-      );
-    } finally {
-      setBusy(false);
-    }
+    await Promise.all([
+      loadGoals(userId),
+      loadContributions(userId, activeGoalId),
+    ]);
   }
 
-  async function withdrawFunds() {
+  async function saveContribution() {
     if (!userId || !activeGoal) return;
 
-    const withdrawalCents = Math.round(Number(withdrawal) * 100);
+    const amountCents = Math.round(
+      Number(contributionForm.amount) * 100
+    );
 
-    if (!Number.isFinite(withdrawalCents) || withdrawalCents <= 0) {
-      setError("Enter a valid withdrawal greater than $0.");
-      setMessage("");
+    if (!Number.isFinite(amountCents) || amountCents <= 0) {
+      setError("Enter a valid amount greater than $0.");
       return;
     }
 
-    if (withdrawalCents > activeGoal.saved_cents) {
+    if (
+      contributionForm.contributionType === "withdrawal" &&
+      !editingContributionId &&
+      amountCents > activeGoal.saved_cents
+    ) {
       setError("Withdrawal cannot exceed the amount currently saved.");
-      setMessage("");
+      return;
+    }
+
+    if (!contributionForm.contributedOn) {
+      setError("Choose a contribution date.");
       return;
     }
 
     setBusy(true);
     setError("");
-    setMessage("");
 
     try {
-      const updated = await api.updateSavingsGoal(
-        userId,
-        activeGoal.id,
-        {
-          saved_cents: activeGoal.saved_cents - withdrawalCents,
-        }
-      );
+      const payload = {
+        amount_cents: amountCents,
+        contribution_type: contributionForm.contributionType,
+        contributed_on: contributionForm.contributedOn,
+        note: contributionForm.note.trim() || null,
+      };
 
-      setGoals((current) =>
-        current.map((goal) =>
-          goal.id === updated.id ? updated : goal
-        )
-      );
-      setWithdrawal("");
-      setMessage(`${formatCents(withdrawalCents)} withdrawn.`);
-      closeDrawer();
+      if (editingContributionId) {
+        await api.updateGoalContribution(
+          userId,
+          activeGoal.id,
+          editingContributionId,
+          payload
+        );
+        setMessage("Contribution updated.");
+      } else {
+        await api.createGoalContribution(
+          userId,
+          activeGoal.id,
+          payload
+        );
+        setMessage(
+          contributionForm.contributionType === "deposit"
+            ? `${formatCents(amountCents)} deposited.`
+            : `${formatCents(amountCents)} withdrawn.`
+        );
+      }
+
+      resetContributionForm();
+      await refreshFundData();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Unable to withdraw funds"
+        err instanceof Error
+          ? err.message
+          : "Unable to save contribution"
       );
     } finally {
       setBusy(false);
     }
   }
 
-  function deleteGoal(goal: SavingsGoal) {
-    if (busyId !== null || busy) return;
+  function editContribution(item: GoalContribution) {
+    setEditingContributionId(item.id);
+    setContributionForm({
+      amount: String(item.amount_cents / 100),
+      contributionType: item.contribution_type,
+      contributedOn: item.contributed_on,
+      note: item.note || "",
+    });
+    setError("");
+  }
 
-    setPendingDeleteGoal(goal);
+  function requestDeleteContribution(item: GoalContribution) {
+    if (busy) return;
+    setPendingDeleteContribution(item);
+  }
+
+  async function confirmDeleteContribution() {
+    if (
+      !userId ||
+      !activeGoal ||
+      !pendingDeleteContribution ||
+      busy
+    ) {
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+
+    try {
+      await api.deleteGoalContribution(
+        userId,
+        activeGoal.id,
+        pendingDeleteContribution.id
+      );
+      setPendingDeleteContribution(null);
+      resetContributionForm();
+      await refreshFundData();
+      setMessage("Contribution deleted.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to delete contribution"
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function confirmDeleteGoal() {
     if (!userId || !pendingDeleteGoal || busyId !== null) return;
 
     const goal = pendingDeleteGoal;
-
     setBusyId(goal.id);
     setError("");
-    setMessage("");
 
     try {
       await api.deleteSavingsGoal(userId, goal.id);
@@ -396,14 +511,12 @@ export default function GoalsPage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
                   Financial milestones
                 </p>
-
                 <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
                   Goals
                 </h1>
-
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66746e]">
-                  Plan meaningful milestones, contribute over time, and
-                  understand exactly what remains.
+                  Build meaningful milestones and track every deposit and
+                  withdrawal in one place.
                 </p>
               </div>
 
@@ -418,56 +531,39 @@ export default function GoalsPage() {
             </header>
           </Reveal>
 
-          {error && (
-            <div className="mt-5">
-              <PageError message={error} />
-            </div>
-          )}
+          {error && !drawerMode && (
+  <div className="mt-5">
+    <PageError message={error} />
+  </div>
+)}
 
           <Reveal delay={0.06}>
             <section className="mt-6 grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
-              <article className="premium-hover relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.18)] sm:p-9">
-                <div className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full bg-[#76dfbd]/15 blur-3xl" />
+              <article className="relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.18)] sm:p-9">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+                  Total saved
+                </p>
+                <AnimatedNumber
+                  value={totals.saved}
+                  format={formatCents}
+                  className="mt-4 block text-5xl font-semibold tracking-[-0.06em] sm:text-6xl"
+                />
+                <p className="mt-3 text-sm text-white/55">
+                  {formatCents(Math.max(totals.target - totals.saved, 0))}{" "}
+                  remaining across all goals
+                </p>
 
-                <div className="relative">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
-                    Total saved
-                  </p>
-
-                  <AnimatedNumber
-                    value={totals.saved}
-                    format={formatCents}
-                    className="mt-4 block text-5xl font-semibold tracking-[-0.06em] sm:text-6xl"
+                <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
+                  <Metric label="Target" value={formatCents(totals.target)} />
+                  <Metric label="Progress" value={`${overallProgress}%`} />
+                  <Metric
+                    label="Completed"
+                    value={`${totals.completed} of ${goals.length}`}
                   />
-
-                  <p className="mt-3 text-sm text-white/55">
-                    {formatCents(
-                      Math.max(totals.target - totals.saved, 0)
-                    )}{" "}
-                    remaining across all active goals
-                  </p>
-
-                  <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
-                    <GoalMetric
-                      label="Target"
-                      value={formatCents(totals.target)}
-                      tone="neutral"
-                    />
-                    <GoalMetric
-                      label="Progress"
-                      value={`${overallProgress}%`}
-                      tone="positive"
-                    />
-                    <GoalMetric
-                      label="Completed"
-                      value={`${totals.completed} of ${goals.length}`}
-                      tone="neutral"
-                    />
-                  </div>
                 </div>
               </article>
 
-              <article className="premium-hover rounded-[30px] bg-[#f7e8b5] p-7 sm:p-8">
+              <article className="rounded-[30px] bg-[#f7e8b5] p-7 sm:p-8">
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8b6518]">
@@ -479,7 +575,6 @@ export default function GoalsPage() {
                       className="mt-4 block text-5xl font-semibold tracking-[-0.05em]"
                     />
                   </div>
-
                   <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#14241e] text-[#f7e8b5]">
                     <Target className="h-5 w-5" />
                   </span>
@@ -489,20 +584,9 @@ export default function GoalsPage() {
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${overallProgress}%` }}
-                    transition={{
-                      duration: 0.55,
-                      ease: [0.22, 1, 0.36, 1],
-                    }}
                     className="h-full rounded-full bg-[#167c5a]"
                   />
                 </div>
-
-                <p className="mt-4 text-sm leading-6 text-[#6b5d39]">
-                  Your portfolio includes {goals.length} goal
-                  {goals.length === 1 ? "" : "s"} and{" "}
-                  {totals.completed} completed milestone
-                  {totals.completed === 1 ? "" : "s"}.
-                </p>
               </article>
             </section>
           </Reveal>
@@ -523,23 +607,15 @@ export default function GoalsPage() {
           ) : (
             <Reveal>
               <section className="mt-8 overflow-hidden rounded-[24px] border border-[#14241e]/10 bg-white">
-                <header className="grid gap-3 border-b border-[#14241e]/10 bg-[#faf8f3] px-5 py-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780] md:grid-cols-[minmax(220px,1.4fr)_150px_minmax(220px,1fr)_150px_160px] md:items-center">
-                  <span>Goal</span>
-                  <span>Saved</span>
-                  <span>Progress</span>
-                  <span>Timeline</span>
-                  <span />
-                </header>
-
                 <div className="divide-y divide-[#14241e]/8">
                   {goals.map((goal) => (
                     <GoalRow
                       key={goal.id}
                       goal={goal}
                       busy={busyId === goal.id}
-                      onFund={() => openFundDrawer(goal)}
+                      onFund={() => void openFundDrawer(goal)}
                       onEdit={() => openEditDrawer(goal)}
-                      onDelete={() => deleteGoal(goal)}
+                      onDelete={() => setPendingDeleteGoal(goal)}
                     />
                   ))}
                 </div>
@@ -551,22 +627,55 @@ export default function GoalsPage() {
 
       <AnimatePresence>
         {drawerMode && (
-          <GoalDrawer
-            mode={drawerMode}
-            goal={activeGoal}
-            form={form}
-            contribution={contribution}
-            withdrawal={withdrawal}
-            busy={busy}
-            onFormChange={setForm}
-            onContributionChange={setContribution}
-            onWithdrawalChange={setWithdrawal}
-            onClose={closeDrawer}
-            onCreate={createGoal}
-            onSave={saveGoalChanges}
-            onAdd={addContribution}
-            onWithdraw={withdrawFunds}
-          />
+          <DrawerShell onClose={closeDrawer}>
+  {error && (
+    <div className="mb-5">
+      <PageError message={error} />
+    </div>
+  )}
+
+  {drawerMode === "create" && (
+              <GoalEditor
+                title="Create a savings goal"
+                description="Set a target and optionally record an opening balance."
+                form={goalForm}
+                showOpeningBalance
+                busy={busy}
+                onChange={setGoalForm}
+                onSubmit={() => void createGoal()}
+                submitLabel="Create goal"
+              />
+            )}
+
+            {drawerMode === "edit" && activeGoal && (
+              <GoalEditor
+                title="Edit savings goal"
+                description="Update the milestone details without changing its recorded balance."
+                form={goalForm}
+                showOpeningBalance={false}
+                busy={busy}
+                onChange={setGoalForm}
+                onSubmit={() => void saveGoalChanges()}
+                submitLabel="Save changes"
+              />
+            )}
+
+            {drawerMode === "fund" && activeGoal && (
+              <FundManager
+                goal={activeGoal}
+                form={contributionForm}
+                contributions={contributions}
+                editingId={editingContributionId}
+                loading={historyLoading}
+                busy={busy}
+                onFormChange={setContributionForm}
+                onSave={() => void saveContribution()}
+                onCancelEdit={resetContributionForm}
+                onEdit={editContribution}
+                onDelete={requestDeleteContribution}
+              />
+            )}
+          </DrawerShell>
         )}
       </AnimatePresence>
 
@@ -581,18 +690,31 @@ export default function GoalsPage() {
           <ConfirmationModal
             eyebrow="Confirm deletion"
             title={`Delete "${pendingDeleteGoal.name}"?`}
-            description="This savings goal and its recorded progress will be permanently removed from FinSight."
+            description="This goal and its complete contribution history will be permanently removed."
             cancelLabel="Keep goal"
             confirmLabel="Delete permanently"
             busyLabel="Deleting..."
             busy={busyId === pendingDeleteGoal.id}
             icon={<Trash2 className="h-5 w-5" />}
-            onCancel={() => {
-              if (busyId === null) {
-                setPendingDeleteGoal(null);
-              }
-            }}
+            onCancel={() => setPendingDeleteGoal(null)}
             onConfirm={() => void confirmDeleteGoal()}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {pendingDeleteContribution && (
+          <ConfirmationModal
+            eyebrow="Confirm deletion"
+            title="Delete this contribution?"
+            description="The goal balance will be recalculated automatically."
+            cancelLabel="Keep record"
+            confirmLabel="Delete record"
+            busyLabel="Deleting..."
+            busy={busy}
+            icon={<Trash2 className="h-5 w-5" />}
+            onCancel={() => setPendingDeleteContribution(null)}
+            onConfirm={() => void confirmDeleteContribution()}
           />
         )}
       </AnimatePresence>
@@ -600,27 +722,13 @@ export default function GoalsPage() {
   );
 }
 
-function GoalMetric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "positive" | "neutral";
-}) {
+function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-white/[0.045] p-4">
       <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
         {label}
       </p>
-      <p
-        className={`mt-2 text-lg font-semibold ${
-          tone === "positive" ? "text-[#83dcb9]" : "text-white"
-        }`}
-      >
-        {value}
-      </p>
+      <p className="mt-2 text-lg font-semibold">{value}</p>
     </div>
   );
 }
@@ -638,39 +746,22 @@ function GoalRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const reduceMotion = useReducedMotion();
   const percentage = Math.min(goal.progress_percent, 100);
-
-  const statusClass =
-    goal.status === "completed"
-      ? "bg-[#edf5ee] text-[#167c5a]"
-      : goal.status === "overdue"
-        ? "bg-[#f8ddd5] text-[#923f32]"
-        : "bg-[#f1eee7] text-[#52635b]";
 
   return (
     <motion.article
       layout
-      whileHover={
-        reduceMotion
-          ? undefined
-          : { x: 3, backgroundColor: "#fbfaf6" }
-      }
-      transition={{ duration: reduceMotion ? 0 : 0.2 }}
-      className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(220px,1.4fr)_150px_minmax(220px,1fr)_150px_160px] md:items-center"
+      className="grid gap-4 px-5 py-5 md:grid-cols-[minmax(220px,1.35fr)_160px_minmax(220px,1fr)_170px] md:items-center"
     >
       <div className="flex min-w-0 items-center gap-3">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#edf5ee] text-[#167c5a]">
           <Flag className="h-4 w-4" />
         </span>
-
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{goal.name}</p>
-          <span
-            className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold capitalize ${statusClass}`}
-          >
+          <p className="mt-1 text-xs capitalize text-[#87928d]">
             {goal.status}
-          </span>
+          </p>
         </div>
       </div>
 
@@ -688,35 +779,13 @@ function GoalRow({
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${percentage}%` }}
-            transition={{
-              duration: reduceMotion ? 0 : 0.5,
-              ease: [0.22, 1, 0.36, 1],
-            }}
             className="h-full rounded-full bg-[#167c5a]"
           />
         </div>
-
-        <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#7b8781]">
+        <div className="mt-2 flex justify-between gap-3 text-xs text-[#7b8781]">
           <span>{goal.progress_percent}% complete</span>
           <span>{formatCents(goal.remaining_cents)} left</span>
         </div>
-      </div>
-
-      <div>
-        <p className="text-sm font-medium">
-          {goal.target_date
-            ? new Date(
-                `${goal.target_date}T00:00:00`
-              ).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })
-            : "No deadline"}
-        </p>
-        <p className="mt-1 text-xs text-[#87928d]">
-          {goal.target_date ? "Target date" : "Flexible timeline"}
-        </p>
       </div>
 
       <div className="flex items-center justify-end gap-2">
@@ -728,22 +797,20 @@ function GoalRow({
           <WalletCards className="h-4 w-4" />
           Funds
         </button>
-
         <button
           type="button"
           onClick={onEdit}
           aria-label={`Edit ${goal.name}`}
-          className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#14241e]/10 bg-white transition hover:bg-[#f7f4ed]"
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#14241e]/10"
         >
           <Edit3 className="h-4 w-4" />
         </button>
-
         <button
           type="button"
           onClick={onDelete}
           disabled={busy}
           aria-label={`Delete ${goal.name}`}
-          className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#c56755]/20 bg-[#f8ddd5] text-[#923f32] disabled:opacity-50"
+          className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f8ddd5] text-[#923f32] disabled:opacity-50"
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -752,85 +819,32 @@ function GoalRow({
   );
 }
 
-function GoalDrawer({
-  mode,
-  goal,
-  form,
-  contribution,
-  withdrawal,
-  busy,
-  onFormChange,
-  onContributionChange,
-  onWithdrawalChange,
+function DrawerShell({
+  children,
   onClose,
-  onCreate,
-  onSave,
-  onAdd,
-  onWithdraw,
 }: {
-  mode: DrawerMode;
-  goal: SavingsGoal | null;
-  form: GoalFormState;
-  contribution: string;
-  withdrawal: string;
-  busy: boolean;
-  onFormChange: (value: GoalFormState) => void;
-  onContributionChange: (value: string) => void;
-  onWithdrawalChange: (value: string) => void;
+  children: React.ReactNode;
   onClose: () => void;
-  onCreate: () => void;
-  onSave: () => void;
-  onAdd: () => void;
-  onWithdraw: () => void;
 }) {
-  const reduceMotion = useReducedMotion();
-
-  const title =
-    mode === "create"
-      ? "Create goal"
-      : mode === "edit"
-        ? "Edit goal"
-        : "Manage funds";
-
   return (
-    <motion.div
-      className="fixed inset-0 z-50"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: reduceMotion ? 0 : 0.2 }}
-    >
+    <>
       <motion.button
         type="button"
-        aria-label="Close goal panel"
-        onClick={onClose}
-        className="absolute inset-0 bg-[#14241e]/35 backdrop-blur-[2px]"
+        aria-label="Close drawer"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-40 bg-[#14241e]/35 backdrop-blur-sm"
       />
-
       <motion.aside
-        initial={reduceMotion ? false : { x: "100%" }}
+        initial={{ x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
-        transition={{
-          duration: reduceMotion ? 0 : 0.32,
-          ease: [0.22, 1, 0.36, 1],
-        }}
-        className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-[#fdfcf8] shadow-2xl"
+        transition={{ type: "spring", stiffness: 300, damping: 32 }}
+        className="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-[#fbfaf6] shadow-2xl sm:max-w-xl"
       >
-        <header className="flex items-start justify-between border-b border-[#14241e]/10 px-6 py-5">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
-              Goal workspace
-            </p>
-            <h2 className="mt-2 text-xl font-semibold">{title}</h2>
-            {goal && (
-              <p className="mt-1 text-sm text-[#728078]">{goal.name}</p>
-            )}
-          </div>
-
+        <div className="flex justify-end p-5">
           <button
             type="button"
             onClick={onClose}
@@ -838,191 +852,388 @@ function GoalDrawer({
           >
             <X className="h-4 w-4" />
           </button>
-        </header>
+        </div>
+        <div className="px-6 pb-10 sm:px-8">{children}</div>
+      </motion.aside>
+    </>
+  );
+}
 
-        <div className="flex-1 overflow-y-auto px-6 py-6">
-          {mode === "fund" && goal ? (
-            <div className="space-y-7">
-              <div className="rounded-2xl bg-[#edf5ee] p-5">
-                <p className="text-xs uppercase tracking-[0.1em] text-[#728078]">
-                  Currently saved
-                </p>
-                <p className="mt-2 text-3xl font-semibold">
-                  {formatCents(goal.saved_cents)}
-                </p>
-                <p className="mt-2 text-sm text-[#66746e]">
-                  {formatCents(goal.remaining_cents)} remaining
-                </p>
-              </div>
+function GoalEditor({
+  title,
+  description,
+  form,
+  showOpeningBalance,
+  busy,
+  onChange,
+  onSubmit,
+  submitLabel,
+}: {
+  title: string;
+  description: string;
+  form: GoalFormState;
+  showOpeningBalance: boolean;
+  busy: boolean;
+  onChange: (value: GoalFormState) => void;
+  onSubmit: () => void;
+  submitLabel: string;
+}) {
+  return (
+    <section>
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+        Goal details
+      </p>
+      <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
+        {title}
+      </h2>
+      <p className="mt-3 text-sm leading-6 text-[#66746e]">
+        {description}
+      </p>
 
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#728078]">
-                  Add contribution
-                </label>
-                <div className="relative mt-2">
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#728078]">
-                    $
-                  </span>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={contribution}
-                    onChange={(event) =>
-                      onContributionChange(event.target.value)
-                    }
-                    placeholder="0.00"
-                    className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-white pl-8 pr-4 text-lg font-semibold outline-none focus:border-[#167c5a]"
-                  />
-                </div>
+      <div className="mt-8 space-y-5">
+        <Field label="Goal name">
+          <input
+            value={form.name}
+            onChange={(event) =>
+              onChange({ ...form, name: event.target.value })
+            }
+            className="input"
+            placeholder="Emergency fund"
+          />
+        </Field>
 
-                <button
-                  type="button"
-                  onClick={onAdd}
-                  disabled={busy}
-                  className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#14241e] text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  <ArrowUpRight className="h-4 w-4" />
-                  {busy ? "Working..." : "Add funds"}
-                </button>
-              </div>
+        <Field label="Target amount">
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={form.targetAmount}
+            onChange={(event) =>
+              onChange({ ...form, targetAmount: event.target.value })
+            }
+            className="input"
+            placeholder="10000"
+          />
+        </Field>
 
-              <div className="border-t border-[#14241e]/10 pt-7">
-                <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#728078]">
-                  Withdraw funds
-                </label>
-                <div className="relative mt-2">
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#728078]">
-                    $
-                  </span>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    max={goal.saved_cents / 100}
-                    value={withdrawal}
-                    onChange={(event) =>
-                      onWithdrawalChange(event.target.value)
-                    }
-                    placeholder="0.00"
-                    disabled={goal.saved_cents === 0}
-                    className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-white pl-8 pr-4 text-lg font-semibold outline-none focus:border-[#a87b20] disabled:opacity-50"
-                  />
-                </div>
+        {showOpeningBalance && (
+          <Field label="Opening balance">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.savedAmount}
+              onChange={(event) =>
+                onChange({ ...form, savedAmount: event.target.value })
+              }
+              className="input"
+              placeholder="0"
+            />
+          </Field>
+        )}
 
-                <button
-                  type="button"
-                  onClick={onWithdraw}
-                  disabled={busy || goal.saved_cents === 0}
-                  className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#a87b20]/20 bg-[#f7e8b5] text-sm font-semibold text-[#8b6518] disabled:opacity-50"
-                >
-                  <ArrowDownRight className="h-4 w-4" />
-                  {busy ? "Working..." : "Withdraw"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-5">
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#728078]">
-                  Goal name
-                </span>
-                <input
-                  value={form.name}
-                  onChange={(event) =>
-                    onFormChange({
-                      ...form,
-                      name: event.target.value,
-                    })
-                  }
-                  placeholder="Emergency fund"
-                  autoFocus
-                  className="mt-2 h-12 w-full rounded-xl border border-[#14241e]/10 bg-white px-4 text-sm outline-none focus:border-[#167c5a]"
-                />
-              </label>
+        <Field label="Target date">
+          <input
+            type="date"
+            value={form.targetDate}
+            onChange={(event) =>
+              onChange({ ...form, targetDate: event.target.value })
+            }
+            className="input"
+          />
+        </Field>
 
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#728078]">
-                  Target amount
-                </span>
-                <input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={form.targetAmount}
-                  onChange={(event) =>
-                    onFormChange({
-                      ...form,
-                      targetAmount: event.target.value,
-                    })
-                  }
-                  placeholder="10000"
-                  className="mt-2 h-12 w-full rounded-xl border border-[#14241e]/10 bg-white px-4 text-sm outline-none focus:border-[#167c5a]"
-                />
-              </label>
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={busy}
+          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#14241e] px-5 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          <Save className="h-4 w-4" />
+          {busy ? "Saving..." : submitLabel}
+        </button>
+      </div>
+    </section>
+  );
+}
 
-              {mode === "create" && (
-                <label className="block">
-                  <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#728078]">
-                    Already saved
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.savedAmount}
-                    onChange={(event) =>
-                      onFormChange({
-                        ...form,
-                        savedAmount: event.target.value,
-                      })
-                    }
-                    placeholder="0"
-                    className="mt-2 h-12 w-full rounded-xl border border-[#14241e]/10 bg-white px-4 text-sm outline-none focus:border-[#167c5a]"
-                  />
-                </label>
-              )}
+function FundManager({
+  goal,
+  form,
+  contributions,
+  editingId,
+  loading,
+  busy,
+  onFormChange,
+  onSave,
+  onCancelEdit,
+  onEdit,
+  onDelete,
+}: {
+  goal: SavingsGoal;
+  form: ContributionFormState;
+  contributions: GoalContribution[];
+  editingId: number | null;
+  loading: boolean;
+  busy: boolean;
+  onFormChange: (value: ContributionFormState) => void;
+  onSave: () => void;
+  onCancelEdit: () => void;
+  onEdit: (item: GoalContribution) => void;
+  onDelete: (item: GoalContribution) => void;
+}) {
+  return (
+    <section>
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+        Manage funds
+      </p>
+      <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
+        {goal.name}
+      </h2>
 
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#728078]">
-                  Target date
-                </span>
-                <div className="relative mt-2">
-                  <CalendarDays className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#728078]" />
-                  <input
-                    type="date"
-                    value={form.targetDate}
-                    onChange={(event) =>
-                      onFormChange({
-                        ...form,
-                        targetDate: event.target.value,
-                      })
-                    }
-                    className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-white pl-11 pr-4 text-sm outline-none focus:border-[#167c5a]"
-                  />
-                </div>
-              </label>
-            </div>
+      <div className="mt-6 grid grid-cols-2 gap-3">
+        <SummaryCard label="Saved" value={formatCents(goal.saved_cents)} />
+        <SummaryCard
+          label="Remaining"
+          value={formatCents(goal.remaining_cents)}
+        />
+      </div>
+
+      <div className="mt-8 rounded-[24px] border border-[#14241e]/10 bg-white p-5">
+        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#f1eee7] p-1">
+          {(["deposit", "withdrawal"] as GoalContributionType[]).map(
+            (type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() =>
+                  onFormChange({ ...form, contributionType: type })
+                }
+                className={`rounded-xl px-3 py-2.5 text-sm font-semibold capitalize ${
+                  form.contributionType === type
+                    ? "bg-[#14241e] text-white"
+                    : "text-[#66746e]"
+                }`}
+              >
+                {type}
+              </button>
+            )
           )}
         </div>
 
-        {mode !== "fund" && (
-          <footer className="border-t border-[#14241e]/10 p-6">
+        <div className="mt-5 space-y-4">
+          <Field label="Amount">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.amount}
+              onChange={(event) =>
+                onFormChange({ ...form, amount: event.target.value })
+              }
+              className="input"
+              placeholder="100.00"
+            />
+          </Field>
+
+          <Field label="Date">
+            <input
+              type="date"
+              value={form.contributedOn}
+              onChange={(event) =>
+                onFormChange({
+                  ...form,
+                  contributedOn: event.target.value,
+                })
+              }
+              className="input"
+            />
+          </Field>
+
+          <Field label="Note">
+            <textarea
+              value={form.note}
+              onChange={(event) =>
+                onFormChange({ ...form, note: event.target.value })
+              }
+              className="input min-h-24 resize-none"
+              placeholder="Optional note"
+              maxLength={255}
+            />
+          </Field>
+
+          <div className="flex gap-2">
             <button
               type="button"
-              onClick={mode === "create" ? onCreate : onSave}
+              onClick={onSave}
               disabled={busy}
-              className="h-11 w-full rounded-xl bg-[#14241e] text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:opacity-50"
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-[#14241e] px-4 text-sm font-semibold text-white disabled:opacity-50"
             >
+              {form.contributionType === "deposit" ? (
+                <ArrowUpRight className="h-4 w-4" />
+              ) : (
+                <ArrowDownRight className="h-4 w-4" />
+              )}
               {busy
                 ? "Saving..."
-                : mode === "create"
-                  ? "Create goal"
-                  : "Save changes"}
+                : editingId
+                  ? "Update record"
+                  : `Add ${form.contributionType}`}
             </button>
-          </footer>
+
+            {editingId && (
+              <button
+                type="button"
+                onClick={onCancelEdit}
+                disabled={busy}
+                className="rounded-2xl border border-[#14241e]/10 px-4 text-sm font-semibold"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-8">
+        <div className="flex items-center gap-2">
+          <History className="h-4 w-4 text-[#167c5a]" />
+          <h3 className="text-lg font-semibold">Contribution history</h3>
+        </div>
+
+        {loading ? (
+          <div className="mt-4">
+            <PageLoading message="Loading contribution history..." />
+          </div>
+        ) : contributions.length === 0 ? (
+          <div className="mt-4 rounded-2xl border border-dashed border-[#14241e]/15 p-6 text-center text-sm text-[#66746e]">
+            No contribution history yet.
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {contributions.map((item) => (
+              <ContributionRow
+                key={item.id}
+                item={item}
+                busy={busy}
+                onEdit={() => onEdit(item)}
+                onDelete={() => onDelete(item)}
+              />
+            ))}
+          </div>
         )}
-      </motion.aside>
-    </motion.div>
+      </div>
+    </section>
+  );
+}
+
+function ContributionRow({
+  item,
+  busy,
+  onEdit,
+  onDelete,
+}: {
+  item: GoalContribution;
+  busy: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const isWithdrawal = item.contribution_type === "withdrawal";
+
+  return (
+    <article className="rounded-2xl border border-[#14241e]/10 bg-white p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 gap-3">
+          <span
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+              isWithdrawal
+                ? "bg-[#f8ddd5] text-[#923f32]"
+                : "bg-[#edf5ee] text-[#167c5a]"
+            }`}
+          >
+            {isWithdrawal ? (
+              <ArrowDownRight className="h-4 w-4" />
+            ) : (
+              <ArrowUpRight className="h-4 w-4" />
+            )}
+          </span>
+
+          <div className="min-w-0">
+            <p
+              className={`text-sm font-semibold ${
+                isWithdrawal ? "text-[#923f32]" : "text-[#167c5a]"
+              }`}
+            >
+              {isWithdrawal ? "−" : "+"}
+              {formatCents(item.amount_cents)}
+            </p>
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-[#7b8781]">
+              <CalendarDays className="h-3.5 w-3.5" />
+              {formatDate(item.contributed_on)}
+            </p>
+            {item.note && (
+              <p className="mt-2 break-words text-sm text-[#66746e]">
+                {item.note}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={onEdit}
+            disabled={busy}
+            aria-label="Edit contribution"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#14241e]/10 disabled:opacity-50"
+          >
+            <Edit3 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={busy}
+            aria-label="Delete contribution"
+            className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f8ddd5] text-[#923f32] disabled:opacity-50"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function SummaryCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl bg-[#14241e] p-4 text-white">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/45">
+        {label}
+      </p>
+      <p className="mt-2 text-lg font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-[#66746e]">
+        {label}
+      </span>
+      {children}
+    </label>
   );
 }

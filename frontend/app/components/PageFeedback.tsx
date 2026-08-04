@@ -35,15 +35,15 @@ export function PageError({
   return (
     <div
       role="alert"
-      className="rounded-lg border border-rose-400/20 bg-rose-400/[0.07] px-4 py-3.5"
+      className="rounded-xl border border-[#c94a3a]/35 bg-[#fbe3df] px-4 py-4 shadow-sm"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-rose-300">
+          <p className="text-sm font-semibold text-[#8f2f24]">
             Something went wrong
           </p>
 
-          <p className="mt-1 text-sm text-rose-200/70">
+          <p className="mt-1 text-sm font-medium text-[#6f2b24]">
             {message}
           </p>
         </div>
@@ -52,7 +52,7 @@ export function PageError({
           <button
             type="button"
             onClick={onRetry}
-            className="focus-ring shrink-0 rounded-lg border border-rose-300/20 px-3.5 py-2 text-sm font-medium text-rose-200 transition hover:bg-rose-300/[0.08]"
+            className="focus-ring shrink-0 rounded-lg border border-[#8f2f24]/25 bg-white/60 px-3.5 py-2 text-sm font-semibold text-[#8f2f24] transition hover:bg-white"
           >
             Try again
           </button>

@@ -1,7 +1,13 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+)
 
 
 class TransactionOut(BaseModel):
@@ -40,17 +46,29 @@ class BulkTransactionIds(BaseModel):
 
     @field_validator("transaction_ids")
     @classmethod
-    def validate_transaction_ids(cls, value: list[int]) -> list[int]:
+    def validate_transaction_ids(
+        cls,
+        value: list[int],
+    ) -> list[int]:
         unique_ids = list(dict.fromkeys(value))
 
         if not unique_ids:
-            raise ValueError("at least one transaction ID is required")
+            raise ValueError(
+                "at least one transaction ID is required"
+            )
 
-        if any(transaction_id <= 0 for transaction_id in unique_ids):
-            raise ValueError("transaction IDs must be positive")
+        if any(
+            transaction_id <= 0
+            for transaction_id in unique_ids
+        ):
+            raise ValueError(
+                "transaction IDs must be positive"
+            )
 
         if len(unique_ids) > 100:
-            raise ValueError("no more than 100 transaction IDs are allowed")
+            raise ValueError(
+                "no more than 100 transaction IDs are allowed"
+            )
 
         return unique_ids
 
@@ -65,19 +83,29 @@ class TransactionCategoryUpdate(BaseModel):
 
     @field_validator("transaction_id")
     @classmethod
-    def validate_transaction_id(cls, value: int) -> int:
+    def validate_transaction_id(
+        cls,
+        value: int,
+    ) -> int:
         if value <= 0:
-            raise ValueError("transaction IDs must be positive")
+            raise ValueError(
+                "transaction IDs must be positive"
+            )
 
         return value
 
     @field_validator("category")
     @classmethod
-    def validate_category(cls, value: str) -> str:
+    def validate_category(
+        cls,
+        value: str,
+    ) -> str:
         category = value.strip()
 
         if not category:
-            raise ValueError("category cannot be empty")
+            raise ValueError(
+                "category cannot be empty"
+            )
 
         return category
 
@@ -92,12 +120,19 @@ class BulkTransactionCategoriesUpdate(BaseModel):
         value: list[TransactionCategoryUpdate],
     ) -> list[TransactionCategoryUpdate]:
         if not value:
-            raise ValueError("at least one transaction update is required")
+            raise ValueError(
+                "at least one transaction update is required"
+            )
 
-        transaction_ids = [update.transaction_id for update in value]
+        transaction_ids = [
+            update.transaction_id
+            for update in value
+        ]
 
         if len(set(transaction_ids)) != len(transaction_ids):
-            raise ValueError("transaction IDs must be unique")
+            raise ValueError(
+                "transaction IDs must be unique"
+            )
 
         if len(transaction_ids) > 100:
             raise ValueError(
@@ -154,10 +189,20 @@ class RecurringPaymentOut(BaseModel):
     price_change_percent: float
     price_change_warning: bool
 
+
 class RecurringItemCreate(BaseModel):
-    merchant: str = Field(min_length=1, max_length=255)
-    normalized_merchant: str = Field(min_length=1, max_length=255)
-    category: str | None = Field(default=None, max_length=64)
+    merchant: str = Field(
+        min_length=1,
+        max_length=255,
+    )
+    normalized_merchant: str = Field(
+        min_length=1,
+        max_length=255,
+    )
+    category: str | None = Field(
+        default=None,
+        max_length=64,
+    )
     amount_cents: int = Field(gt=0)
     frequency: Literal[
         "Weekly",
@@ -171,14 +216,23 @@ class RecurringItemCreate(BaseModel):
         "active",
         "dismissed",
     ] = "suggested"
-    confidence_score: float = Field(ge=0, le=100)
+    confidence_score: float = Field(
+        ge=0,
+        le=100,
+    )
     price_change_percent: float = 0.0
     price_change_warning: bool = False
 
 
 class RecurringItemUpdate(BaseModel):
-    category: str | None = Field(default=None, max_length=64)
-    amount_cents: int | None = Field(default=None, gt=0)
+    category: str | None = Field(
+        default=None,
+        max_length=64,
+    )
+    amount_cents: int | None = Field(
+        default=None,
+        gt=0,
+    )
     frequency: Literal[
         "Weekly",
         "Biweekly",
@@ -214,7 +268,10 @@ class RecurringItemOut(BaseModel):
 
 
 class BudgetCreate(BaseModel):
-    category: str = Field(min_length=1, max_length=64)
+    category: str = Field(
+        min_length=1,
+        max_length=64,
+    )
     month: str = Field(
         min_length=7,
         max_length=7,
@@ -257,22 +314,37 @@ class BudgetCopyRequest(BaseModel):
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(
+        min_length=8,
+        max_length=128,
+    )
 
 
 class UserLogin(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=1, max_length=128)
+    password: str = Field(
+        min_length=1,
+        max_length=128,
+    )
 
 
 class PasswordChangeRequest(BaseModel):
-    current_password: str = Field(min_length=1, max_length=128)
-    new_password: str = Field(min_length=8, max_length=128)
+    current_password: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+    new_password: str = Field(
+        min_length=8,
+        max_length=128,
+    )
 
 
 class EmailChangeRequest(BaseModel):
     new_email: EmailStr
-    current_password: str = Field(min_length=1, max_length=128)
+    current_password: str = Field(
+        min_length=1,
+        max_length=128,
+    )
 
 
 class EmailRequest(BaseModel):
@@ -280,11 +352,17 @@ class EmailRequest(BaseModel):
 
 
 class TokenRequest(BaseModel):
-    token: str = Field(min_length=1, max_length=512)
+    token: str = Field(
+        min_length=1,
+        max_length=512,
+    )
 
 
 class PasswordResetRequest(TokenRequest):
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(
+        min_length=8,
+        max_length=128,
+    )
 
 
 class PublicMessage(BaseModel):
@@ -398,9 +476,15 @@ class BudgetProgressOut(BaseModel):
 
 
 class SavingsGoalCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
+    name: str = Field(
+        min_length=1,
+        max_length=120,
+    )
     target_cents: int = Field(gt=0)
-    saved_cents: int = Field(default=0, ge=0)
+    saved_cents: int = Field(
+        default=0,
+        ge=0,
+    )
     target_date: date | None = None
 
 
@@ -410,12 +494,16 @@ class SavingsGoalUpdate(BaseModel):
         min_length=1,
         max_length=120,
     )
-    target_cents: int | None = Field(default=None, gt=0)
-    saved_cents: int | None = Field(default=None, ge=0)
+    target_cents: int | None = Field(
+        default=None,
+        gt=0,
+    )
     target_date: date | None = None
 
 
 class SavingsGoalOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     target_cents: int
@@ -428,33 +516,49 @@ class SavingsGoalOut(BaseModel):
     updated_at: datetime
 
 
-class SavingsGoalCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    target_cents: int = Field(gt=0)
-    saved_cents: int = Field(default=0, ge=0)
-    target_date: date | None = None
-
-
-class SavingsGoalUpdate(BaseModel):
-    name: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=120,
+class GoalContributionCreate(BaseModel):
+    amount_cents: int = Field(gt=0)
+    contribution_type: Literal[
+        "deposit",
+        "withdrawal",
+    ] = "deposit"
+    contributed_on: date = Field(
+        default_factory=date.today,
     )
-    target_cents: int | None = Field(default=None, gt=0)
-    saved_cents: int | None = Field(default=None, ge=0)
-    target_date: date | None = None
+    note: str | None = Field(
+        default=None,
+        max_length=255,
+    )
 
 
-class SavingsGoalOut(BaseModel):
+class GoalContributionUpdate(BaseModel):
+    amount_cents: int | None = Field(
+        default=None,
+        gt=0,
+    )
+    contribution_type: Literal[
+        "deposit",
+        "withdrawal",
+    ] | None = None
+    contributed_on: date | None = None
+    note: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
+
+class GoalContributionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
-    name: str
-    target_cents: int
-    saved_cents: int
-    remaining_cents: int
-    progress_percent: float
-    target_date: date | None
-    status: str
+    goal_id: int
+    amount_cents: int
+    contribution_type: Literal[
+        "deposit",
+        "withdrawal",
+    ]
+    contributed_on: date
+    note: str | None
     created_at: datetime
     updated_at: datetime
 

@@ -1,5 +1,6 @@
-from typing import Literal
+from typing import Literal, Self
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,8 +23,9 @@ class Settings(BaseSettings):
 
     app_env: Literal["development", "test", "production"] = "production"
     frontend_url: str = "http://localhost:3000"
-    email_backend: Literal["console", "smtp"] = "console"
+    email_backend: Literal["console", "smtp", "resend"] = "console"
     email_from: str = "FinSight <no-reply@example.com>"
+    resend_api_key: str | None = None
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_username: str | None = None
@@ -43,6 +45,14 @@ class Settings(BaseSettings):
     plaid_products: str = "transactions"
     plaid_country_codes: str = "US"
     plaid_redirect_uri: str | None = None
+
+    @model_validator(mode="after")
+    def validate_email_delivery(self) -> Self:
+        if self.email_backend == "resend" and not self.resend_api_key:
+            raise ValueError(
+                "RESEND_API_KEY is required when EMAIL_BACKEND=resend"
+            )
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

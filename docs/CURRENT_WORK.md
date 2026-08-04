@@ -7,7 +7,7 @@ Updated: 2026-08-04.
 FinSight now includes:
 
 - Secure password recovery and advisory email verification
-- Vendor-neutral SMTP email delivery
+- Console, SMTP, and Resend HTTPS email delivery
 - Fully month-specific budgets
 - Hardened Plaid synchronization and connected-account lifecycle
 
@@ -19,7 +19,9 @@ FinSight now includes:
 - Forgot-password and resend-verification responses do not reveal account existence or verification state.
 - Registration and email changes issue verification links.
 - Unverified users may continue to log in.
-- Production console delivery is prohibited; production email uses configured SMTP.
+- Production console delivery is prohibited; production email can use configured SMTP or Resend HTTPS delivery.
+- Resend uses the official Python SDK, requires `RESEND_API_KEY`, and sends from `EMAIL_FROM`.
+- Provider-failure logs omit exception details, reset/verification links and tokens, API keys, and SMTP passwords.
 
 ## Monthly budgets
 
@@ -47,7 +49,7 @@ FinSight now includes:
 
 Expected after complete integration:
 
-- Backend: 203 tests
+- Backend: 210 tests
 - Frontend: 23 tests
   - 10 Transactions
   - 5 authentication recovery
@@ -60,7 +62,7 @@ Expected after complete integration:
 ## Known limitations
 
 - Recovery and resend endpoints do not yet have shared datastore-backed rate limiting.
-- Production SMTP requires environment-specific configuration and smoke testing.
+- Production SMTP/Resend delivery requires environment-specific configuration, a verified sender, and smoke testing.
 - Email verification is advisory rather than an authorization gate.
 - Pending negative transactions count toward budget spending.
 - Budget category matching is exact and case-sensitive.

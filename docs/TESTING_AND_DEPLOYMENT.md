@@ -24,11 +24,11 @@ npm run dev
 
 Frontend is port 3000. Never print or commit either real env file.
 
-## Validation baseline (2026-08-04 integrated authentication, budgets, and Plaid)
+## Validation baseline (2026-08-04 Resend HTTPS email delivery)
 
 ```bash
 cd backend && source venv/bin/activate && pytest -q
-# 203 passed
+# 210 passed
 
 alembic heads      # 7d9c2a4e6b10 (head)
 alembic current    # 7d9c2a4e6b10 (head), after upgrade
@@ -41,7 +41,7 @@ npm run lint       # pass, no findings
 npm run build      # pass; 14 static routes including three recovery routes
 ```
 
-Backend tests use a dependency-overridden isolated SQLite engine and TestClient; Plaid, LLM, and email delivery are mocked where relevant. Plaid coverage includes manual success, repeated-sync idempotency, cursor progression and failure preservation, attempted/success timestamps, recent-claim rejection, atomic 15-minute stale-claim recovery, competing recovery requests, reconnect-required state, removals, disconnect cleanup and ownership. Frontend tests use Vitest, React Testing Library, jest-dom and jsdom with API, session, navigation, animation, backend, and provider boundaries mocked. They cover Transactions workflows, authentication recovery, monthly Budgets, and Accounts/Plaid lifecycle behavior.
+Backend tests use a dependency-overridden isolated SQLite engine and TestClient; Plaid, LLM, and email delivery are mocked where relevant. Email-provider coverage includes Resend reset/verification success, missing credentials, provider rejection, secret-safe failure logging, and SMTP/console regressions. Plaid coverage includes manual success, repeated-sync idempotency, cursor progression and failure preservation, attempted/success timestamps, recent-claim rejection, atomic 15-minute stale-claim recovery, competing recovery requests, reconnect-required state, removals, disconnect cleanup and ownership. Frontend tests use Vitest, React Testing Library, jest-dom and jsdom with API, session, navigation, animation, backend, and provider boundaries mocked. They cover Transactions workflows, authentication recovery, monthly Budgets, and Accounts/Plaid lifecycle behavior.
 
 Run frontend tests in watch mode with `npm test` or once with `npm run test:run`. There is no coverage measurement threshold, browser E2E suite, live PostgreSQL migration test, live Plaid test, CSV-export browser test, concurrency test, or production smoke suite.
 
@@ -49,7 +49,7 @@ The dependency audit reviewed on 2026-08-03 uses narrow overrides for patched Po
 
 ## Environment variable names
 
-Backend: `APP_NAME`, `DATABASE_URL`, `CORS_ORIGINS`, `JWT_SECRET`, `JWT_ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `APP_ENV`, `FRONTEND_URL`, `EMAIL_BACKEND`, `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `PASSWORD_RESET_EXPIRE_MINUTES`, `EMAIL_VERIFICATION_EXPIRE_HOURS`, `TOKEN_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`, `LLM_MODEL`, `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`, `PLAID_PRODUCTS`, `PLAID_COUNTRY_CODES`, `PLAID_REDIRECT_URI`, and platform-provided `PORT`. Frontend: `NEXT_PUBLIC_API_URL`. Values are intentionally omitted.
+Backend: `APP_NAME`, `DATABASE_URL`, `CORS_ORIGINS`, `JWT_SECRET`, `JWT_ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `APP_ENV`, `FRONTEND_URL`, `EMAIL_BACKEND` (`console`, `smtp`, or `resend`), `EMAIL_FROM`, `RESEND_API_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `PASSWORD_RESET_EXPIRE_MINUTES`, `EMAIL_VERIFICATION_EXPIRE_HOURS`, `TOKEN_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`, `LLM_MODEL`, `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`, `PLAID_PRODUCTS`, `PLAID_COUNTRY_CODES`, `PLAID_REDIRECT_URI`, and platform-provided `PORT`. `EMAIL_BACKEND=resend` requires `RESEND_API_KEY`; production rejects `console`. Frontend: `NEXT_PUBLIC_API_URL`. Values are intentionally omitted.
 
 ## Migrations
 
@@ -57,11 +57,11 @@ Run `alembic upgrade head` from `backend/`. `alembic/env.py` uses `settings.data
 
 Revision `7d9c2a4e6b10` (down revision `e7b1c9d4a2f6`) adds `plaid_items.last_sync_attempted_at`, non-null indexed `sync_status` with `idle` default, and nullable bounded `sync_error`. Deploy through `backend/start.sh` so the migration completes before the new status fields are served. No environment variables were added.
 
-Revision `e7b1c9d4a2f6` (down revision `c4a8d9e2f1b0`) adds `email_verified`, nullable reset/verification token hashes, expirations, and unique token-hash indexes. Existing users migrate as unverified but retain login and feature access. Configure production SMTP and `FRONTEND_URL` before deployment; `APP_ENV=production` deliberately rejects the console backend.
+Revision `e7b1c9d4a2f6` (down revision `c4a8d9e2f1b0`) adds `email_verified`, nullable reset/verification token hashes, expirations, and unique token-hash indexes. Existing users migrate as unverified but retain login and feature access. Resend support requires no migration. Configure either production SMTP or Resend plus `FRONTEND_URL` before deployment; `APP_ENV=production` deliberately rejects the console backend.
 
 Monthly budgets require no new revision: `93dcf675c7ee` already created the canonical `YYYY-MM` column and the `uq_budget_user_category_month` uniqueness constraint. Existing budget data is therefore preserved without backfill or table recreation.
 
-There is no endpoint rate limiter in the existing stack. Add shared, datastore-backed throttling before exposing recovery endpoints to sustained hostile traffic; application-instance memory is not suitable for multi-instance production limiting. Delivery failures intentionally keep public responses enumeration-safe and are visible only through token-free server error logs.
+There is no endpoint rate limiter in the existing stack. Add shared, datastore-backed throttling before exposing recovery endpoints to sustained hostile traffic; application-instance memory is not suitable for multi-instance production limiting. Delivery failures intentionally keep public responses enumeration-safe and are visible only through generic, token-free server error logs. Before enabling Resend, verify the sending domain/address in Resend and set `EMAIL_FROM` accordingly.
 
 ## CI and production
 

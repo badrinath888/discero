@@ -2,6 +2,8 @@ import logging
 import smtplib
 from email.message import EmailMessage
 
+import resend
+
 from app.config import settings
 
 
@@ -31,7 +33,27 @@ def _send(recipient: str, subject: str, body: str) -> None:
         if settings.app_env == "production":
             raise RuntimeError("console email is disabled in production")
 
-        logger.warning("Development email to %s: %s\n%s", recipient, subject, body)
+        logger.warning("Development email to %s: %s", recipient, subject)
+        return
+
+    if settings.email_backend == "resend":
+        if not settings.resend_api_key:
+            raise RuntimeError(
+                "RESEND_API_KEY is required for Resend email delivery"
+            )
+
+        resend.api_key = settings.resend_api_key
+        try:
+            resend.Emails.send(
+                {
+                    "from": settings.email_from,
+                    "to": [recipient],
+                    "subject": subject,
+                    "text": body,
+                }
+            )
+        except Exception:
+            raise RuntimeError("Resend email delivery failed") from None
         return
 
     if not settings.smtp_host:

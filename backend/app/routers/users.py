@@ -51,14 +51,14 @@ def _send_verification(email: str, token: str) -> None:
     try:
         email_service.send_email_verification(email, token)
     except Exception:
-        logger.exception("Unable to deliver verification email")
+        logger.error("Unable to deliver verification email")
 
 
 def _send_password_reset(email: str, token: str) -> None:
     try:
         email_service.send_password_reset(email, token)
     except Exception:
-        logger.exception("Unable to deliver password reset email")
+        logger.error("Unable to deliver password reset email")
 
 
 @router.post("", response_model=UserOut, status_code=201)

@@ -4,6 +4,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -78,6 +79,10 @@ class User(Base):
     )
 
     budgets: Mapped[list["Budget"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    recurring_items: Mapped[list["RecurringItem"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )
@@ -225,6 +230,91 @@ class Budget(Base):
         back_populates="budgets",
     )
 
+class RecurringItem(Base):
+    __tablename__ = "recurring_items"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "normalized_merchant",
+            name="uq_recurring_item_user_merchant",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+
+    merchant: Mapped[str] = mapped_column(
+        String(255),
+    )
+
+    normalized_merchant: Mapped[str] = mapped_column(
+        String(255),
+        index=True,
+    )
+
+    category: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
+    amount_cents: Mapped[int] = mapped_column(Integer)
+
+    frequency: Mapped[str] = mapped_column(
+        String(32),
+        index=True,
+    )
+
+    last_payment: Mapped[date] = mapped_column(Date)
+
+    next_payment: Mapped[date] = mapped_column(
+        Date,
+        index=True,
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="suggested",
+        server_default="suggested",
+        index=True,
+    )
+
+    confidence_score: Mapped[float] = mapped_column(
+        Float,
+        default=0.0,
+        server_default="0",
+    )
+
+    price_change_percent: Mapped[float] = mapped_column(
+        Float,
+        default=0.0,
+        server_default="0",
+    )
+
+    price_change_warning: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="0",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utcnow,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utcnow,
+        onupdate=_utcnow,
+    )
+
+    user: Mapped["User"] = relationship(
+        back_populates="recurring_items",
+    )
 
 class SavingsGoal(Base):
     __tablename__ = "savings_goals"

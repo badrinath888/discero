@@ -1,49 +1,41 @@
 # Current work
 
-Updated: 2026-08-03. Nothing is committed or pushed.
+Updated: 2026-08-04.
 
-## Baseline and scope
+## Integrated scope
 
-This isolated worktree started clean at requested main baseline `eb9e2082577de39519450b006ade25276c9a335c`. The active change implements secure password recovery, email verification, vendor-neutral email delivery, focused backend/frontend tests, one coordinated Alembic migration, and the required documentation updates.
+FinSight now includes secure password recovery, advisory email verification, vendor-neutral SMTP delivery, and fully month-specific budgets.
 
-## Design decisions
+## Authentication recovery
 
-- Raw reset and verification tokens are generated with `secrets.token_urlsafe(32)`, delivered once, and represented in the database only by SHA-256 hashes.
-- Reset tokens expire after 30 minutes; verification tokens expire after 24 hours. Both durations are configurable.
-- Conditional database updates atomically validate expiration and consume token hashes, preventing sequential reuse and concurrent double-submit.
-- Successful password reset replaces the Argon2 hash, increments `token_version`, invalidates all JWTs, and clears the reset fields in the same transaction.
-- Forgot-password and resend-verification responses do not reveal account existence or verification state.
-- Unverified users may continue to log in and use FinSight. This preserves existing registration/login behavior. Email changes mark the new address unverified.
-- The development environment template uses console email delivery. Runtime defaults are fail-closed production mode, where console delivery is blocked; the vendor-neutral SMTP backend uses TLS by default and does not log raw links or tokens.
+- Reset and verification tokens use 256-bit URL-safe values, while only SHA-256 hashes are stored.
+- Reset tokens expire after 30 minutes and verification tokens after 24 hours by default.
+- Password reset atomically consumes the token, replaces the Argon2 password hash, increments `token_version`, and invalidates all older JWTs.
+- Forgot-password and resend-verification responses do not reveal whether an account exists or is already verified.
+- Registration and email changes issue verification links; unverified users may continue to log in.
+- Production console email delivery is prohibited. SMTP settings are supplied through environment variables.
 
-## Files and validation
+## Monthly budgets
 
-Backend changes touch the user model/config/security/router/schemas, one email service, one migration, `.env.example`, and focused recovery tests. Frontend changes add three recovery routes, a shared recovery card, API methods, a login link, and five mocked component tests.
+- Budgets are uniquely stored by user, category, and canonical `YYYY-MM` month.
+- List, upsert, delete, copy, and progress operations are scoped to the selected month.
+- Copy preserves existing target categories by default and supports explicit overwrite through the API.
+- Progress uses negative transactions from the selected month and reports spent, signed remaining, percent used, overage, and overspent status.
+- No budget migration was required because the original schema already supports monthly records.
 
-Current results: 186 backend tests pass; all 15 frontend tests pass; frontend lint and production build pass; Alembic reports the single head `e7b1c9d4a2f6`. The default worktree database is fresh/unversioned, so `alembic current` is blank; the full SQLite upgrade, downgrade of this revision, and re-upgrade were verified against a disposable database at head.
+## Validation baseline
 
-Run before review:
-
-```bash
-cd backend
-source venv/bin/activate
-pytest -q
-alembic heads
-alembic current
-
-cd ../frontend
-npm run test:run
-npm run lint
-npm run build
-
-cd ..
-git diff --check
-git status --short
-```
+- Backend: 192 tests expected after integrating account recovery and monthly-budget suites.
+- Frontend: 17 tests expected: 10 Transactions, 5 authentication recovery, and 2 Budgets.
+- Frontend lint and production build must pass.
+- Alembic must report the single head `e7b1c9d4a2f6`.
 
 ## Known limitations
 
-- The existing stack has no shared rate limiter. Production should add datastore-backed throttling for forgot-password and resend-verification.
-- SMTP delivery needs environment-specific integration/smoke testing; automated tests replace delivery with a capture function.
-- Verification is advisory, not an authorization gate.
-- The application has no browser E2E suite, live PostgreSQL migration test, or production email smoke test.
+- Recovery and resend endpoints do not yet have shared datastore-backed rate limiting.
+- Production SMTP requires environment-specific configuration and smoke testing.
+- Email verification remains advisory rather than an authorization gate.
+- Pending negative transactions count toward budget spending.
+- Budget category matching is exact and case-sensitive.
+- Arbitrary source-month copy and overwrite are API-only; the UI currently exposes copy-previous with preserve-existing behavior.
+- There is no browser E2E suite, live PostgreSQL integration suite, or production email smoke test.

@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models import Budget, Transaction, User
 from app.schemas import (
     BudgetCopyResult,
+    BudgetCopyRequest,
     BudgetCreate,
     BudgetOut,
     BudgetProgressOut,
@@ -34,22 +35,19 @@ def _authorize_user(
 @router.get("", response_model=list[BudgetOut])
 def list_budgets(
     user_id: int,
-    month: str | None = Query(
-        default=None,
-        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
+    month: str = Query(
+        pattern=r"^[1-9]\d{3}-(0[1-9]|1[0-2])$",
     ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[Budget]:
     _authorize_user(user_id, current_user)
 
-    selected_month = month or date.today().strftime("%Y-%m")
-
     statement = (
         select(Budget)
         .where(
             Budget.user_id == user_id,
-            Budget.month == selected_month,
+            Budget.month == month,
         )
         .order_by(Budget.category)
     )
@@ -98,6 +96,66 @@ def save_budget(
 
     return budget
 
+
+@router.delete("/{category}", status_code=204)
+def delete_budget(
+    user_id: int,
+    category: str,
+    month: str = Query(
+        pattern=r"^[1-9]\d{3}-(0[1-9]|1[0-2])$",
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    _authorize_user(user_id, current_user)
+
+    budget = db.scalar(
+        select(Budget).where(
+            Budget.user_id == user_id,
+            Budget.category == category,
+            Budget.month == month,
+        )
+    )
+
+    if budget is None:
+        raise HTTPException(
+            status_code=404,
+            detail="budget not found",
+        )
+
+    db.delete(budget)
+    db.commit()
+
+    return Response(status_code=204)
+
+
+@router.post(
+    "/copy",
+    response_model=BudgetCopyResult,
+)
+def copy_budgets(
+    user_id: int,
+    payload: BudgetCopyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BudgetCopyResult:
+    _authorize_user(user_id, current_user)
+
+    if payload.source_month == payload.target_month:
+        raise HTTPException(
+            status_code=422,
+            detail="source and target months must differ",
+        )
+
+    return _copy_budgets(
+        user_id,
+        payload.source_month,
+        payload.target_month,
+        payload.overwrite,
+        db,
+    )
+
+
 @router.post(
     "/copy-previous",
     response_model=BudgetCopyResult,
@@ -105,7 +163,7 @@ def save_budget(
 def copy_previous_month_budgets(
     user_id: int,
     month: str = Query(
-        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
+        pattern=r"^[1-9]\d{3}-(0[1-9]|1[0-2])$",
     ),
     overwrite: bool = Query(default=False),
     db: Session = Depends(get_db),
@@ -113,7 +171,22 @@ def copy_previous_month_budgets(
 ) -> BudgetCopyResult:
     _authorize_user(user_id, current_user)
 
-    source_month = _previous_month(month)
+    return _copy_budgets(
+        user_id,
+        _previous_month(month),
+        month,
+        overwrite,
+        db,
+    )
+
+
+def _copy_budgets(
+    user_id: int,
+    source_month: str,
+    target_month: str,
+    overwrite: bool,
+    db: Session,
+) -> BudgetCopyResult:
 
     source_budgets = list(
         db.scalars(
@@ -137,7 +210,7 @@ def copy_previous_month_budgets(
         for budget in db.scalars(
             select(Budget).where(
                 Budget.user_id == user_id,
-                Budget.month == month,
+                Budget.month == target_month,
             )
         ).all()
     }
@@ -153,7 +226,7 @@ def copy_previous_month_budgets(
             target_budget = Budget(
                 user_id=user_id,
                 category=source_budget.category,
-                month=month,
+                month=target_month,
                 limit_cents=source_budget.limit_cents,
             )
             db.add(target_budget)
@@ -172,7 +245,7 @@ def copy_previous_month_budgets(
             select(Budget)
             .where(
                 Budget.user_id == user_id,
-                Budget.month == month,
+                Budget.month == target_month,
             )
             .order_by(Budget.category)
         ).all()
@@ -180,7 +253,7 @@ def copy_previous_month_budgets(
 
     return BudgetCopyResult(
         source_month=source_month,
-        target_month=month,
+        target_month=target_month,
         copied=copied,
         updated=updated,
         skipped=skipped,
@@ -195,7 +268,7 @@ def copy_previous_month_budgets(
 def budget_progress(
     user_id: int,
     month: str = Query(
-        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
+        pattern=r"^[1-9]\d{3}-(0[1-9]|1[0-2])$",
     ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -217,7 +290,7 @@ def budget_progress(
         db.scalars(
             select(Transaction).where(
                 Transaction.user_id == user_id,
-                Transaction.posted_on >= f"{month}-01",
+                Transaction.posted_on >= _month_start(month),
                 Transaction.posted_on < _next_month(month),
                 Transaction.amount_cents < 0,
             )
@@ -250,13 +323,17 @@ def _previous_month(month: str) -> str:
     return f"{year}-{month_number - 1:02d}"
 
 
-def _next_month(month: str) -> str:
+def _month_start(month: str) -> date:
+    return date.fromisoformat(f"{month}-01")
+
+
+def _next_month(month: str) -> date:
     year, month_number = map(int, month.split("-"))
 
     if month_number == 12:
-        return f"{year + 1}-01-01"
+        return date(year + 1, 1, 1)
 
-    return f"{year}-{month_number + 1:02d}-01"
+    return date(year, month_number + 1, 1)
 
 
 def _build_budget_progress(
@@ -276,4 +353,5 @@ def _build_budget_progress(
             1,
         ),
         over_budget_cents=max(-remaining_cents, 0),
+        overspent=remaining_cents < 0,
     )

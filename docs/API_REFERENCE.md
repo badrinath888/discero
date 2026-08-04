@@ -50,8 +50,10 @@ Base URL is configured by deployment; local default is `http://localhost:8000`. 
 |---|---|---|
 | `GET /users/{user_id}/budgets?month=YYYY-MM` | required month | Month budgets ordered by category. |
 | `PUT /users/{user_id}/budgets` | category, month, positive `limit_cents` | Upserts by user/category/month and returns `BudgetOut`. |
+| `DELETE /users/{user_id}/budgets/{category}?month=YYYY-MM` | required month and URL-encoded category | Deletes only the owner-scoped category budget for the selected month; 404 when absent. |
+| `POST /users/{user_id}/budgets/copy` | JSON `source_month`, `target_month`, optional `overwrite=false` | Copies an owner-scoped plan between any two distinct months; skips existing categories unless overwrite is true. |
 | `POST /users/{user_id}/budgets/copy-previous?month=YYYY-MM&overwrite=false` | target month; overwrite boolean | Copy result counts and target budgets; skips existing unless overwrite; 404 when previous month has none. |
-| `GET /users/{user_id}/budgets/progress?month=YYYY-MM` | month | Limit, spending, remaining, percent, overage by budget category. Spending uses negative transactions in month. |
+| `GET /users/{user_id}/budgets/progress?month=YYYY-MM` | required month | Limit, same-month spending, signed remaining amount, percent used, overage, and explicit `overspent` status by budget category. Spending uses negative transactions in the selected month. |
 
 ## Goals
 

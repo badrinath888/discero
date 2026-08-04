@@ -28,19 +28,19 @@ Frontend is port 3000. Never print or commit either real env file.
 
 ```bash
 cd backend && source venv/bin/activate && pytest -q
-# 186 passed
+# 192 passed
 
 alembic heads      # e7b1c9d4a2f6 (head)
 alembic current    # blank in a fresh worktree before local upgrade
 # Disposable SQLite upgrade/downgrade/upgrade verified e7b1c9d4a2f6 at head.
 
 cd ../frontend
-npm run test:run  # 15 tests: 10 Transactions + 5 authentication recovery
+npm run test:run  # 17 tests: 10 Transactions + 5 authentication recovery + 2 Budgets
 npm run lint       # pass, no findings
 npm run build      # pass; 14 static routes including three recovery routes
 ```
 
-Backend tests use a dependency-overridden isolated SQLite engine and TestClient; Plaid/LLM/email delivery are mocked where relevant. Frontend component tests use Vitest, React Testing Library, jest-dom and jsdom with API/session/navigation/animation boundaries mocked, so they do not call the backend. Recovery coverage includes generic forgot-password behavior, hash-only/expired/single-use reset and verification tokens, token-version invalidation, old/new password login, resend rotation, already-verified behavior, frontend success/error states, and local session clearing.
+Backend tests use a dependency-overridden isolated SQLite engine and TestClient; Plaid, LLM, and email delivery are mocked where relevant. Frontend component tests use Vitest, React Testing Library, jest-dom and jsdom with API/session/navigation/animation boundaries mocked, so they do not call the backend. Coverage includes Transactions category/delete workflows, monthly Budget copy/delete/overspent behavior, generic forgot-password behavior, hash-only/expired/single-use reset and verification tokens, token-version invalidation, old/new password login, resend rotation, already-verified behavior, frontend success/error states, and local session clearing.
 
 Run frontend tests in watch mode with `npm test` or once with `npm run test:run`. There is no coverage measurement threshold, browser E2E suite, live PostgreSQL migration test, live Plaid test, CSV-export browser test, concurrency test, or production smoke suite.
 
@@ -57,6 +57,8 @@ Run `alembic upgrade head` from `backend/`. `alembic/env.py` uses `settings.data
 Revision `c4a8d9e2f1b0` adds `users.token_version` as a non-null integer with server default zero. Deploy through `backend/start.sh` so the migration completes before the new authentication code serves requests. The release intentionally signs out every browser holding a legacy token without `ver`; users must log in once to receive a versioned token.
 
 Revision `e7b1c9d4a2f6` (down revision `c4a8d9e2f1b0`) adds `email_verified`, nullable reset/verification token hashes, expirations, and unique token-hash indexes. Existing users migrate as unverified but retain login and feature access. Configure production SMTP and `FRONTEND_URL` before deployment; `APP_ENV=production` deliberately rejects the console backend.
+
+Monthly budgets require no new revision: `93dcf675c7ee` already created the canonical `YYYY-MM` column and the `uq_budget_user_category_month` uniqueness constraint. Existing budget data is therefore preserved without backfill or table recreation.
 
 There is no endpoint rate limiter in the existing stack. Add shared, datastore-backed throttling before exposing recovery endpoints to sustained hostile traffic; application-instance memory is not suitable for multi-instance production limiting. Delivery failures intentionally keep public responses enumeration-safe and are visible only through token-free server error logs.
 

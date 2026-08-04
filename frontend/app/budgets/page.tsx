@@ -11,10 +11,12 @@ import {
   Gauge,
   PiggyBank,
   Target,
+  Trash2,
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
+import ConfirmationModal from "../components/ConfirmationModal";
 import Toast from "../components/Toast";
 import {
   EmptyState,
@@ -86,6 +88,10 @@ export default function BudgetsPage() {
   );
   const [draftAmount, setDraftAmount] = useState("");
   const [saving, setSaving] = useState(false);
+  const [budgetToDelete, setBudgetToDelete] = useState<Budget | null>(
+    null
+  );
+  const [deleting, setDeleting] = useState(false);
   const [copying, setCopying] = useState(false);
   const [loading, setLoading] = useState(true);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -164,7 +170,7 @@ export default function BudgetsPage() {
     [progress]
   );
 
-  const totalRemaining = Math.max(totalBudget - totalSpent, 0);
+  const totalRemaining = totalBudget - totalSpent;
   const coverage = Math.round(
     (budgets.length / CATEGORIES.length) * 100
   );
@@ -261,8 +267,9 @@ export default function BudgetsPage() {
     setSuccess("");
 
     try {
-      const result = await api.copyPreviousMonthBudgets(
+      const result = await api.copyBudgets(
         userId,
+        previousMonth(selectedMonth),
         selectedMonth
       );
 
@@ -294,6 +301,45 @@ export default function BudgetsPage() {
       );
     } finally {
       setCopying(false);
+    }
+  }
+
+  async function deleteBudget() {
+    if (!userId || !budgetToDelete) return;
+
+    setDeleting(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      await api.deleteBudget(
+        userId,
+        budgetToDelete.category,
+        budgetToDelete.month
+      );
+
+      setBudgets((current) =>
+        current.filter((budget) => budget.id !== budgetToDelete.id)
+      );
+      setProgress((current) =>
+        current.filter(
+          (item) =>
+            item.category !== budgetToDelete.category ||
+            item.month !== budgetToDelete.month
+        )
+      );
+      setSuccess(
+        `${budgetToDelete.category} budget deleted for ${formatMonth(
+          budgetToDelete.month
+        )}.`
+      );
+      setBudgetToDelete(null);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to delete budget"
+      );
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -415,13 +461,15 @@ export default function BudgetsPage() {
                   </p>
 
                   <AnimatedNumber
-                    value={totalRemaining}
+                    value={Math.abs(totalRemaining)}
                     format={formatCents}
                     className="mt-4 block text-5xl font-semibold tracking-[-0.06em] sm:text-6xl"
                   />
 
                   <p className="mt-3 text-sm text-white/55">
-                    Remaining across all configured categories
+                    {totalRemaining < 0
+                      ? "Over budget across configured categories"
+                      : "Remaining across all configured categories"}
                   </p>
 
                   <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
@@ -550,6 +598,30 @@ export default function BudgetsPage() {
             onChange={setDraftAmount}
             onClose={() => setEditingCategory(null)}
             onSave={saveBudget}
+            onDelete={
+              activeBudget
+                ? () => {
+                    setEditingCategory(null);
+                    setBudgetToDelete(activeBudget);
+                  }
+                : undefined
+            }
+          />
+        )}
+        {budgetToDelete && (
+          <ConfirmationModal
+            eyebrow="Delete monthly budget"
+            title={`Delete ${budgetToDelete.category}?`}
+            description={`This removes only the ${formatMonth(
+              budgetToDelete.month
+            )} budget. Other months are unchanged.`}
+            cancelLabel="Keep budget"
+            confirmLabel="Delete budget"
+            busyLabel="Deleting..."
+            busy={deleting}
+            icon={<Trash2 className="h-5 w-5" />}
+            onCancel={() => setBudgetToDelete(null)}
+            onConfirm={() => void deleteBudget()}
           />
         )}
       </AnimatePresence>
@@ -603,11 +675,12 @@ function BudgetRow({
   const percent = progress?.percent_used ?? 0;
   const reduceMotion = useReducedMotion();
 
-  const status =
-    !budget
-      ? "Not configured"
+  const status = !budget
+    ? "Not configured"
+    : progress?.overspent
+      ? "Over budget"
       : percent >= 100
-        ? "Over budget"
+        ? "At limit"
         : percent >= 75
           ? "Near limit"
           : "On track";
@@ -615,7 +688,7 @@ function BudgetRow({
   const statusClass =
     !budget
       ? "bg-[#f1eee7] text-[#728078]"
-      : percent >= 100
+      : progress?.overspent
         ? "bg-[#f8ddd5] text-[#a64b3d]"
         : percent >= 75
           ? "bg-[#f7e8b5] text-[#8b6518]"
@@ -661,7 +734,7 @@ function BudgetRow({
               ease: [0.22, 1, 0.36, 1],
             }}
             className={`h-full rounded-full ${
-              percent >= 100
+              progress?.overspent
                 ? "bg-[#c56755]"
                 : percent >= 75
                   ? "bg-[#d5a737]"
@@ -709,6 +782,7 @@ function BudgetDrawer({
   onChange,
   onClose,
   onSave,
+  onDelete,
 }: {
   category: string;
   month: string;
@@ -718,6 +792,7 @@ function BudgetDrawer({
   onChange: (value: string) => void;
   onClose: () => void;
   onSave: () => void;
+  onDelete?: () => void;
 }) {
   const reduceMotion = useReducedMotion();
 
@@ -823,12 +898,23 @@ function BudgetDrawer({
           )}
         </div>
 
-        <footer className="border-t border-[#14241e]/10 p-6">
+        <footer className="flex gap-3 border-t border-[#14241e]/10 p-6">
+          {onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={saving}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#a64b3d]/20 bg-white px-4 text-sm font-semibold text-[#a64b3d] transition hover:bg-[#f8eee9] disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </button>
+          )}
           <button
             type="button"
             onClick={onSave}
             disabled={saving}
-            className="h-11 w-full rounded-xl bg-[#14241e] text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:opacity-50"
+            className="h-11 flex-1 rounded-xl bg-[#14241e] text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:opacity-50"
           >
             {saving
               ? "Saving..."

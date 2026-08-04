@@ -159,7 +159,7 @@ class BudgetCreate(BaseModel):
     month: str = Field(
         min_length=7,
         max_length=7,
-        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
+        pattern=r"^[1-9]\d{3}-(0[1-9]|1[0-2])$",
     )
     limit_cents: int = Field(gt=0)
 
@@ -180,6 +180,20 @@ class BudgetCopyResult(BaseModel):
     updated: int
     skipped: int
     budgets: list[BudgetOut]
+
+
+class BudgetCopyRequest(BaseModel):
+    source_month: str = Field(
+        min_length=7,
+        max_length=7,
+        pattern=r"^[1-9]\d{3}-(0[1-9]|1[0-2])$",
+    )
+    target_month: str = Field(
+        min_length=7,
+        max_length=7,
+        pattern=r"^[1-9]\d{3}-(0[1-9]|1[0-2])$",
+    )
+    overwrite: bool = False
 
 
 class UserCreate(BaseModel):
@@ -291,6 +305,7 @@ class BudgetProgressOut(BaseModel):
     remaining_cents: int
     percent_used: float
     over_budget_cents: int
+    overspent: bool
 
 
 class SavingsGoalCreate(BaseModel):

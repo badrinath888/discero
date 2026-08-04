@@ -28,19 +28,19 @@ Frontend is port 3000. Never print or commit either real env file.
 
 ```bash
 cd backend && source venv/bin/activate && pytest -q
-# 136 passed in 7.42s; two cache-write warnings caused by audit sandbox permissions
+# 181 passed in 10.29s
 
 alembic heads      # c4a8d9e2f1b0 (head)
 alembic current    # c4a8d9e2f1b0 (head), local SQLite
 alembic history    # one six-revision chain
 
 cd ../frontend
-npm run test:run  # 10 Transactions-page regression tests
+npm run test:run  # 12 Transactions/Budgets page regression tests
 npm run lint       # pass, no findings
 npm run build      # pass; 11 static routes including /_not-found
 ```
 
-Backend tests use a dependency-overridden isolated SQLite engine and TestClient; Plaid/LLM are mocked. Frontend component tests use Vitest, React Testing Library, jest-dom and jsdom with API/session/navigation/animation boundaries mocked, so they do not call the backend. The focused Transactions suite covers category and delete bulk workflows, six-second Undo timers, stale selections, backend error details, and Potential Duplicates compatibility.
+Backend tests use a dependency-overridden isolated SQLite engine and TestClient; Plaid/LLM are mocked. Frontend component tests use Vitest, React Testing Library, jest-dom and jsdom with API/session/navigation/animation boundaries mocked, so they do not call the backend. The focused suites cover Transactions category/delete workflows and monthly Budget copy/delete/overspent behavior.
 
 Run frontend tests in watch mode with `npm test` or once with `npm run test:run`. There is no coverage measurement threshold, browser E2E suite, live PostgreSQL migration test, live Plaid test, CSV-export browser test, concurrency test, or production smoke suite.
 
@@ -55,6 +55,8 @@ Backend: `APP_NAME`, `DATABASE_URL`, `CORS_ORIGINS`, `JWT_SECRET`, `JWT_ALGORITH
 Run `alembic upgrade head` from `backend/`. `alembic/env.py` uses `settings.database_url`, not merely the ini default. Review generated revisions and test both upgrade and downgrade on disposable data; do not downgrade production casually. Current chain is documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Revision `c4a8d9e2f1b0` adds `users.token_version` as a non-null integer with server default zero. Deploy through `backend/start.sh` so the migration completes before the new authentication code serves requests. The release intentionally signs out every browser holding a legacy token without `ver`; users must log in once to receive a versioned token.
+
+Monthly budgets require no new revision: `93dcf675c7ee` already created the canonical `YYYY-MM` column and the `uq_budget_user_category_month` uniqueness constraint. Existing budget data is therefore preserved without backfill or table recreation.
 
 ## CI and production
 

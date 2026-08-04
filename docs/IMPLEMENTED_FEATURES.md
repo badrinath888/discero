@@ -12,7 +12,7 @@ Status vocabulary: **verified** means current automated validation covers it or 
 | Alembic schema | Verified single linear head/current | `6d62b32`, goals `2d0c79b`, dependency/start fixes `eafc6ae`/`4a7c3a9`, boolean fix `7bb7d28`. |
 | Search/filter/pagination/totals | Verified backend tests and frontend build | `bd5e74b`. |
 | Category update/lock and transaction delete | Verified backend; UI compiled | Base/auth phases; confirmation `57215c0`, reusable modal `29220c5`. |
-| Budgets, progress and copy-previous | Verified backend; UI compiled | `6d62b32`, `3b133de`; budget tests. |
+| Monthly budgets, progress, deletion and month-to-month copy | Verified by focused backend and frontend tests; full build validation documented separately | Canonical `YYYY-MM` storage with user/category/month uniqueness; owner-scoped list/upsert/delete/copy/progress; explicit remaining, percentage and overspent state. |
 | Savings goals CRUD/contributions/withdrawals/status | Verified backend; UI compiled | `2d0c79b`; confirmation `bf9082f`; goal tests. |
 | Recurring detection | Verified algorithm tests | `2d0c79b`, improved `029da85`. |
 | Insights and cash-flow forecast | Verified backend tests; UI compiled | `2d0c79b`, tests `b630613`. |
@@ -30,7 +30,7 @@ Status vocabulary: **verified** means current automated validation covers it or 
 
 Every authenticated route is responsive through Tailwind breakpoints and `AppSidebar` mobile navigation. Motion uses Framer Motion and shared helpers that respect `prefers-reduced-motion`. Transactions/accounts/goals use detail drawers; destructive account, goal and transaction actions use `ConfirmationModal`; mutation success/error uses `Toast` where implemented. Forecast/recurring/insights have page errors, empty CTAs and animated drawers. Budgets have loading/error/empty, copy confirmation state and success toast. Settings uses loading plus two toast channels but no confirmation for browser logout or CSV export. Dashboard has its own loading/error/empty blocks and upload result messaging.
 
-The frontend now has a focused Vitest/React Testing Library foundation with 10 Transactions-page regression tests covering bulk category/delete, Undo timing and replacement, stale selections, error detail, and Potential Duplicates compatibility.
+The frontend now has a focused Vitest/React Testing Library foundation with 12 regression tests: 10 cover Transactions bulk category/delete, Undo timing and replacement, stale selections, error detail, and Potential Duplicates compatibility; two cover monthly Budget copy/delete behavior and overspent rendering.
 
 Known UI limitations: frontend automated coverage is limited to the Transactions page; session logic is repeated per page; JWT is in localStorage; no global error boundary/auth provider; Undo state is client-memory-only; closing the delete Undo toast hides the action while the deletion timer continues; pagination can be stale after optimistic deletion; and the landing page displays stale “111 Backend tests.”
 

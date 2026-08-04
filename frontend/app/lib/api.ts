@@ -274,6 +274,7 @@ export type BudgetProgress = {
   remaining_cents: number;
   percent_used: number;
   over_budget_cents: number;
+  overspent: boolean;
 };
 
 
@@ -665,21 +666,36 @@ export const api = {
       }
     ).then((res) => handle<BudgetProgress[]>(res)),
 
-
-  copyPreviousMonthBudgets: (
+  deleteBudget: (
     userId: number,
-    month: string,
-    overwrite = false
-  ): Promise<BudgetCopyResult> =>
+    category: string,
+    month: string
+  ): Promise<void> =>
     fetchWithTimeout(
-      `${API_URL}/users/${userId}/budgets/copy-previous?month=${encodeURIComponent(
-        month
-      )}&overwrite=${overwrite}`,
+      `${API_URL}/users/${userId}/budgets/${encodeURIComponent(
+        category
+      )}?month=${encodeURIComponent(month)}`,
       {
-        method: "POST",
+        method: "DELETE",
         headers: authHeaders(),
       }
-    ).then((res) => handle<BudgetCopyResult>(res)),
+    ).then(handleEmpty),
+
+  copyBudgets: (
+    userId: number,
+    sourceMonth: string,
+    targetMonth: string,
+    overwrite = false
+  ): Promise<BudgetCopyResult> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/budgets/copy`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        source_month: sourceMonth,
+        target_month: targetMonth,
+        overwrite,
+      }),
+    }).then((res) => handle<BudgetCopyResult>(res)),
 
   getSavingsGoals: (
     userId: number

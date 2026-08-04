@@ -20,12 +20,12 @@ The frontend is a client-rendered App Router application. Each authenticated pag
 
 - `User`: unique indexed email, Argon2 password hash, integer token version defaulting to zero, and creation time. Owns transactions, budgets, goals, and Plaid items with delete-orphan cascades.
 - `Transaction`: user; optional financial account (`SET NULL` on account removal); globally unique optional Plaid transaction id; date, description, optional merchant, signed integer cents, category, category lock, source, pending flag, timestamps. Positive is income; negative is expense.
-- `Budget`: user/category/`YYYY-MM` unique tuple, positive limit in cents.
+- `Budget`: user/category/canonical `YYYY-MM` unique tuple, positive limit in cents. The API requires that same ISO month form for list, upsert, delete, copy, and progress operations.
 - `SavingsGoal`: user, name, positive target, nonnegative saved amount, optional target date, timestamps.
 - `PlaidItem`: user, globally unique provider item id, institution metadata, encrypted access token, status, cursor and sync timestamps. Owns financial accounts.
 - `FinancialAccount`: Plaid item, globally unique provider account id, names/type/subtype/mask, current/available balances, currency, timestamps. Relates to transactions.
 
-Alembic is linear: `93dcf675c7ee` initial user/transaction/budget schema → `f77d39a9c4e0` Plaid items/accounts → `ac2645f928d0` transaction Plaid fields → `383774abbeb5` category lock → `568820dfb45d` savings goals → `c4a8d9e2f1b0` user token version. Validation commands show one head and the local SQLite database at head.
+Alembic is linear: `93dcf675c7ee` initial user/transaction/budget schema → `f77d39a9c4e0` Plaid items/accounts → `ac2645f928d0` transaction Plaid fields → `383774abbeb5` category lock → `568820dfb45d` savings goals → `c4a8d9e2f1b0` user token version. The initial schema already stores monthly budgets and enforces one row per user/category/month, so the expanded monthly-budget API requires no data migration. Validation commands show one head and the local SQLite database at head.
 
 ## Authentication lifecycle
 

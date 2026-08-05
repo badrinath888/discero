@@ -14,18 +14,20 @@ FastAPI (Render)
   └─ Anthropic API (optional; deterministic fallback)
 ```
 
-The frontend is a client-rendered App Router application. Each authenticated page validates the local session through `/users/me` and redirects to `/` when missing/invalid. `app/lib/api.ts` centralizes the base URL, bearer header, JSON/error handling, and a 15-second abort timeout. The backend registers CORS and six routers in `app/main.py`; all user-domain routes depend on `get_current_user` and compare the JWT subject to the path `user_id`.
+The frontend is a client-rendered App Router application. Each authenticated page validates the local session through `/users/me` and redirects to `/` when missing/invalid. `app/lib/api.ts` centralizes the base URL, bearer header, JSON/error handling, and a 15-second abort timeout. The backend registers CORS and nine routers in `app/main.py`: `users`, `transactions`, `budgets`, `goals`, `major_purchase`, `recurring`, `safe_to_spend`, `plaid`, and `accounts`. `app/routers/auth.py` is not itself registered; it supplies the shared `get_current_user` dependency that every user-domain route uses to compare the JWT subject to the path `user_id`. Login is implemented directly in `app/routers/users.py`.
 
 ## Database model
 
-- `User`: unique indexed email, Argon2 password hash, integer token version, email-verification state, nullable SHA-256 reset/verification token hashes and expirations, and creation time. Owns transactions, budgets, goals, and Plaid items with delete-orphan cascades. Raw one-time tokens are never stored.
+- `User`: unique indexed email, Argon2 password hash, integer token version, email-verification state, nullable SHA-256 reset/verification token hashes and expirations, and creation time. Owns transactions, budgets, recurring items, goals, and Plaid items with delete-orphan cascades. Raw one-time tokens are never stored.
 - `Transaction`: user; optional financial account (`SET NULL` on account removal); globally unique optional Plaid transaction id; date, description, optional merchant, signed integer cents, category, category lock, source, pending flag, timestamps. Positive is income; negative is expense.
 - `Budget`: user/category/canonical `YYYY-MM` unique tuple, positive limit in cents. The API requires that same ISO month form for list, upsert, delete, copy, and progress operations.
-- `SavingsGoal`: user, name, positive target, nonnegative saved amount, optional target date, timestamps.
+- `RecurringItem`: user/normalized-merchant unique tuple; merchant, optional category, amount in cents, frequency, last/next payment dates, `suggested`/`active`/lifecycle status, confidence score, and price-change percent/warning. Feeds both the `/recurring` page and Safe-to-Spend's upcoming-obligations calculation.
+- `SavingsGoal`: user, name, positive target, nonnegative saved amount (derived from its contributions), optional target date, timestamps. Owns `GoalContribution` rows with delete-orphan cascade.
+- `GoalContribution`: goal, signed amount in cents, `deposit`/`withdrawal` type, contributed-on date, optional note, timestamps. A goal's `saved_cents` is the running sum of its contributions; creating a goal with an initial balance records an "Opening balance" deposit rather than setting the balance directly.
 - `PlaidItem`: user, globally unique provider item id, institution metadata, encrypted access token, active/reconnect-required connection status, cursor, sync lifecycle status, safe error summary, and attempted/successful timestamps. Owns financial accounts.
 - `FinancialAccount`: Plaid item, globally unique provider account id, names/type/subtype/mask, current/available balances, currency, timestamps. Relates to transactions.
 
-Alembic is linear: `93dcf675c7ee` initial user/transaction/budget schema → `f77d39a9c4e0` Plaid items/accounts → `ac2645f928d0` transaction Plaid fields → `383774abbeb5` category lock → `568820dfb45d` savings goals → `c4a8d9e2f1b0` user token version → `e7b1c9d4a2f6` account recovery and email verification → `7d9c2a4e6b10` Plaid synchronization lifecycle. Monthly-budget expansion required no migration.
+Alembic is linear: `93dcf675c7ee` initial user/transaction/budget schema → `f77d39a9c4e0` Plaid items/accounts → `ac2645f928d0` transaction Plaid fields → `383774abbeb5` category lock → `568820dfb45d` savings goals → `c4a8d9e2f1b0` user token version → `e7b1c9d4a2f6` account recovery and email verification → `7d9c2a4e6b10` Plaid synchronization lifecycle → `8adb0528864c` recurring items → `146ccae6e522` goal contributions (head). Monthly-budget expansion required no migration.
 
 ## Authentication lifecycle
 
@@ -57,7 +59,25 @@ Disconnect loads the item by both local id and user, calls Plaid before local de
 
 ### Analytics
 
-Summary endpoints compute overview, category/month totals, recurring patterns, insights, and cash-flow forecasts from stored transactions/accounts. Recurring detection ignores pending activity, normalizes merchant/reference noise, requires three completed occurrences, recognizes weekly/biweekly/monthly cadence with tolerance, and emits confidence/price-change signals. Forecasts combine liquid balances, income pace, and recurring items; these are estimates, not guarantees.
+Summary endpoints compute overview, category/month totals, recurring patterns, insights, and cash-flow forecasts from stored transactions/accounts. Algorithmic recurring detection (`app/recurring.py`, `detect_recurring`) ignores pending activity, normalizes merchant/reference noise, requires three completed occurrences, recognizes weekly/biweekly/monthly cadence with tolerance, and emits confidence/price-change signals. Forecasts combine liquid balances, income pace, and detected recurring payments; these are estimates, not guarantees.
+
+### Recurring items
+
+`RecurringItem` rows (`app/routers/recurring.py`, prefix `/users/{user_id}/recurring-items`) are a user-owned, persisted list distinct from the algorithmic detection above: the `/recurring` page surfaces both the detected suggestions from `summary/recurring` and the persisted items, and a suggestion can be saved as a tracked item. Create validates that merchant/normalized-merchant are non-empty and relies on the user/normalized-merchant unique constraint to reject duplicates (409). Update accepts partial changes to category, amount, frequency, next payment, and status. Only `active`-status items with a `next_payment` inside the requested horizon count as upcoming obligations for Safe-to-Spend.
+
+### Goal contributions
+
+Each `SavingsGoal` no longer stores a balance directly; `GoalContribution` rows (`app/routers/goals.py`, `/users/{user_id}/goals/{goal_id}/contributions`) record dated deposits/withdrawals, and `saved_cents` is maintained as their running signed sum. Creating, updating, or deleting a contribution recomputes the goal's projected balance and rejects the change with a 422 if it would go negative; update recalculates the balance excluding the contribution being edited. Creating a goal with a nonzero opening `saved_cents` writes a synthetic "Opening balance" deposit rather than setting the column directly, so the contribution history stays authoritative.
+
+### Safe-to-Spend, Major Purchase Simulator, and Scenario Comparison
+
+`app/services/safe_to_spend_service.py` (`POST /users/{user_id}/safe-to-spend`) computes a liquid balance from active Plaid accounts of type `depository`/`cash` (preferring available balance, falling back to current balance with a warning), subtracts upcoming `RecurringItem` obligations due within `horizon_days` (default 30, 1–90), an essential-spending amount, and a safety reserve, and reports `safe`, `limited`, or `negative` status with a confidence score blended from obligation confidence and whether a liquid balance exists.
+
+`app/services/major_purchase_service.py` (`POST /users/{user_id}/major-purchase/simulate`) runs a Safe-to-Spend calculation as of the purchase inputs, then evaluates one purchase against it: `affordable`, `caution` (exceeds a 75%-of-safe-to-spend recommended ceiling), or `not_affordable` (exceeds the safe-to-spend amount). It returns a plain-language explanation and up to two alternative amounts (a conservative 50% option and the recommended ceiling), each only included if it is cheaper than the requested purchase. The purchase date must fall between the calculation date and the Safe-to-Spend horizon's `through_date`, or the endpoint returns 422.
+
+`app/services/scenario_comparison_service.py` (`POST /users/{user_id}/major-purchase/compare`) runs two independent major-purchase simulations (`option_a`, `option_b`) and ranks them by affordability status, then shortfall, then remaining safe-to-spend, then impact percent, then cost, returning the recommended option (or `tie`) with a generated reason and the cent/percent differences between options.
+
+The `/decisions` page exposes both single-purchase simulation and side-by-side comparison modes against these endpoints.
 
 ### Transaction bulk mutations and Undo
 
@@ -72,19 +92,22 @@ Single and bulk category changes commit immediately, capture the exact previous 
 All authenticated pages use `AppSidebar`, responsive desktop/mobile navigation, reusable motion respecting reduced-motion preferences, and page-specific loading/error/empty states.
 
 - `/`: marketing plus login/register; validates existing token; form validation and inline auth errors.
-- `/dashboard`: loads overview, categories, budgets, all transactions, goals, forecast; charts/KPIs, CSV upload, links to detail pages; bespoke loading/error/empty presentation.
+- `/dashboard`: loads overview, categories, budgets, all transactions, goals, forecast, and Safe-to-Spend; charts/KPIs, CSV upload, links to detail pages; bespoke loading/error/empty presentation.
 - `/transactions`: server search/filter/pagination, accounts, category edit, Plaid sync, bulk selection/category/delete, confirmation, success/error and six-second Undo toasts, detail drawer.
 - `/accounts`: accounts plus transactions; portfolio totals/grouping/detail drawer, Plaid connect/sync/disconnect with confirmation and toast.
 - `/budgets`: monthly budgets/progress; save/edit drawer, copy previous month, overwrite choice, progress visuals and toast.
-- `/recurring`: recurring API; totals, due timing, warnings, rows/detail drawer; transaction CTA when empty.
+- `/recurring`: combines detected recurring payments with persisted recurring items (create/update/delete); totals, due timing, warnings, rows/detail drawer; transaction CTA when empty.
 - `/forecast`: forecast API; balance scenario, upcoming flows, risk/empty state and detail drawer.
-- `/goals`: goal CRUD, contribution/withdrawal, status/progress, form/detail drawers, deletion confirmation/toast.
+- `/goals`: goal CRUD, contribution/withdrawal history per goal, status/progress, form/detail drawers, deletion confirmation/toast.
 - `/insights`: selected-month insights, metrics/severity filtering, rows/detail drawer and empty CTA.
+- `/decisions`: Safe-to-Spend summary card plus single-purchase simulation and side-by-side scenario comparison modes; status badges, explanation text, and alternative-amount suggestions.
 - `/settings`: profile, account/transaction counts, password/email changes, logout, client-side CSV export; password visibility and toast errors/success.
 - `/forgot-password`: public email submission with enumeration-safe success and error/loading states.
 - `/reset-password`: token-based password replacement, invalid/expired state, and local session clearing on success.
 - `/verify-email`: automatic token verification plus a public resend action.
 - `/_not-found`: Next.js generated not-found route; there is no repository-authored page.
+
+Next.js's app-router route manifest reports 17 routes: the 14 application pages above (including `/`) plus the generated `/_not-found`, `/_global-error`, and `/favicon.ico` entries.
 
 See [FILE_MAP.md](FILE_MAP.md) for component responsibilities and [API_REFERENCE.md](API_REFERENCE.md) for calls.
 

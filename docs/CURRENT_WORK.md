@@ -4,12 +4,39 @@ Updated: 2026-08-04.
 
 ## Integrated scope
 
-FinSight now includes:
+Since the previous audit, FinSight has added:
 
-- Secure password recovery and advisory email verification
-- Console, SMTP, and Resend HTTPS email delivery
-- Fully month-specific budgets
-- Hardened Plaid synchronization and connected-account lifecycle
+- Persisted recurring items (`RecurringItem`) with a dedicated CRUD API and UI, alongside the existing algorithmic recurring detection
+- Savings-goal contribution/withdrawal history (`GoalContribution`) replacing direct balance edits
+- Safe-to-Spend calculation combining liquid balances, upcoming recurring obligations, essential spending, and a safety reserve
+- Major Purchase Simulator and Scenario Comparison built on Safe-to-Spend
+- A `/decisions` frontend route surfacing all three decision-intelligence features
+- Two additional Alembic revisions (`8adb0528864c` recurring items, `146ccae6e522` goal contributions)
+
+Secure password recovery, email verification, hardened Plaid synchronization, and fully month-specific budgets — described below — were integrated earlier and remain unchanged.
+
+## Recurring items
+
+- `RecurringItem` rows are unique per user/normalized-merchant and carry frequency, next/last payment, `suggested`/`active` status, confidence score, and price-change percent/warning.
+- `POST /users/{user_id}/recurring-items` rejects an empty merchant/normalized-merchant and returns 409 on a duplicate normalized merchant for the same user.
+- `PATCH .../recurring-items/{item_id}` applies partial updates to category, amount, frequency, next payment, and status.
+- Only `active` items with `next_payment` inside the requested horizon count as Safe-to-Spend obligations.
+- The `/recurring` page shows both algorithmically detected payments (`summary/recurring`) and the persisted item list.
+
+## Savings-goal contribution history
+
+- `SavingsGoal.saved_cents` is derived: it is the running signed sum of that goal's `GoalContribution` rows, not a directly editable field.
+- `POST/PATCH/DELETE .../goals/{goal_id}/contributions/...` each recompute the goal's projected balance and reject the change with a 422 if it would go negative; update excludes the contribution being edited when recomputing.
+- Creating a goal with a nonzero opening `saved_cents` writes a synthetic "Opening balance" deposit contribution.
+- The `/goals` page exposes contribution/withdrawal entry and a per-goal history list.
+
+## Safe-to-Spend, Major Purchase Simulator, Scenario Comparison
+
+- Safe-to-Spend liquid balance comes from active Plaid accounts of type `depository`/`cash`, preferring available balance and falling back to current balance with a warning; obligations come from active `RecurringItem` rows due within the horizon (1–90 days, default 30).
+- Status is `safe`, `limited` (within 10% of liquid balance or under $100, whichever is greater), or `negative`; confidence blends obligation confidence (or a 70.0 default with no obligations) with whether a liquid balance exists.
+- Major Purchase Simulator runs Safe-to-Spend as of the purchase inputs and classifies the purchase `affordable`, `caution` (over a 75%-of-safe-to-spend ceiling), or `not_affordable` (exceeds safe-to-spend); it rejects a purchase date before the calculation date or beyond the horizon with a 422.
+- Scenario Comparison runs two simulations and ranks them by affordability status, then shortfall, then remaining safe-to-spend, then impact percent, then cost, returning the recommended option (or `tie`) with a generated explanation.
+- The `/decisions` page covers both single-purchase and comparison modes.
 
 ## Authentication recovery
 
@@ -45,19 +72,27 @@ FinSight now includes:
 - Disconnect remains provider-first and owner-scoped.
 - The Accounts page exposes Sync Now, status, last-sync information, reconnect notices, and safe disconnect confirmation.
 
+## Potential Duplicates
+
+- The transaction search endpoint accepts a `duplicates_only` filter that correlates transactions by same user/date/amount and normalized merchant-or-description identity, returning every group member with totals.
+- Seven focused backend tests cover the omitted/false no-op case, grouping/totals, blank-merchant fallback, self-match exclusion, merchant-over-description preference, user isolation, and combination with existing filters.
+- The Transactions page toggle reuses existing selection, bulk delete, confirmation, and Undo behavior; a frontend test confirms bulk actions stay compatible with the toggle enabled.
+- This is implemented and verified, not in-progress; see the corrected [ROADMAP.md](ROADMAP.md).
+
 ## Validation baseline
 
-Expected after complete integration:
+Current verified result:
 
-- Backend: 210 tests
-- Frontend: 23 tests
+- Backend: 254 tests (`pytest -q`)
+- Frontend: 26 tests across 5 files (`npm run test:run`)
   - 10 Transactions
   - 5 authentication recovery
   - 2 Budgets
   - 6 Accounts/Plaid
+  - 3 Decisions (Safe-to-Spend/Major Purchase/Scenario Comparison)
 - Frontend lint and production build must pass.
 - Alembic must report one head:
-  `7d9c2a4e6b10`
+  `146ccae6e522`
 
 ## Known limitations
 
@@ -69,4 +104,6 @@ Expected after complete integration:
 - Arbitrary budget source-month copy and overwrite are API-only.
 - Plaid synchronization remains synchronous and covers all connected institutions for the user.
 - A crashed Plaid request can delay another sync for up to 15 minutes.
+- Safe-to-Spend obligations come only from `RecurringItem` rows; budgets and one-off manual obligations are not yet included even though the `SafeToSpendObligationOut.source` schema already allows `budget`/`manual` values.
+- Recurring items are created manually or promoted from a detected suggestion; there is no automatic promotion job.
 - There is no live Plaid, PostgreSQL concurrency, browser E2E, or production smoke suite.

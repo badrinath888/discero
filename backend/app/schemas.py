@@ -708,3 +708,24 @@ class MajorPurchaseSimulationOut(BaseModel):
     explanation: str
     alternatives: list[MajorPurchaseAlternativeOut]
     safe_to_spend: SafeToSpendOut
+
+
+class ScenarioComparisonRequest(BaseModel):
+    option_a: MajorPurchaseSimulationRequest
+    option_b: MajorPurchaseSimulationRequest
+
+
+class ScenarioComparisonOptionOut(BaseModel):
+    option_key: Literal["option_a", "option_b"]
+    simulation: MajorPurchaseSimulationOut
+    affordability_rank: int
+
+
+class ScenarioComparisonOut(BaseModel):
+    recommended_option: Literal["option_a", "option_b", "tie"]
+    recommendation: str
+    safe_to_spend_difference_cents: int
+    purchase_cost_difference_cents: int
+    impact_difference_percent: float
+    option_a: ScenarioComparisonOptionOut
+    option_b: ScenarioComparisonOptionOut

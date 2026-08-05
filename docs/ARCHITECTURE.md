@@ -14,7 +14,7 @@ FastAPI (Render)
   └─ Anthropic API (optional; deterministic fallback)
 ```
 
-The frontend is a client-rendered App Router application. Each authenticated page validates the local session through `/users/me` and redirects to `/` when missing/invalid. `app/lib/api.ts` centralizes the base URL, bearer header, JSON/error handling, and a 15-second abort timeout. The backend registers CORS and nine routers in `app/main.py`: `users`, `transactions`, `budgets`, `goals`, `major_purchase`, `recurring`, `safe_to_spend`, `plaid`, and `accounts`. `app/routers/auth.py` is not itself registered; it supplies the shared `get_current_user` dependency that every user-domain route uses to compare the JWT subject to the path `user_id`. Login is implemented directly in `app/routers/users.py`.
+The frontend is a client-rendered App Router application. Each authenticated page validates the local session through `/users/me` and redirects to `/` when missing/invalid. `app/lib/api.ts` centralizes the base URL, bearer header, JSON/error handling, and a 15-second abort timeout. The backend registers CORS and ten routers in `app/main.py`: `users`, `transactions`, `budgets`, `goals`, `major_purchase`, `recurring`, `safe_to_spend`, `financial_stress_test`, `plaid`, and `accounts`. `app/routers/auth.py` is not itself registered; it supplies the shared `get_current_user` dependency that every user-domain route uses to compare the JWT subject to the path `user_id`. Login is implemented directly in `app/routers/users.py`.
 
 ## Database model
 
@@ -77,7 +77,9 @@ Each `SavingsGoal` no longer stores a balance directly; `GoalContribution` rows 
 
 `app/services/scenario_comparison_service.py` (`POST /users/{user_id}/major-purchase/compare`) runs two independent major-purchase simulations (`option_a`, `option_b`) and ranks them by affordability status, then shortfall, then remaining safe-to-spend, then impact percent, then cost, returning the recommended option (or `tie`) with a generated reason and the cent/percent differences between options.
 
-The `/decisions` page exposes both single-purchase simulation and side-by-side comparison modes against these endpoints.
+`app/services/financial_stress_test_service.py` (`POST /users/{user_id}/financial-stress-test`) runs a Safe-to-Spend calculation as of the stress event, then subtracts a user-entered `stress_amount_cents` impact for one of four scenario types: `emergency_expense`, `temporary_income_loss`, `delayed_paycheck`, or `recurring_bill_increase`. The two duration-based scenarios (`temporary_income_loss`, `delayed_paycheck`) require `duration_days` (1–365) and return 422 without it; the other two ignore `duration_days` even if supplied. Risk level is integer-cents deterministic: `critical` when pre-event safe-to-spend is zero/negative or the event produces a shortfall, `strained` when the impact exceeds half of pre-event safe-to-spend (rounded) without a shortfall, otherwise `resilient`. Confidence subtracts 0.3 points per duration day (capped at 30, floored at 0) from the underlying Safe-to-Spend confidence, but only for the two duration-based scenarios. Estimated recovery days equals the entered duration for the two duration-based scenarios regardless of risk level; for the other two it is `0` with no shortfall and `null` (not determinable) with a shortfall. The event date must be on or after the calculation date and within the Safe-to-Spend horizon's `through_date`, or the endpoint returns 422. Explanation and recommendation text is derived only from these deterministic values, not a forecast or guarantee.
+
+The `/decisions` page exposes single-purchase simulation, side-by-side comparison, and financial stress test modes against these endpoints.
 
 ### Transaction bulk mutations and Undo
 
@@ -100,7 +102,7 @@ All authenticated pages use `AppSidebar`, responsive desktop/mobile navigation, 
 - `/forecast`: forecast API; balance scenario, upcoming flows, risk/empty state and detail drawer.
 - `/goals`: goal CRUD, contribution/withdrawal history per goal, status/progress, form/detail drawers, deletion confirmation/toast.
 - `/insights`: selected-month insights, metrics/severity filtering, rows/detail drawer and empty CTA.
-- `/decisions`: Safe-to-Spend summary card plus single-purchase simulation and side-by-side scenario comparison modes; status badges, explanation text, and alternative-amount suggestions.
+- `/decisions`: Safe-to-Spend summary card plus single-purchase simulation, side-by-side scenario comparison, and financial stress test modes; status/risk badges, explanation text, alternative-amount suggestions, and recovery estimates.
 - `/settings`: profile, account/transaction counts, password/email changes, logout, client-side CSV export; password visibility and toast errors/success.
 - `/forgot-password`: public email submission with enumeration-safe success and error/loading states.
 - `/reset-password`: token-based password replacement, invalid/expired state, and local session clearing on success.

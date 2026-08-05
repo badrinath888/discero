@@ -6,7 +6,7 @@ Priority reflects MVP impact, risk and dependencies; it is guidance, not a commi
 
 Potential Duplicates, the duplicated goal-schema declarations, and atomic bulk category/delete (items formerly listed here) are complete: Potential Duplicates has seven backend tests plus a frontend compatibility test, the goal schema classes are defined once, and bulk category/delete use dedicated atomic backend endpoints rather than `Promise.all`. See [IMPLEMENTED_FEATURES.md](IMPLEMENTED_FEATURES.md).
 
-1. **P0, small:** update the landing-page "111 Backend tests" stat (`frontend/app/page.tsx`) to the current verified count of 254.
+1. **P0, small:** update the landing-page "111 Backend tests" stat (`frontend/app/page.tsx`) to the current verified count of 275.
 2. **P1, medium:** test Undo edge cases: toast close semantics, navigation/unmount, overlapping deletes, request failure restoration, selection/pagination after optimistic removal.
 3. **P1, small:** reconcile Docker deployment with migrations (copy Alembic assets/use startup script) and document actual Render/Vercel dashboard settings.
 

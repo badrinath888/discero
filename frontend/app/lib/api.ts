@@ -350,6 +350,42 @@ export type ScenarioComparisonResult = {
   option_b: ScenarioComparisonOption;
 };
 
+export type FinancialStressScenarioType =
+  | "emergency_expense"
+  | "temporary_income_loss"
+  | "delayed_paycheck"
+  | "recurring_bill_increase";
+
+export type FinancialStressTestRequest = {
+  scenario_type: FinancialStressScenarioType;
+  scenario_name: string;
+  stress_amount_cents: number;
+  event_date: string;
+  duration_days?: number | null;
+  safety_reserve_cents: number;
+  essential_spending_cents: number;
+  horizon_days: number;
+};
+
+export type FinancialStressTestResult = {
+  scenario_type: FinancialStressScenarioType;
+  scenario_name: string;
+  event_date: string;
+  duration_days: number | null;
+  as_of: string;
+  through_date: string;
+  risk_level: "resilient" | "strained" | "critical";
+  safe_to_spend_before_stress_cents: number;
+  safe_to_spend_after_stress_cents: number;
+  total_financial_impact_cents: number;
+  shortfall_cents: number;
+  confidence_score: number;
+  estimated_recovery_days: number | null;
+  explanation: string;
+  recommendations: string[];
+  safe_to_spend: SafeToSpendResult;
+};
+
 export type UploadSummary = {
   imported: number;
   rejected: number;
@@ -931,6 +967,21 @@ compareMajorPurchaseScenarios: (
       body: JSON.stringify(payload),
     }
   ).then((res) => handle<ScenarioComparisonResult>(res)),
+
+runFinancialStressTest: (
+  userId: number,
+  payload: FinancialStressTestRequest
+): Promise<FinancialStressTestResult> =>
+  fetchWithTimeout(
+    `${API_URL}/users/${userId}/financial-stress-test`,
+    {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }
+  ).then((res) =>
+    handle<FinancialStressTestResult>(res)
+  ),
 
   getBudgets: (
     userId: number,

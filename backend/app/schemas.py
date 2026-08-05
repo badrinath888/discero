@@ -729,3 +729,76 @@ class ScenarioComparisonOut(BaseModel):
     impact_difference_percent: float
     option_a: ScenarioComparisonOptionOut
     option_b: ScenarioComparisonOptionOut
+
+
+class FinancialStressTestRequest(BaseModel):
+    scenario_type: Literal[
+        "emergency_expense",
+        "temporary_income_loss",
+        "delayed_paycheck",
+        "recurring_bill_increase",
+    ]
+    scenario_name: str = Field(
+        min_length=1,
+        max_length=120,
+    )
+    stress_amount_cents: int = Field(gt=0)
+    event_date: date
+    duration_days: int | None = Field(
+        default=None,
+        gt=0,
+        le=365,
+    )
+    safety_reserve_cents: int = Field(
+        default=0,
+        ge=0,
+    )
+    essential_spending_cents: int = Field(
+        default=0,
+        ge=0,
+    )
+    horizon_days: int = Field(
+        default=30,
+        ge=1,
+        le=90,
+    )
+
+    @field_validator("scenario_name")
+    @classmethod
+    def validate_scenario_name(cls, value: str) -> str:
+        scenario_name = value.strip()
+
+        if not scenario_name:
+            raise ValueError(
+                "scenario_name cannot be blank"
+            )
+
+        return scenario_name
+
+
+class FinancialStressTestOut(BaseModel):
+    scenario_type: Literal[
+        "emergency_expense",
+        "temporary_income_loss",
+        "delayed_paycheck",
+        "recurring_bill_increase",
+    ]
+    scenario_name: str
+    event_date: date
+    duration_days: int | None
+    as_of: date
+    through_date: date
+    risk_level: Literal[
+        "resilient",
+        "strained",
+        "critical",
+    ]
+    safe_to_spend_before_stress_cents: int
+    safe_to_spend_after_stress_cents: int
+    total_financial_impact_cents: int
+    shortfall_cents: int
+    confidence_score: float
+    estimated_recovery_days: int | None
+    explanation: str
+    recommendations: list[str]
+    safe_to_spend: SafeToSpendOut

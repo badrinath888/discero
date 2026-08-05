@@ -15,6 +15,7 @@ FinSight is a full-stack personal finance intelligence platform for securely imp
 - Safe-to-Spend calculation combining liquid balances, upcoming recurring obligations, essential spending, and a safety reserve
 - Major Purchase Simulator with affordability status, recommended ceiling, and alternative amounts
 - Scenario Comparison that evaluates two purchase options side by side with a recommendation
+- Financial Stress Testing that models an emergency expense, temporary income loss, delayed paycheck, or recurring bill increase against Safe-to-Spend, returning risk level, shortfall, confidence, and recovery estimate
 - Financial insights with spending trends and savings-rate analysis
 - Cash-flow forecasting with projected month-end balance and low-balance risk
 - Responsive sidebar, mobile navigation, charts, and reusable feedback states
@@ -30,7 +31,7 @@ FinSight is a full-stack personal finance intelligence platform for securely imp
 | `/budgets` | Monthly budget management |
 | `/goals` | Savings-goal management |
 | `/insights` | Detailed financial insights |
-| `/decisions` | Safe-to-Spend, Major Purchase Simulator, and Scenario Comparison |
+| `/decisions` | Safe-to-Spend, Major Purchase Simulator, Scenario Comparison, and Financial Stress Testing |
 | `/forecast` | Cash-flow forecasting |
 | `/recurring` | Recurring bills and subscriptions |
 | `/settings` | Profile, credentials, and CSV export |
@@ -188,7 +189,7 @@ pytest -q
 Current verified result:
 
 ```text
-254 passed
+275 passed
 ```
 
 Frontend:
@@ -200,7 +201,7 @@ npm run build
 npm run test:run
 ```
 
-Current verified result: 26 tests across 5 files (`auth-recovery.test.tsx`, `decisions/page.test.tsx`, `transactions/page.test.tsx`, `accounts/page.test.tsx`, `budgets/page.test.tsx`).
+Current verified result: 32 tests across 5 files (`auth-recovery.test.tsx`, `decisions/page.test.tsx`, `transactions/page.test.tsx`, `accounts/page.test.tsx`, `budgets/page.test.tsx`).
 
 ## API overview
 
@@ -230,6 +231,7 @@ Current verified result: 26 tests across 5 files (`auth-recovery.test.tsx`, `dec
 /users/{user_id}/safe-to-spend
 /users/{user_id}/major-purchase/simulate
 /users/{user_id}/major-purchase/compare
+/users/{user_id}/financial-stress-test
 /users/{user_id}/accounts
 /users/{user_id}/plaid/link-token
 /users/{user_id}/plaid/exchange-token
@@ -272,6 +274,7 @@ Production setup requires secure secrets, production CORS, `NEXT_PUBLIC_API_URL`
 - [x] Persisted recurring items with weekly/biweekly/monthly detection
 - [x] Safe-to-Spend calculation
 - [x] Major Purchase Simulator and Scenario Comparison
+- [x] Financial Stress Testing
 - [x] Financial insights
 - [x] Cash-flow forecasting
 - [x] Responsive navigation

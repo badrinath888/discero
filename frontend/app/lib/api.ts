@@ -329,6 +329,27 @@ export type MajorPurchaseSimulationResult = {
   safe_to_spend: SafeToSpendResult;
 };
 
+export type ScenarioComparisonRequest = {
+  option_a: MajorPurchaseSimulationRequest;
+  option_b: MajorPurchaseSimulationRequest;
+};
+
+export type ScenarioComparisonOption = {
+  option_key: "option_a" | "option_b";
+  simulation: MajorPurchaseSimulationResult;
+  affordability_rank: number;
+};
+
+export type ScenarioComparisonResult = {
+  recommended_option: "option_a" | "option_b" | "tie";
+  recommendation: string;
+  safe_to_spend_difference_cents: number;
+  purchase_cost_difference_cents: number;
+  impact_difference_percent: number;
+  option_a: ScenarioComparisonOption;
+  option_b: ScenarioComparisonOption;
+};
+
 export type UploadSummary = {
   imported: number;
   rejected: number;
@@ -897,6 +918,19 @@ simulateMajorPurchase: (
   ).then((res) =>
     handle<MajorPurchaseSimulationResult>(res)
   ),
+
+compareMajorPurchaseScenarios: (
+  userId: number,
+  payload: ScenarioComparisonRequest
+): Promise<ScenarioComparisonResult> =>
+  fetchWithTimeout(
+    `${API_URL}/users/${userId}/major-purchase/compare`,
+    {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }
+  ).then((res) => handle<ScenarioComparisonResult>(res)),
 
   getBudgets: (
     userId: number,

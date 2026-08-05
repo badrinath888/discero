@@ -138,6 +138,8 @@ def _affordability_status(
 
     return "affordable"
 
+def _format_currency(cents: int) -> str:
+    return f"${cents / 100:,.2f}"
 
 def _build_explanation(
     *,
@@ -149,26 +151,40 @@ def _build_explanation(
     recommended_max_cents: int,
     status: str,
 ) -> str:
+    purchase_amount = _format_currency(
+        purchase_amount_cents
+    )
+    safe_before = _format_currency(
+        safe_before_cents
+    )
+    safe_after = _format_currency(
+        safe_after_cents
+    )
+    shortfall = _format_currency(
+        shortfall_cents
+    )
+    recommended_max = _format_currency(
+        recommended_max_cents
+    )
+
     if status == "not_affordable":
         return (
             f"{purchase_name} exceeds the current safe-to-spend "
-            f"amount by {shortfall_cents} cents. Reduce the purchase "
-            "amount, increase available funds, or postpone the purchase."
+            f"amount by {shortfall}. Reduce the purchase amount, "
+            "increase available funds, or postpone the purchase."
         )
 
     if status == "caution":
         return (
             f"{purchase_name} is technically affordable, but it is "
-            f"above the recommended ceiling of "
-            f"{recommended_max_cents} cents and would leave "
-            f"{safe_after_cents} cents available."
+            f"above the recommended ceiling of {recommended_max} "
+            f"and would leave {safe_after} available."
         )
 
     return (
         f"{purchase_name} is within the recommended purchase range. "
-        f"It uses {purchase_amount_cents} cents from "
-        f"{safe_before_cents} cents currently safe to spend and "
-        f"leaves {safe_after_cents} cents available."
+        f"It uses {purchase_amount} from {safe_before} currently "
+        f"safe to spend and leaves {safe_after} available."
     )
 
 

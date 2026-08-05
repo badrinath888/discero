@@ -18,7 +18,7 @@
 - `app/config.py`: Pydantic settings and normalized CORS/Plaid helpers.
 - `app/database.py`: engine/session/base and SQLite thread option.
 - `app/models.py`: `User`, `Transaction`, `Budget`, `RecurringItem`, `SavingsGoal`, `GoalContribution`, `PlaidItem`, `FinancialAccount` and relationships.
-- `app/schemas.py`: all Pydantic request/response models, including Safe-to-Spend, Major Purchase Simulation, Scenario Comparison, `RecurringItem`, and `GoalContribution` schemas. The formerly duplicated goal schema classes have been fixed; each goal schema is defined once.
+- `app/schemas.py`: all Pydantic request/response models, including Safe-to-Spend, Major Purchase Simulation, Scenario Comparison, Financial Stress Test, `RecurringItem`, and `GoalContribution` schemas. The formerly duplicated goal schema classes have been fixed; each goal schema is defined once.
 - `app/security.py`: Argon2 hash/verify and HS256 JWT encode/decode.
 - `app/auth.py`: `get_current_user` dependency (bearer parsing and current-user lookup) shared by every router; it is not itself registered as a router in `app/main.py`.
 - `app/deps.py`: process-wide cached `LLMCategorizer` dependency.
@@ -35,6 +35,7 @@
 - `app/routers/recurring.py`: `RecurringItem` CRUD at `/users/{user_id}/recurring-items`.
 - `app/routers/safe_to_spend.py`: `POST /users/{user_id}/safe-to-spend`.
 - `app/routers/major_purchase.py`: `POST /users/{user_id}/major-purchase/simulate` and `/major-purchase/compare`.
+- `app/routers/financial_stress_test.py`: `POST /users/{user_id}/financial-stress-test`.
 - `app/routers/accounts.py`: safe account listing.
 - `app/routers/plaid.py`: link/exchange/disconnect/sync persistence orchestration.
 - `app/services/plaid_service.py`: Plaid client calls and SDK-to-domain conversion.
@@ -42,6 +43,7 @@
 - `app/services/safe_to_spend_service.py`: liquid balance, upcoming `RecurringItem` obligations, and Safe-to-Spend status/confidence calculation.
 - `app/services/major_purchase_service.py`: single-purchase affordability simulation built on Safe-to-Spend.
 - `app/services/scenario_comparison_service.py`: ranks two major-purchase simulations and builds the recommendation text.
+- `app/services/financial_stress_test_service.py`: runs Safe-to-Spend as of the stress event, applies the stress amount for one of four scenario types, and derives risk level, confidence, recovery days, explanation, and recommendations.
 
 ## Database and tests
 
@@ -52,7 +54,7 @@
 - `test_transaction_search.py`, `test_transaction_bulk.py`: pagination, totals, text/source/type/account/date/category/duplicate filters, invalid range, and bulk category/delete atomicity.
 - `test_budgets.py`, `test_goals.py`: domain CRUD/calculation/auth/isolation, including `test_goals.py` coverage of contribution/withdrawal history.
 - `test_recurring_items.py`: persisted `RecurringItem` CRUD, duplicate rejection, and cross-user isolation.
-- `test_safe_to_spend.py`, `test_major_purchase.py`, `test_scenario_comparison.py`: Safe-to-Spend, Major Purchase Simulator, and Scenario Comparison calculation and endpoint tests.
+- `test_safe_to_spend.py`, `test_major_purchase.py`, `test_scenario_comparison.py`, `test_financial_stress_test.py`: Safe-to-Spend, Major Purchase Simulator, Scenario Comparison, and Financial Stress Testing calculation and endpoint tests.
 - `test_accounts.py`: safe account response/auth/isolation.
 - `test_account_recovery.py`, `test_token_version.py`, `test_email_service.py`: password reset, email verification, token-version invalidation, and email delivery backends.
 - `test_plaid_routes.py`, `test_plaid_sync.py`, `test_plaid_config.py`: provider mocks, exchange/disconnect/sync/error/config behavior.
@@ -65,8 +67,8 @@
 - `app/layout.tsx`, `globals.css`: root metadata/fonts and global Tailwind theme/accessibility/reduced-motion styling.
 - `app/page.tsx`: public marketing and authentication page.
 - `app/{dashboard,transactions,accounts,budgets,recurring,forecast,goals,insights,settings,forgot-password,reset-password,verify-email}/page.tsx`: route implementations (14 pages plus root); see [ARCHITECTURE.md](ARCHITECTURE.md).
-- `app/decisions/page.tsx`: Safe-to-Spend, Major Purchase Simulator, and Scenario Comparison; covered by `app/decisions/page.test.tsx`.
-- `app/lib/api.ts`: API/result types, 15-second fetch wrapper, localStorage session, all endpoint methods (including `duplicates_only`, recurring items, goal contributions, Safe-to-Spend, and major-purchase simulate/compare), money formatter.
+- `app/decisions/page.tsx`: Safe-to-Spend, Major Purchase Simulator, Scenario Comparison, and Financial Stress Testing (single purchase/compare/stress modes); covered by `app/decisions/page.test.tsx`.
+- `app/lib/api.ts`: API/result types, 15-second fetch wrapper, localStorage session, all endpoint methods (including `duplicates_only`, recurring items, goal contributions, Safe-to-Spend, major-purchase simulate/compare, and the financial stress test), money formatter.
 - `components/AppSidebar.tsx`: grouped desktop/mobile navigation and browser logout.
 - `components/AuthFlowCard.tsx`: shared layout for the forgot-password/reset-password/verify-email pages.
 - `ConfirmationModal.tsx`: accessible reusable destructive confirmation dialog.

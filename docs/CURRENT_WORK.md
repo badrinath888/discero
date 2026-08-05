@@ -1,6 +1,6 @@
 # Current work
 
-Updated: 2026-08-04.
+Updated: 2026-08-05.
 
 ## Integrated scope
 
@@ -10,8 +10,9 @@ Since the previous audit, FinSight has added:
 - Savings-goal contribution/withdrawal history (`GoalContribution`) replacing direct balance edits
 - Safe-to-Spend calculation combining liquid balances, upcoming recurring obligations, essential spending, and a safety reserve
 - Major Purchase Simulator and Scenario Comparison built on Safe-to-Spend
-- A `/decisions` frontend route surfacing all three decision-intelligence features
-- Two additional Alembic revisions (`8adb0528864c` recurring items, `146ccae6e522` goal contributions)
+- Financial Stress Testing built on Safe-to-Spend, modeling an emergency expense, temporary income loss, delayed paycheck, or recurring bill increase
+- A `/decisions` frontend route surfacing all four decision-intelligence features
+- Two additional Alembic revisions (`8adb0528864c` recurring items, `146ccae6e522` goal contributions); Financial Stress Testing required no migration
 
 Secure password recovery, email verification, hardened Plaid synchronization, and fully month-specific budgets — described below — were integrated earlier and remain unchanged.
 
@@ -36,7 +37,18 @@ Secure password recovery, email verification, hardened Plaid synchronization, an
 - Status is `safe`, `limited` (within 10% of liquid balance or under $100, whichever is greater), or `negative`; confidence blends obligation confidence (or a 70.0 default with no obligations) with whether a liquid balance exists.
 - Major Purchase Simulator runs Safe-to-Spend as of the purchase inputs and classifies the purchase `affordable`, `caution` (over a 75%-of-safe-to-spend ceiling), or `not_affordable` (exceeds safe-to-spend); it rejects a purchase date before the calculation date or beyond the horizon with a 422.
 - Scenario Comparison runs two simulations and ranks them by affordability status, then shortfall, then remaining safe-to-spend, then impact percent, then cost, returning the recommended option (or `tie`) with a generated explanation.
-- The `/decisions` page covers both single-purchase and comparison modes.
+- The `/decisions` page covers single-purchase, comparison, and stress-test modes.
+
+## Financial Stress Testing
+
+- `POST /users/{user_id}/financial-stress-test` runs a Safe-to-Spend calculation as of the stress event and subtracts a user-entered `stress_amount_cents` impact for one of four scenario types: `emergency_expense`, `temporary_income_loss`, `delayed_paycheck`, `recurring_bill_increase`.
+- `temporary_income_loss` and `delayed_paycheck` require `duration_days` (1–365); the endpoint returns 422 if it is missing for those two scenarios and ignores it for the other two.
+- Risk level is deterministic and integer-cents based: `critical` when safe-to-spend before the event is zero/negative or the event produces a shortfall; `strained` when the impact exceeds half of safe-to-spend before the event (rounded) without a shortfall; otherwise `resilient`.
+- Confidence score starts from the underlying Safe-to-Spend confidence and, only for the two duration-required scenarios, subtracts 0.3 points per duration day up to a 30-point cap, floored at 0.
+- Estimated recovery days equals the entered duration for the two duration-required scenarios regardless of risk level; for the other two scenarios it is 0 when there is no shortfall and not determinable (`null`) when there is.
+- The event date must fall on or after the calculation date and within the Safe-to-Spend horizon's `through_date`, or the endpoint returns 422; `scenario_name` is trimmed and rejected if blank.
+- Explanation and recommendation text is generated from these deterministic values only — it does not forecast or guarantee an actual recovery timeline.
+- The `/decisions` page's third mode ("Financial stress test") exposes all four scenarios, conditionally shows the duration field, and reuses the same safety-reserve/essential-spending/horizon inputs as the other two modes.
 
 ## Authentication recovery
 
@@ -83,13 +95,13 @@ Secure password recovery, email verification, hardened Plaid synchronization, an
 
 Current verified result:
 
-- Backend: 254 tests (`pytest -q`)
-- Frontend: 26 tests across 5 files (`npm run test:run`)
+- Backend: 275 tests (`pytest -q`)
+- Frontend: 32 tests across 5 files (`npm run test:run`)
   - 10 Transactions
   - 5 authentication recovery
   - 2 Budgets
   - 6 Accounts/Plaid
-  - 3 Decisions (Safe-to-Spend/Major Purchase/Scenario Comparison)
+  - 9 Decisions (3 Scenario Comparison, 6 Financial Stress Testing)
 - Frontend lint and production build must pass.
 - Alembic must report one head:
   `146ccae6e522`

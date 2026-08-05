@@ -6,6 +6,7 @@ from app.routers import (
     accounts,
     budgets,
     goals,
+    major_purchase,
     plaid,
     recurring,
     safe_to_spend,
@@ -25,7 +26,8 @@ app.add_middleware(
 app.include_router(users.router)
 app.include_router(transactions.router)
 app.include_router(budgets.router)
-app.include_router(goals.router)
+app.include_router(goals.router)    
+app.include_router(major_purchase.router)
 app.include_router(recurring.router)
 app.include_router(safe_to_spend.router)
 app.include_router(plaid.router)

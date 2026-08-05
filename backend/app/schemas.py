@@ -656,3 +656,55 @@ class SafeToSpendOut(BaseModel):
     breakdown: SafeToSpendBreakdownOut
     obligations: list[SafeToSpendObligationOut]
     warnings: list[str] = Field(default_factory=list)
+
+class MajorPurchaseSimulationRequest(BaseModel):
+    purchase_name: str = Field(
+        min_length=1,
+        max_length=120,
+    )
+    purchase_amount_cents: int = Field(
+        gt=0,
+    )
+    purchase_date: date
+    safety_reserve_cents: int = Field(
+        default=0,
+        ge=0,
+    )
+    essential_spending_cents: int = Field(
+        default=0,
+        ge=0,
+    )
+    horizon_days: int = Field(
+        default=30,
+        ge=1,
+        le=90,
+    )
+
+
+class MajorPurchaseAlternativeOut(BaseModel):
+    label: str
+    purchase_amount_cents: int
+    remaining_safe_to_spend_cents: int
+    description: str
+
+
+class MajorPurchaseSimulationOut(BaseModel):
+    purchase_name: str
+    purchase_amount_cents: int
+    purchase_date: date
+    as_of: date
+    through_date: date
+    affordability_status: Literal[
+        "affordable",
+        "caution",
+        "not_affordable",
+    ]
+    safe_to_spend_before_purchase_cents: int
+    safe_to_spend_after_purchase_cents: int
+    shortfall_after_purchase_cents: int
+    recommended_max_purchase_cents: int
+    purchase_impact_percent: float
+    confidence_score: float
+    explanation: str
+    alternatives: list[MajorPurchaseAlternativeOut]
+    safe_to_spend: SafeToSpendOut

@@ -12,6 +12,7 @@ type IconName =
   | "budgets"
   | "goals"
   | "insights"
+  | "decisions"
   | "forecast"
   | "recurring"
   | "settings"
@@ -36,6 +37,7 @@ const primaryNavigation: NavigationItem[] = [
 
 const intelligenceNavigation: NavigationItem[] = [
   { label: "Insights", href: "/insights", icon: "insights" },
+  { label: "Decisions", href: "/decisions", icon: "decisions" },
   { label: "Forecast", href: "/forecast", icon: "forecast" },
   { label: "Recurring bills", href: "/recurring", icon: "recurring" },
 ];
@@ -254,6 +256,15 @@ function Icon({ name }: { name: IconName }) {
         <path d="M22 19H2" />
       </>
     ),
+    decisions: (
+  <>
+    <path d="M12 3v18" />
+    <path d="M5 7h14" />
+    <path d="m5 7-3 5h6L5 7Z" />
+    <path d="m19 7-3 5h6l-3-5Z" />
+    <path d="M8 21h8" />
+  </>
+),
     forecast: (
       <>
         <path d="M4 17 10 11l4 4 6-8" />

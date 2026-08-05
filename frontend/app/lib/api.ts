@@ -257,6 +257,41 @@ export type CashFlowForecast = {
   upcoming_cash_flows: UpcomingCashFlow[];
 };
 
+export type SafeToSpendRequest = {
+  safety_reserve_cents: number;
+  essential_spending_cents: number;
+  horizon_days: number;
+};
+
+export type SafeToSpendObligation = {
+  name: string;
+  amount_cents: number;
+  expected_date: string;
+  category: string | null;
+  confidence_score: number;
+  source: "recurring" | "budget" | "manual";
+};
+
+export type SafeToSpendBreakdown = {
+  liquid_balance_cents: number;
+  upcoming_obligations_cents: number;
+  essential_spending_cents: number;
+  safety_reserve_cents: number;
+};
+
+export type SafeToSpendResult = {
+  as_of: string;
+  through_date: string;
+  horizon_days: number;
+  safe_to_spend_cents: number;
+  shortfall_cents: number;
+  status: "safe" | "limited" | "negative";
+  confidence_score: number;
+  breakdown: SafeToSpendBreakdown;
+  obligations: SafeToSpendObligation[];
+  warnings: string[];
+};
+
 export type UploadSummary = {
   imported: number;
   rejected: number;
@@ -797,6 +832,19 @@ export const api = {
       }
     ).then((res) => handle<CashFlowForecast>(res));
   },
+
+  getSafeToSpend: (
+  userId: number,
+  payload: SafeToSpendRequest
+): Promise<SafeToSpendResult> =>
+  fetchWithTimeout(
+    `${API_URL}/users/${userId}/safe-to-spend`,
+    {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }
+  ).then((res) => handle<SafeToSpendResult>(res)),
 
   getBudgets: (
     userId: number,

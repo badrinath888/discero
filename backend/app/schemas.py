@@ -604,3 +604,55 @@ class CashFlowForecastOut(BaseModel):
     projected_end_balance_cents: int
     low_balance_risk: bool
     upcoming_cash_flows: list[UpcomingCashFlowOut]
+
+class SafeToSpendRequest(BaseModel):
+    safety_reserve_cents: int = Field(
+        default=0,
+        ge=0,
+    )
+    essential_spending_cents: int = Field(
+        default=0,
+        ge=0,
+    )
+    horizon_days: int = Field(
+        default=30,
+        ge=1,
+        le=90,
+    )
+
+
+class SafeToSpendObligationOut(BaseModel):
+    name: str
+    amount_cents: int
+    expected_date: date
+    category: str | None
+    confidence_score: float
+    source: Literal[
+        "recurring",
+        "budget",
+        "manual",
+    ]
+
+
+class SafeToSpendBreakdownOut(BaseModel):
+    liquid_balance_cents: int
+    upcoming_obligations_cents: int
+    essential_spending_cents: int
+    safety_reserve_cents: int
+
+
+class SafeToSpendOut(BaseModel):
+    as_of: date
+    through_date: date
+    horizon_days: int
+    safe_to_spend_cents: int
+    shortfall_cents: int
+    status: Literal[
+        "safe",
+        "limited",
+        "negative",
+    ]
+    confidence_score: float
+    breakdown: SafeToSpendBreakdownOut
+    obligations: list[SafeToSpendObligationOut]
+    warnings: list[str] = Field(default_factory=list)

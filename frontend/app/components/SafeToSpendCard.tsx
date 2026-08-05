@@ -151,12 +151,10 @@ useEffect(() => {
               <SafeMetric
                 label="Confidence"
                 value={
-                  result
-                    ? `${Math.round(
-                        result.confidence_score * 100
-                      )}%`
-                    : "—"
-                }
+  result
+    ? `${Math.round(result.confidence_score)}%`
+    : "—"
+}
               />
 
               <SafeMetric

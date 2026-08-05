@@ -4,11 +4,11 @@ Priority reflects MVP impact, risk and dependencies; it is guidance, not a commi
 
 ## Immediate cleanup
 
-1. **P0, small/medium:** complete or cleanly revert Potential Duplicates after agreeing semantics; add backend tests first. See [CURRENT_WORK.md](CURRENT_WORK.md).
-2. **P0, small:** update stale README test count/deployment roadmap and landing-page test count after duplicate work stabilizes; remove duplicated goal schema declarations.
-3. **P1, medium:** test Undo edge cases: toast close semantics, navigation/unmount, overlapping deletes, request failure restoration, selection/pagination after optimistic removal.
-4. **P1, medium:** replace bulk `Promise.all` category/delete with atomic/explicit backend bulk endpoints and defined partial-failure behavior.
-5. **P1, small:** reconcile Docker deployment with migrations (copy Alembic assets/use startup script) and document actual Render/Vercel dashboard settings.
+Potential Duplicates, the duplicated goal-schema declarations, and atomic bulk category/delete (items formerly listed here) are complete: Potential Duplicates has seven backend tests plus a frontend compatibility test, the goal schema classes are defined once, and bulk category/delete use dedicated atomic backend endpoints rather than `Promise.all`. See [IMPLEMENTED_FEATURES.md](IMPLEMENTED_FEATURES.md).
+
+1. **P0, small:** update the landing-page "111 Backend tests" stat (`frontend/app/page.tsx`) to the current verified count of 254.
+2. **P1, medium:** test Undo edge cases: toast close semantics, navigation/unmount, overlapping deletes, request failure restoration, selection/pagination after optimistic removal.
+3. **P1, small:** reconcile Docker deployment with migrations (copy Alembic assets/use startup script) and document actual Render/Vercel dashboard settings.
 
 ## MVP completion
 
@@ -16,7 +16,6 @@ Priority reflects MVP impact, risk and dependencies; it is guidance, not a commi
 - Manual transaction creation and broader transaction editing.
 - Filter-aware export rather than settings-only full export.
 - Account rename/hide controls and account deletion policy.
-- Goal contribution history instead of overwriting a balance.
 
 ## Security
 
@@ -24,7 +23,6 @@ Priority reflects MVP impact, risk and dependencies; it is guidance, not a commi
 - P0: production secret rotation runbook and strict CORS/security headers.
 - P1: rate limits for auth/import/Plaid; audit logging without sensitive payloads.
 - P1: account deletion with re-authentication, provider disconnect and retention policy.
-- P1: password reset and email verification.
 - Later: move browser auth away from localStorage to an appropriate HttpOnly session design.
 
 ## Reliability

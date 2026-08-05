@@ -4,14 +4,17 @@ FinSight is a full-stack personal finance intelligence platform for securely imp
 
 ## Features
 
-- JWT authentication with Argon2 password hashing
+- JWT authentication with Argon2 password hashing, server-side session invalidation, password reset, and email verification (console/SMTP/Resend delivery)
 - Per-user data isolation and protected API routes
-- CSV upload with validation, duplicate handling, and categorization
+- CSV upload with validation, duplicate handling, potential-duplicate detection, and categorization
 - Plaid Sandbox account connection and transaction synchronization
 - Search, filters, pagination, category editing, category locking, and deletion
 - Month-specific budgets with progress, over-budget tracking, and copy-from-previous-month support
-- Savings goals with editing, contributions, withdrawals, deadlines, and status
-- Improved weekly, biweekly, and monthly recurring-bill detection with pending-transaction filtering and price-change alerts
+- Savings goals with editing, deadlines, status, and a full contribution/withdrawal history
+- Persisted recurring items (bills/subscriptions) with weekly/biweekly/monthly cadence, pending-transaction filtering, and price-change alerts
+- Safe-to-Spend calculation combining liquid balances, upcoming recurring obligations, essential spending, and a safety reserve
+- Major Purchase Simulator with affordability status, recommended ceiling, and alternative amounts
+- Scenario Comparison that evaluates two purchase options side by side with a recommendation
 - Financial insights with spending trends and savings-rate analysis
 - Cash-flow forecasting with projected month-end balance and low-balance risk
 - Responsive sidebar, mobile navigation, charts, and reusable feedback states
@@ -27,8 +30,13 @@ FinSight is a full-stack personal finance intelligence platform for securely imp
 | `/budgets` | Monthly budget management |
 | `/goals` | Savings-goal management |
 | `/insights` | Detailed financial insights |
+| `/decisions` | Safe-to-Spend, Major Purchase Simulator, and Scenario Comparison |
 | `/forecast` | Cash-flow forecasting |
 | `/recurring` | Recurring bills and subscriptions |
+| `/settings` | Profile, credentials, and CSV export |
+| `/forgot-password` | Password reset request |
+| `/reset-password` | Token-based password reset |
+| `/verify-email` | Email verification |
 
 ## Technology stack
 
@@ -115,6 +123,14 @@ Frontend: `http://localhost:3000`
 | `JWT_ALGORITHM` | JWT algorithm |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Access-token lifetime |
 | `TOKEN_ENCRYPTION_KEY` | Fernet key for Plaid tokens |
+| `APP_ENV` | `development`, `test`, or `production`; gates console email delivery |
+| `FRONTEND_URL` | Base URL used to build reset/verification links |
+| `EMAIL_BACKEND` | `console`, `smtp`, or `resend` |
+| `EMAIL_FROM` | From address for reset/verification email |
+| `RESEND_API_KEY` | Required when `EMAIL_BACKEND=resend` |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_USE_TLS` | Required when `EMAIL_BACKEND=smtp` |
+| `PASSWORD_RESET_EXPIRE_MINUTES` | Password reset token lifetime (default 30) |
+| `EMAIL_VERIFICATION_EXPIRE_HOURS` | Email verification token lifetime (default 24) |
 | `ANTHROPIC_API_KEY` | Optional Anthropic API key |
 | `LLM_MODEL` | Optional categorization model |
 | `PLAID_CLIENT_ID` | Plaid client ID |
@@ -172,7 +188,7 @@ pytest -q
 Current verified result:
 
 ```text
-125 passed
+254 passed
 ```
 
 Frontend:
@@ -181,7 +197,10 @@ Frontend:
 cd frontend
 npm run lint
 npm run build
+npm run test:run
 ```
+
+Current verified result: 26 tests across 5 files (`auth-recovery.test.tsx`, `decisions/page.test.tsx`, `transactions/page.test.tsx`, `accounts/page.test.tsx`, `budgets/page.test.tsx`).
 
 ## API overview
 
@@ -189,6 +208,10 @@ npm run build
 /users
 /users/login
 /users/me
+/users/forgot-password
+/users/reset-password
+/users/verify-email
+/users/resend-verification
 /users/{user_id}/transactions
 /users/{user_id}/transactions/search
 /users/{user_id}/transactions/upload
@@ -202,6 +225,11 @@ npm run build
 /users/{user_id}/budgets/progress
 /users/{user_id}/budgets/copy-previous
 /users/{user_id}/goals
+/users/{user_id}/goals/{goal_id}/contributions
+/users/{user_id}/recurring-items
+/users/{user_id}/safe-to-spend
+/users/{user_id}/major-purchase/simulate
+/users/{user_id}/major-purchase/compare
 /users/{user_id}/accounts
 /users/{user_id}/plaid/link-token
 /users/{user_id}/plaid/exchange-token
@@ -235,13 +263,15 @@ Production setup requires secure secrets, production CORS, `NEXT_PUBLIC_API_URL`
 
 ### Completed
 
-- [x] Authentication
-- [x] CSV ingestion
+- [x] Authentication, password reset, and email verification
+- [x] CSV ingestion with potential-duplicate detection
 - [x] Plaid Sandbox integration
 - [x] Transaction management with server-side filtering and pagination
 - [x] Monthly budgets with copy-from-previous-month workflow
-- [x] Savings goals
-- [x] Improved recurring-payment detection
+- [x] Savings goals with contribution/withdrawal history
+- [x] Persisted recurring items with weekly/biweekly/monthly detection
+- [x] Safe-to-Spend calculation
+- [x] Major Purchase Simulator and Scenario Comparison
 - [x] Financial insights
 - [x] Cash-flow forecasting
 - [x] Responsive navigation
@@ -253,7 +283,6 @@ Production setup requires secure secrets, production CORS, `NEXT_PUBLIC_API_URL`
 - [ ] Production deployment
 - [ ] PostgreSQL production migration
 - [ ] Screenshots and demo video
-- [ ] Password reset and email verification
 - [ ] Refresh-token flow
 - [ ] Rate limiting and monitoring
 - [ ] Scheduled Plaid synchronization

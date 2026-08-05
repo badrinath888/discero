@@ -833,6 +833,19 @@ export const api = {
     ).then((res) => handle<CashFlowForecast>(res));
   },
 
+  getSafeToSpend: (
+  userId: number,
+  payload: SafeToSpendRequest
+): Promise<SafeToSpendResult> =>
+  fetchWithTimeout(
+    `${API_URL}/users/${userId}/safe-to-spend`,
+    {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }
+  ).then((res) => handle<SafeToSpendResult>(res)),
+
   getBudgets: (
     userId: number,
     month: string

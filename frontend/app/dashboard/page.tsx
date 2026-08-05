@@ -1,5 +1,6 @@
 "use client";
 
+
 import {
   useCallback,
   useEffect,
@@ -7,6 +8,7 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+import SafeToSpendCard from "../components/SafeToSpendCard";
 import {
   api,
   Budget,
@@ -382,6 +384,11 @@ export default function Dashboard() {
               {error || message}
             </div>
           )}
+
+          <SafeToSpendCard
+  userId={userId}
+  refreshKey={transactions.length}
+/>
 
           <section className="mt-8 grid gap-5 lg:grid-cols-[1.25fr_0.75fr]">
             <article className="premium-hover relative overflow-hidden rounded-[30px] bg-[#173128] p-7 text-white shadow-[0_24px_60px_rgba(23,49,40,0.18)] sm:p-9">

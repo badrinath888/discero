@@ -292,6 +292,43 @@ export type SafeToSpendResult = {
   warnings: string[];
 };
 
+export type MajorPurchaseSimulationRequest = {
+  purchase_name: string;
+  purchase_amount_cents: number;
+  purchase_date: string;
+  safety_reserve_cents: number;
+  essential_spending_cents: number;
+  horizon_days: number;
+};
+
+export type MajorPurchaseAlternative = {
+  label: string;
+  purchase_amount_cents: number;
+  remaining_safe_to_spend_cents: number;
+  description: string;
+};
+
+export type MajorPurchaseSimulationResult = {
+  purchase_name: string;
+  purchase_amount_cents: number;
+  purchase_date: string;
+  as_of: string;
+  through_date: string;
+  affordability_status:
+    | "affordable"
+    | "caution"
+    | "not_affordable";
+  safe_to_spend_before_purchase_cents: number;
+  safe_to_spend_after_purchase_cents: number;
+  shortfall_after_purchase_cents: number;
+  recommended_max_purchase_cents: number;
+  purchase_impact_percent: number;
+  confidence_score: number;
+  explanation: string;
+  alternatives: MajorPurchaseAlternative[];
+  safe_to_spend: SafeToSpendResult;
+};
+
 export type UploadSummary = {
   imported: number;
   rejected: number;
@@ -845,6 +882,21 @@ export const api = {
       body: JSON.stringify(payload),
     }
   ).then((res) => handle<SafeToSpendResult>(res)),
+
+simulateMajorPurchase: (
+  userId: number,
+  payload: MajorPurchaseSimulationRequest
+): Promise<MajorPurchaseSimulationResult> =>
+  fetchWithTimeout(
+    `${API_URL}/users/${userId}/major-purchase/simulate`,
+    {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }
+  ).then((res) =>
+    handle<MajorPurchaseSimulationResult>(res)
+  ),
 
   getBudgets: (
     userId: number,

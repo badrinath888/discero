@@ -2,14 +2,17 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
+  Activity,
   ArrowRight,
   BadgeDollarSign,
+  CalendarClock,
   CalendarDays,
   CheckCircle2,
   CircleAlert,
   Gauge,
   GitCompareArrows,
   Lightbulb,
+  ListChecks,
   Scale,
   ShieldCheck,
   Sparkles,
@@ -20,13 +23,36 @@ import AppSidebar from "../components/AppSidebar";
 import { PageReveal, Reveal } from "../components/PremiumMotion";
 import {
   api,
+  FinancialStressScenarioType,
+  FinancialStressTestResult,
   formatCents,
   MajorPurchaseSimulationResult,
   ScenarioComparisonResult,
   session,
 } from "../lib/api";
 
-type DecisionMode = "single" | "compare";
+type DecisionMode = "single" | "compare" | "stress";
+
+const SCENARIO_OPTIONS: {
+  value: FinancialStressScenarioType;
+  label: string;
+}[] = [
+  { value: "emergency_expense", label: "Emergency expense" },
+  {
+    value: "temporary_income_loss",
+    label: "Temporary income loss",
+  },
+  { value: "delayed_paycheck", label: "Delayed paycheck" },
+  {
+    value: "recurring_bill_increase",
+    label: "Recurring bill increase",
+  },
+];
+
+const DURATION_REQUIRED_SCENARIOS = new Set<FinancialStressScenarioType>([
+  "temporary_income_loss",
+  "delayed_paycheck",
+]);
 
 function toDateInputValue(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -72,6 +98,30 @@ const STATUS_CONTENT = {
   },
 } as const;
 
+const RISK_CONTENT = {
+  resilient: {
+    label: "Resilient",
+    description:
+      "Your finances can comfortably absorb this stress event.",
+    className: "bg-[#dff6c7] text-[#315d31]",
+    icon: ShieldCheck,
+  },
+  strained: {
+    label: "Strained",
+    description:
+      "This event would strain your finances but not push you negative.",
+    className: "bg-[#f5d66f] text-[#66500f]",
+    icon: TriangleAlert,
+  },
+  critical: {
+    label: "Critical",
+    description:
+      "This event would push your safe-to-spend into a shortfall.",
+    className: "bg-[#f0b8a8] text-[#7b3528]",
+    icon: CircleAlert,
+  },
+} as const;
+
 export default function DecisionsPage() {
   const router = useRouter();
   const today = useMemo(() => new Date(), []);
@@ -96,13 +146,27 @@ export default function DecisionsPage() {
   const [safetyReserve, setSafetyReserve] = useState("1000");
   const [essentialSpending, setEssentialSpending] = useState("500");
   const [horizonDays, setHorizonDays] = useState("30");
+  const [scenarioType, setScenarioType] =
+    useState<FinancialStressScenarioType>("emergency_expense");
+  const [scenarioName, setScenarioName] = useState(
+    "Emergency car repair"
+  );
+  const [stressAmount, setStressAmount] = useState("1500");
+  const [eventDate, setEventDate] = useState(
+    toDateInputValue(addDays(today, 7))
+  );
+  const [durationDays, setDurationDays] = useState("");
   const [result, setResult] =
     useState<MajorPurchaseSimulationResult | null>(null);
   const [compareResult, setCompareResult] =
     useState<ScenarioComparisonResult | null>(null);
+  const [stressResult, setStressResult] =
+    useState<FinancialStressTestResult | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [simulating, setSimulating] = useState(false);
   const [error, setError] = useState("");
+
+  const durationRequired = DURATION_REQUIRED_SCENARIOS.has(scenarioType);
 
   useEffect(() => {
     async function initialize() {
@@ -141,6 +205,7 @@ export default function DecisionsPage() {
     setError("");
     setResult(null);
     setCompareResult(null);
+    setStressResult(null);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -168,7 +233,8 @@ export default function DecisionsPage() {
 
         setResult(data);
         setCompareResult(null);
-      } else {
+        setStressResult(null);
+      } else if (mode === "compare") {
         const data = await api.compareMajorPurchaseScenarios(userId, {
           option_a: {
             purchase_name: optionAName.trim(),
@@ -186,16 +252,35 @@ export default function DecisionsPage() {
 
         setCompareResult(data);
         setResult(null);
+        setStressResult(null);
+      } else {
+        const data = await api.runFinancialStressTest(userId, {
+          scenario_type: scenarioType,
+          scenario_name: scenarioName.trim(),
+          stress_amount_cents: dollarsToCents(stressAmount),
+          event_date: eventDate,
+          duration_days: durationDays.trim()
+            ? Number(durationDays)
+            : null,
+          ...sharedSettings,
+        });
+
+        setStressResult(data);
+        setResult(null);
+        setCompareResult(null);
       }
     } catch (err) {
       setResult(null);
       setCompareResult(null);
+      setStressResult(null);
       setError(
         err instanceof Error
           ? err.message
           : mode === "single"
             ? "Unable to simulate this purchase"
-            : "Unable to compare these options"
+            : mode === "compare"
+              ? "Unable to compare these options"
+              : "Unable to run this stress test"
       );
     } finally {
       setSimulating(false);
@@ -205,6 +290,9 @@ export default function DecisionsPage() {
   const statusContent =
     STATUS_CONTENT[result?.affordability_status ?? "affordable"];
   const StatusIcon = statusContent.icon;
+  const riskContent =
+    RISK_CONTENT[stressResult?.risk_level ?? "resilient"];
+  const RiskIcon = riskContent.icon;
 
   return (
     <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
@@ -219,13 +307,15 @@ export default function DecisionsPage() {
               </p>
 
               <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                Major purchase simulator
+                {mode === "stress"
+                  ? "Financial stress test"
+                  : "Major purchase simulator"}
               </h1>
 
               <p className="mt-3 max-w-3xl text-sm leading-6 text-[#66746e]">
-                Test a purchase before making it. FinSight compares the
-                cost with your liquid balance, active obligations, safety
-                reserve, and essential spending.
+                {mode === "stress"
+                  ? "Model how an emergency expense, income loss, delayed paycheck, or bill increase would affect your safe-to-spend position."
+                  : "Test a purchase before making it. FinSight compares the cost with your liquid balance, active obligations, safety reserve, and essential spending."}
               </p>
 
               <div className="mt-6 inline-flex rounded-2xl border border-[#14241e]/10 bg-white p-1 shadow-[0_8px_24px_rgba(20,36,30,0.06)]">
@@ -238,6 +328,11 @@ export default function DecisionsPage() {
                   active={mode === "compare"}
                   onClick={() => handleModeChange("compare")}
                   label="Compare options"
+                />
+                <ModeButton
+                  active={mode === "stress"}
+                  onClick={() => handleModeChange("stress")}
+                  label="Financial stress test"
                 />
               </div>
             </header>
@@ -253,8 +348,10 @@ export default function DecisionsPage() {
                   <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#dff6c7] text-[#167c5a]">
                     {mode === "single" ? (
                       <BadgeDollarSign className="h-5 w-5" />
-                    ) : (
+                    ) : mode === "compare" ? (
                       <GitCompareArrows className="h-5 w-5" />
+                    ) : (
+                      <Activity className="h-5 w-5" />
                     )}
                   </span>
 
@@ -265,7 +362,9 @@ export default function DecisionsPage() {
                     <h2 className="mt-1 text-xl font-semibold tracking-[-0.03em]">
                       {mode === "single"
                         ? "What are you planning to buy?"
-                        : "Which options should FinSight compare?"}
+                        : mode === "compare"
+                          ? "Which options should FinSight compare?"
+                          : "What financial shock do you want to test?"}
                     </h2>
                   </div>
                 </div>
@@ -299,7 +398,7 @@ export default function DecisionsPage() {
                         onChange={setPurchaseDate}
                       />
                     </>
-                  ) : (
+                  ) : mode === "compare" ? (
                     <>
                       <ComparisonOptionFields
                         title="Option A"
@@ -332,6 +431,80 @@ export default function DecisionsPage() {
                           to both options.
                         </p>
                       </div>
+                    </>
+                  ) : (
+                    <>
+                      <label className="block">
+                        <span className="text-sm font-semibold text-[#263c34]">
+                          Scenario type
+                        </span>
+                        <select
+                          value={scenarioType}
+                          onChange={(event) => {
+                            const nextType = event.target
+                              .value as FinancialStressScenarioType;
+
+                            setScenarioType(nextType);
+
+                            if (!DURATION_REQUIRED_SCENARIOS.has(nextType)) {
+                              setDurationDays("");
+                            }
+                          }}
+                          className="mt-2 h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+                        >
+                          {SCENARIO_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <Field
+                        label="Scenario name"
+                        value={scenarioName}
+                        onChange={setScenarioName}
+                        placeholder="Emergency car repair"
+                        required
+                      />
+
+                      <Field
+                        label="Stress amount"
+                        value={stressAmount}
+                        onChange={setStressAmount}
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        prefix="$"
+                        required
+                      />
+
+                      {scenarioType === "recurring_bill_increase" && (
+                        <p className="-mt-3 text-xs leading-5 text-[#66746e]">
+                          Enter the total added cost for this scenario.
+                          FinSight uses this amount as-is and does not
+                          multiply it by month.
+                        </p>
+                      )}
+
+                      <DateField
+                        label="Event date"
+                        value={eventDate}
+                        min={toDateInputValue(today)}
+                        onChange={setEventDate}
+                      />
+
+                      {durationRequired && (
+                        <Field
+                          label="Duration (days)"
+                          value={durationDays}
+                          onChange={setDurationDays}
+                          type="number"
+                          min="1"
+                          step="1"
+                          required
+                        />
+                      )}
                     </>
                   )}
 
@@ -377,7 +550,10 @@ export default function DecisionsPage() {
                 </div>
 
                 {error && (
-                  <div className="mt-5 rounded-2xl border border-[#b65743]/20 bg-[#f0b8a8]/35 px-4 py-3 text-sm text-[#843d2f]">
+                  <div
+                    role="alert"
+                    className="mt-5 rounded-2xl border border-[#b65743]/20 bg-[#f0b8a8]/35 px-4 py-3 text-sm text-[#843d2f]"
+                  >
                     {error}
                   </div>
                 )}
@@ -390,10 +566,14 @@ export default function DecisionsPage() {
                   {simulating
                     ? mode === "single"
                       ? "Running simulation..."
-                      : "Comparing options..."
+                      : mode === "compare"
+                        ? "Comparing options..."
+                        : "Running stress test..."
                     : mode === "single"
                       ? "Simulate purchase"
-                      : "Run comparison"}
+                      : mode === "compare"
+                        ? "Run comparison"
+                        : "Run stress test"}
                   {!simulating && <ArrowRight className="h-4 w-4" />}
                 </button>
               </form>
@@ -413,12 +593,25 @@ export default function DecisionsPage() {
                     description="Enter a purchase scenario to compare affordability, remaining safe-to-spend, shortfall risk, and safer alternatives."
                   />
                 )
-              ) : compareResult ? (
-                <ComparisonResults result={compareResult} />
+              ) : mode === "compare" ? (
+                compareResult ? (
+                  <ComparisonResults result={compareResult} />
+                ) : (
+                  <EmptyState
+                    title="Compare two purchase paths"
+                    description="Enter two options with shared assumptions to see which leaves you in a safer financial position."
+                  />
+                )
+              ) : stressResult ? (
+                <StressTestResult
+                  result={stressResult}
+                  riskContent={riskContent}
+                  RiskIcon={RiskIcon}
+                />
               ) : (
                 <EmptyState
-                  title="Compare two purchase paths"
-                  description="Enter two options with shared assumptions to see which leaves you in a safer financial position."
+                  title="See how a shock affects your safety net"
+                  description="Enter a stress scenario to see your safe-to-spend before and after, risk level, recovery estimate, and recommendations."
                 />
               )}
             </Reveal>
@@ -921,6 +1114,141 @@ function ComparisonMetric({
   );
 }
 
+function StressTestResult({
+  result,
+  riskContent,
+  RiskIcon,
+}: {
+  result: FinancialStressTestResult;
+  riskContent: (typeof RISK_CONTENT)[keyof typeof RISK_CONTENT];
+  RiskIcon: typeof ShieldCheck;
+}) {
+  return (
+    <article className="relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.2)] sm:p-9">
+      <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[#76dfbd]/15 blur-3xl" />
+
+      <div className="relative">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+              Stress test result
+            </p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em]">
+              {result.scenario_name}
+            </h2>
+            <p className="mt-2 text-sm text-white/50">
+              {new Date(
+                `${result.event_date}T00:00:00`
+              ).toLocaleDateString("en-US", {
+                month: "long",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </p>
+          </div>
+
+          <span
+            className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${riskContent.className}`}
+          >
+            <RiskIcon className="h-4 w-4" />
+            {riskContent.label}
+          </span>
+        </div>
+
+        <div className="mt-8">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/35">
+            Safe to spend after stress
+          </p>
+          <p className="mt-3 text-5xl font-semibold tracking-[-0.06em] sm:text-6xl">
+            {formatCents(result.safe_to_spend_after_stress_cents)}
+          </p>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-white/55">
+            {riskContent.description}
+          </p>
+        </div>
+
+        <div className="mt-9 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-2 xl:grid-cols-4">
+          <ResultMetric
+            label="Before stress"
+            value={formatCents(
+              result.safe_to_spend_before_stress_cents
+            )}
+          />
+          <ResultMetric
+            label="Total impact"
+            value={formatCents(-result.total_financial_impact_cents)}
+          />
+          <ResultMetric
+            label="Shortfall"
+            value={formatCents(-result.shortfall_cents)}
+          />
+          <ResultMetric
+            label="Confidence"
+            value={`${Math.round(result.confidence_score)}%`}
+          />
+        </div>
+
+        <div className="mt-7 rounded-2xl border border-white/10 bg-white/[0.045] p-5">
+          <div className="flex items-start gap-3">
+            <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#83dcb9]" />
+            <div>
+              <p className="text-sm font-semibold">FinSight explanation</p>
+              <p className="mt-2 text-sm leading-6 text-white/58">
+                {result.explanation}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-7 grid gap-4 sm:grid-cols-2">
+          <DecisionStat
+            icon={CalendarClock}
+            label="Estimated recovery"
+            value={
+              result.estimated_recovery_days === null
+                ? "Not determinable"
+                : `${result.estimated_recovery_days} days`
+            }
+            caption={
+              DURATION_REQUIRED_SCENARIOS.has(result.scenario_type)
+                ? "Reflects the scenario duration entered, not a guaranteed recovery timeline."
+                : undefined
+            }
+          />
+          <DecisionStat
+            icon={Gauge}
+            label="Shortfall after stress"
+            value={formatCents(-result.shortfall_cents)}
+            warning={result.shortfall_cents > 0}
+          />
+        </div>
+
+        {result.recommendations.length > 0 && (
+          <div className="mt-8 border-t border-white/10 pt-7">
+            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-white/40">
+              Recommendations
+            </p>
+
+            <ul className="mt-4 space-y-3">
+              {result.recommendations.map((recommendation) => (
+                <li
+                  key={recommendation}
+                  className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.045] p-4"
+                >
+                  <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-[#83dcb9]" />
+                  <p className="text-sm leading-6 text-white/70">
+                    {recommendation}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function Field({
   label,
   value,
@@ -994,11 +1322,13 @@ function DecisionStat({
   label,
   value,
   warning = false,
+  caption,
 }: {
   icon: typeof ShieldCheck;
   label: string;
   value: string;
   warning?: boolean;
+  caption?: string;
 }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-5">
@@ -1023,6 +1353,9 @@ function DecisionStat({
           </p>
         </div>
       </div>
+      {caption && (
+        <p className="mt-3 text-xs leading-5 text-white/40">{caption}</p>
+      )}
     </div>
   );
 }

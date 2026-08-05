@@ -5,6 +5,7 @@ from app.config import settings
 from app.routers import (
     accounts,
     budgets,
+    financial_stress_test,
     goals,
     major_purchase,
     plaid,
@@ -30,6 +31,7 @@ app.include_router(goals.router)
 app.include_router(major_purchase.router)
 app.include_router(recurring.router)
 app.include_router(safe_to_spend.router)
+app.include_router(financial_stress_test.router)
 app.include_router(plaid.router)
 app.include_router(accounts.router)
 

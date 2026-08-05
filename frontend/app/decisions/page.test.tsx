@@ -2,7 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ScenarioComparisonResult } from "../lib/api";
+import type {
+  FinancialStressTestResult,
+  ScenarioComparisonResult,
+} from "../lib/api";
 import DecisionsPage from "./page";
 
 const mocks = vi.hoisted(() => ({
@@ -10,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   getMe: vi.fn(),
   simulateMajorPurchase: vi.fn(),
   compareMajorPurchaseScenarios: vi.fn(),
+  runFinancialStressTest: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
   clearSession: vi.fn(),
@@ -70,6 +74,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       getMe: mocks.getMe,
       simulateMajorPurchase: mocks.simulateMajorPurchase,
       compareMajorPurchaseScenarios: mocks.compareMajorPurchaseScenarios,
+      runFinancialStressTest: mocks.runFinancialStressTest,
     },
     session: {
       ...actual.session,
@@ -163,6 +168,89 @@ const comparisonResult: ScenarioComparisonResult = {
   },
 };
 
+const stressTestResult: FinancialStressTestResult = {
+  scenario_type: "temporary_income_loss",
+  scenario_name: "Job loss buffer",
+  event_date: "2026-08-15",
+  duration_days: 14,
+  as_of: "2026-08-04",
+  through_date: "2026-10-03",
+  risk_level: "strained",
+  safe_to_spend_before_stress_cents: 500_000,
+  safe_to_spend_after_stress_cents: 200_000,
+  total_financial_impact_cents: 300_000,
+  shortfall_cents: 0,
+  confidence_score: 83.8,
+  estimated_recovery_days: 14,
+  explanation:
+    "Job loss buffer would cost $3,000.00, using more than half of your " +
+    "$5,000.00 safe-to-spend and leaving only $2,000.00 available. Your " +
+    "finances would be strained but would not go negative.",
+  recommendations: [
+    "Look into short-term income sources or unemployment support to bridge the gap.",
+    "Pause discretionary purchases until your safe-to-spend balance recovers.",
+    "Build a safety reserve so future stress events are easier to absorb.",
+  ],
+  safe_to_spend: {
+    as_of: "2026-08-04",
+    through_date: "2026-10-03",
+    horizon_days: 60,
+    safe_to_spend_cents: 500_000,
+    shortfall_cents: 0,
+    status: "safe",
+    confidence_score: 88,
+    breakdown: {
+      liquid_balance_cents: 500_000,
+      upcoming_obligations_cents: 0,
+      essential_spending_cents: 0,
+      safety_reserve_cents: 0,
+    },
+    obligations: [],
+    warnings: [],
+  },
+};
+
+const emergencyStressResult: FinancialStressTestResult = {
+  scenario_type: "emergency_expense",
+  scenario_name: "Car repair",
+  event_date: "2026-08-15",
+  duration_days: null,
+  as_of: "2026-08-04",
+  through_date: "2026-09-03",
+  risk_level: "resilient",
+  safe_to_spend_before_stress_cents: 500_000,
+  safe_to_spend_after_stress_cents: 400_000,
+  total_financial_impact_cents: 100_000,
+  shortfall_cents: 0,
+  confidence_score: 88,
+  estimated_recovery_days: 0,
+  explanation:
+    "Car repair would cost $1,000.00. Your finances are resilient to " +
+    "this event, leaving $4,000.00 of your $5,000.00 safe-to-spend " +
+    "available afterward.",
+  recommendations: [
+    "Keep an emergency fund earmarked specifically for unexpected costs like this.",
+    "Maintain your current safety reserve; it is sufficient to absorb this scenario.",
+  ],
+  safe_to_spend: {
+    as_of: "2026-08-04",
+    through_date: "2026-09-03",
+    horizon_days: 30,
+    safe_to_spend_cents: 500_000,
+    shortfall_cents: 0,
+    status: "safe",
+    confidence_score: 88,
+    breakdown: {
+      liquid_balance_cents: 500_000,
+      upcoming_obligations_cents: 0,
+      essential_spending_cents: 0,
+      safety_reserve_cents: 0,
+    },
+    obligations: [],
+    warnings: [],
+  },
+};
+
 async function renderPage() {
   render(<DecisionsPage />);
   await screen.findByText("Major purchase simulator");
@@ -179,6 +267,7 @@ beforeEach(() => {
     email_verified: true,
   });
   mocks.compareMajorPurchaseScenarios.mockResolvedValue(comparisonResult);
+  mocks.runFinancialStressTest.mockResolvedValue(stressTestResult);
 });
 
 describe("decisions comparison mode", () => {
@@ -280,6 +369,236 @@ describe("decisions comparison mode", () => {
       await screen.findByText(
         "purchase date cannot be before the calculation date (422)"
       )
+    ).toBeInTheDocument();
+  });
+});
+
+describe("decisions financial stress test mode", () => {
+  it("sends the stress test payload with scenario details", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Scenario type" }),
+      { target: { value: "temporary_income_loss" } }
+    );
+    fireEvent.change(screen.getByLabelText(/^Scenario name$/i), {
+      target: { value: "Job loss buffer" },
+    });
+    fireEvent.change(screen.getByDisplayValue("1500"), {
+      target: { value: "3000" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Event date$/i), {
+      target: { value: "2026-08-15" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Duration \(days\)$/i), {
+      target: { value: "14" },
+    });
+    fireEvent.change(screen.getByDisplayValue("1000"), {
+      target: { value: "1200" },
+    });
+    fireEvent.change(screen.getByDisplayValue("500"), {
+      target: { value: "300" },
+    });
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Decision horizon" }),
+      { target: { value: "60" } }
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    await waitFor(() =>
+      expect(mocks.runFinancialStressTest).toHaveBeenCalledWith(1, {
+        scenario_type: "temporary_income_loss",
+        scenario_name: "Job loss buffer",
+        stress_amount_cents: 300_000,
+        event_date: "2026-08-15",
+        duration_days: 14,
+        safety_reserve_cents: 120_000,
+        essential_spending_cents: 30_000,
+        horizon_days: 60,
+      })
+    );
+  });
+
+  it("renders the stress test results", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    expect(
+      await screen.findByText("Job loss buffer")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Strained")).toBeInTheDocument();
+    expect(
+      screen.getByText(stressTestResult.explanation)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Look into short-term income sources or unemployment support to bridge the gap."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("shows the recovery duration caption for scenarios where a duration was entered", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    expect(await screen.findByText("Job loss buffer")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Reflects the scenario duration entered, not a guaranteed recovery timeline."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("omits the recovery duration caption for scenarios with no duration input", async () => {
+    mocks.runFinancialStressTest.mockResolvedValue(emergencyStressResult);
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    expect(await screen.findByText("Car repair")).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Reflects the scenario duration entered, not a guaranteed recovery timeline."
+      )
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders API errors from stress test requests", async () => {
+    mocks.runFinancialStressTest.mockRejectedValue(
+      new Error(
+        "duration_days is required for the delayed paycheck scenario (422)"
+      )
+    );
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "duration_days is required for the delayed paycheck scenario (422)"
+    );
+  });
+
+  it("shows a disabled loading state while the request is pending", async () => {
+    let resolveRequest!: (value: FinancialStressTestResult) => void;
+    mocks.runFinancialStressTest.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRequest = resolve;
+      })
+    );
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Running stress test..." })
+    ).toBeDisabled();
+
+    resolveRequest(stressTestResult);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Run stress test" })
+      ).not.toBeDisabled()
+    );
+  });
+
+  it("only shows the duration field for scenario types that require it, and clears it on switch", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+
+    expect(
+      screen.queryByLabelText(/^Duration \(days\)$/i)
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Scenario type" }),
+      { target: { value: "temporary_income_loss" } }
+    );
+
+    fireEvent.change(screen.getByLabelText(/^Duration \(days\)$/i), {
+      target: { value: "21" },
+    });
+    expect(screen.getByLabelText(/^Duration \(days\)$/i)).toHaveValue(21);
+
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Scenario type" }),
+      { target: { value: "emergency_expense" } }
+    );
+
+    expect(
+      screen.queryByLabelText(/^Duration \(days\)$/i)
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Scenario type" }),
+      { target: { value: "delayed_paycheck" } }
+    );
+
+    expect(screen.getByLabelText(/^Duration \(days\)$/i)).toHaveValue(null);
+  });
+
+  it("clears the stress result when switching back to another mode", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    expect(
+      await screen.findByText("Job loss buffer")
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Single purchase" })
+    );
+
+    expect(screen.queryByText("Job loss buffer")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("See the impact before you spend")
     ).toBeInTheDocument();
   });
 });

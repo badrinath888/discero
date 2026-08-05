@@ -348,9 +348,9 @@ export default function Dashboard() {
                 {formatMonth(budgetMonth)}
               </p>
 
-              <h1 className="mt-3 max-w-3xl text-4xl font-semibold leading-tight tracking-[-0.055em] text-[#12261f] sm:text-6xl">
-                Here’s how your money is doing.
-              </h1>
+              <h1 className="mt-3 whitespace-nowrap text-[clamp(1.45rem,4.8vw,3.75rem)] font-semibold leading-tight tracking-[-0.055em] text-[#12261f]">
+  Here’s how your money is doing.
+</h1>
 
               <p className="mt-4 max-w-2xl text-base leading-7 text-[#68766f]">
                 Review your balance, spending patterns, upcoming

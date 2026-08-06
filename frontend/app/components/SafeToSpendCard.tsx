@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   api,
   formatCents,
+  SafeToSpendObligation,
   SafeToSpendResult,
 } from "../lib/api";
 import { AnimatedNumber } from "./PremiumMotion";
@@ -89,6 +90,30 @@ useEffect(() => {
     negative: "bg-[#f0b8a8] text-[#7b3528]",
   }[result?.status ?? "safe"];
 
+  const recurringObligations =
+    result?.obligations.filter(
+      (obligation) => obligation.source === "recurring"
+    ) ?? [];
+  const budgetObligations =
+    result?.obligations.filter(
+      (obligation) => obligation.source === "budget"
+    ) ?? [];
+  const otherObligations =
+    result?.obligations.filter(
+      (obligation) =>
+        obligation.source !== "recurring" &&
+        obligation.source !== "budget"
+    ) ?? [];
+
+  const recurringTotalCents = recurringObligations.reduce(
+    (total, obligation) => total + obligation.amount_cents,
+    0
+  );
+  const budgetTotalCents = budgetObligations.reduce(
+    (total, obligation) => total + obligation.amount_cents,
+    0
+  );
+
   return (
     <section className="mt-8">
       <article className="premium-hover relative overflow-hidden rounded-[30px] bg-[#12261f] p-7 text-white shadow-[0_24px_60px_rgba(23,49,40,0.18)] sm:p-9">
@@ -108,8 +133,8 @@ useEffect(() => {
 
               <p className="mt-3 max-w-xl text-sm leading-6 text-white/55">
                 Estimated money available for flexible spending after
-                liquid balances and active recurring obligations are
-                considered.
+                liquid balances, active recurring obligations, and
+                remaining budget commitments are considered.
               </p>
             </div>
 
@@ -255,7 +280,7 @@ useEffect(() => {
 
               {expanded && (
                 <div className="mt-6">
-                  <div className="grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-2 lg:grid-cols-5">
                     <SafeMetric
                       label="Liquid balance"
                       value={formatCents(
@@ -264,11 +289,13 @@ useEffect(() => {
                     />
 
                     <SafeMetric
-                      label="Upcoming obligations"
-                      value={formatCents(
-                        -result.breakdown
-                          .upcoming_obligations_cents
-                      )}
+                      label="Recurring total"
+                      value={formatCents(-recurringTotalCents)}
+                    />
+
+                    <SafeMetric
+                      label="Budget total (remaining)"
+                      value={formatCents(-budgetTotalCents)}
                     />
 
                     <SafeMetric
@@ -288,48 +315,33 @@ useEffect(() => {
                     />
                   </div>
 
-                  {result.obligations.length > 0 && (
+                  <div className="mt-7 grid gap-6 sm:grid-cols-2">
+                    <ObligationSection
+                      title="Recurring obligations"
+                      badgeLabel="Recurring"
+                      badgeClassName="bg-[#c9e7ff]/15 text-[#8fd0ff]"
+                      obligations={recurringObligations}
+                      emptyLabel="No active recurring obligations for this period."
+                    />
+
+                    <ObligationSection
+                      title="Budget obligations"
+                      badgeLabel="Budget"
+                      badgeClassName="bg-[#83dcb9]/15 text-[#83dcb9]"
+                      note="Remaining amount left in each budget — not the full monthly limit."
+                      obligations={budgetObligations}
+                      emptyLabel="No remaining budget obligations for this period."
+                    />
+                  </div>
+
+                  {otherObligations.length > 0 && (
                     <div className="mt-7">
-                      <p className="text-xs font-semibold uppercase tracking-[0.15em] text-white/40">
-                        Upcoming obligations
-                      </p>
-
-                      <div className="mt-3 divide-y divide-white/10 rounded-2xl border border-white/10 px-4">
-                        {result.obligations
-                          .slice(0, 5)
-                          .map((obligation, index) => (
-                            <div
-                              key={`${obligation.name}-${obligation.expected_date}-${index}`}
-                              className="grid gap-2 py-4 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:gap-5"
-                            >
-                              <div>
-                                <p className="text-sm font-semibold text-white">
-                                  {obligation.name}
-                                </p>
-                                <p className="mt-1 text-xs text-white/40">
-                                  {obligation.category ||
-                                    "Uncategorized"}{" "}
-                                  · {obligation.source}
-                                </p>
-                              </div>
-
-                              <p className="text-xs text-white/45">
-                                {new Date(
-                                  `${obligation.expected_date}T00:00:00`
-                                ).toLocaleDateString("en-US", {
-                                  month: "short",
-                                  day: "numeric",
-                                })}
-                              </p>
-
-                              <p className="text-sm font-semibold text-[#f4a594] sm:text-right">
-                                {formatCents(
-                                  -obligation.amount_cents
-                                )}
-                              </p>
-                            </div>
-                          ))}
-                      </div>
+                      <ObligationSection
+                        title="Other obligations"
+                        badgeLabel="Manual"
+                        badgeClassName="bg-white/10 text-white/60"
+                        obligations={otherObligations}
+                      />
                     </div>
                   )}
 
@@ -388,6 +400,87 @@ function SafeMetric({
       >
         {value}
       </p>
+    </div>
+  );
+}
+
+function ObligationSection({
+  title,
+  badgeLabel,
+  badgeClassName,
+  note,
+  obligations,
+  emptyLabel,
+}: {
+  title: string;
+  badgeLabel: string;
+  badgeClassName: string;
+  note?: string;
+  obligations: SafeToSpendObligation[];
+  emptyLabel?: string;
+}) {
+  return (
+    <div data-testid={`obligation-section-${badgeLabel.toLowerCase()}`}>
+      <div className="flex items-center gap-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-white/40">
+          {title}
+        </p>
+
+        <span
+          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${badgeClassName}`}
+        >
+          {badgeLabel}
+        </span>
+      </div>
+
+      {note && (
+        <p className="mt-1 text-xs text-white/40">{note}</p>
+      )}
+
+      {obligations.length === 0 ? (
+        <p className="mt-3 rounded-2xl border border-white/10 px-4 py-4 text-sm text-white/40">
+          {emptyLabel}
+        </p>
+      ) : (
+        <div className="mt-3 divide-y divide-white/10 rounded-2xl border border-white/10 px-4">
+          {obligations.slice(0, 5).map((obligation, index) => (
+            <div
+              key={`${obligation.name}-${obligation.expected_date}-${index}`}
+              className="grid gap-1.5 py-4"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-white">
+                  {obligation.name}
+                </p>
+
+                <p className="text-sm font-semibold text-[#f4a594]">
+                  {formatCents(-obligation.amount_cents)}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/45">
+                <span>
+                  {obligation.category || "Uncategorized"}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {new Date(
+                    `${obligation.expected_date}T00:00:00`
+                  ).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {Math.round(obligation.confidence_score)}%
+                  confidence
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

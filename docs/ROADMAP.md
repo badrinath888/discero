@@ -4,17 +4,15 @@ Priority reflects MVP impact, risk and dependencies; it is guidance, not a commi
 
 ## Immediate cleanup
 
-Potential Duplicates, the duplicated goal-schema declarations, and atomic bulk category/delete (items formerly listed here) are complete: Potential Duplicates has seven backend tests plus a frontend compatibility test, the goal schema classes are defined once, and bulk category/delete use dedicated atomic backend endpoints rather than `Promise.all`. See [IMPLEMENTED_FEATURES.md](IMPLEMENTED_FEATURES.md).
+Potential Duplicates, the duplicated goal-schema declarations, atomic bulk category/delete, the stale landing-page test count, and Undo edge-case coverage (items formerly listed here) are complete: Potential Duplicates has seven backend tests plus a frontend compatibility test, the goal schema classes are defined once, bulk category/delete use dedicated atomic backend endpoints rather than `Promise.all`, the landing page reports the current verified backend test count, and the Transactions page has regression tests for overlapping-delete merging, Undo-after-overlap restoration, and deletion continuing after the Undo toast is closed (which also fixed a real data-loss bug: an overlapping delete used to silently drop the first batch instead of committing or restoring it). See [IMPLEMENTED_FEATURES.md](IMPLEMENTED_FEATURES.md).
 
-1. **P0, small:** update the landing-page "111 Backend tests" stat (`frontend/app/page.tsx`) to the current verified count of 275.
-2. **P1, medium:** test Undo edge cases: toast close semantics, navigation/unmount, overlapping deletes, request failure restoration, selection/pagination after optimistic removal.
-3. **P1, small:** reconcile Docker deployment with migrations (copy Alembic assets/use startup script) and document actual Render/Vercel dashboard settings.
+1. **P1, small:** reconcile Docker deployment with migrations (copy Alembic assets/use startup script) and document actual Render/Vercel dashboard settings.
 
 ## MVP completion
 
+Manual transaction creation, full transaction editing (date/description/merchant/amount/category), and filter-aware CSV export (items formerly listed here) are complete. See [IMPLEMENTED_FEATURES.md](IMPLEMENTED_FEATURES.md).
+
 - Import preview and confirmation before commit; then CSV column mapping.
-- Manual transaction creation and broader transaction editing.
-- Filter-aware export rather than settings-only full export.
 - Account rename/hide controls and account deletion policy.
 
 ## Security

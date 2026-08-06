@@ -8,7 +8,8 @@ FinSight is a full-stack personal finance intelligence platform for securely imp
 - Per-user data isolation and protected API routes
 - CSV upload with validation, duplicate handling, potential-duplicate detection, and categorization
 - Plaid Sandbox account connection and transaction synchronization
-- Search, filters, pagination, category editing, category locking, and deletion
+- Manual transaction entry and full editing (date, description, merchant, amount, category)
+- Search, filters, pagination, category editing, category locking, deletion, and filter-aware CSV export
 - Month-specific budgets with progress, over-budget tracking, and copy-from-previous-month support
 - Savings goals with editing, deadlines, status, and a full contribution/withdrawal history
 - Persisted recurring items (bills/subscriptions) with weekly/biweekly/monthly cadence, pending-transaction filtering, and price-change alerts
@@ -189,7 +190,7 @@ pytest -q
 Current verified result:
 
 ```text
-275 passed
+297 passed
 ```
 
 Frontend:
@@ -201,7 +202,7 @@ npm run build
 npm run test:run
 ```
 
-Current verified result: 32 tests across 5 files (`auth-recovery.test.tsx`, `decisions/page.test.tsx`, `transactions/page.test.tsx`, `accounts/page.test.tsx`, `budgets/page.test.tsx`).
+Current verified result: 41 tests across 5 files (`auth-recovery.test.tsx`, `decisions/page.test.tsx`, `transactions/page.test.tsx`, `accounts/page.test.tsx`, `budgets/page.test.tsx`).
 
 ## API overview
 
@@ -214,6 +215,7 @@ Current verified result: 32 tests across 5 files (`auth-recovery.test.tsx`, `dec
 /users/verify-email
 /users/resend-verification
 /users/{user_id}/transactions
+/users/{user_id}/transactions/{transaction_id}
 /users/{user_id}/transactions/search
 /users/{user_id}/transactions/upload
 /users/{user_id}/summary/overview
@@ -268,7 +270,7 @@ Production setup requires secure secrets, production CORS, `NEXT_PUBLIC_API_URL`
 - [x] Authentication, password reset, and email verification
 - [x] CSV ingestion with potential-duplicate detection
 - [x] Plaid Sandbox integration
-- [x] Transaction management with server-side filtering and pagination
+- [x] Transaction management with server-side filtering, pagination, manual entry, full editing, and filter-aware export
 - [x] Monthly budgets with copy-from-previous-month workflow
 - [x] Savings goals with contribution/withdrawal history
 - [x] Persisted recurring items with weekly/biweekly/monthly detection

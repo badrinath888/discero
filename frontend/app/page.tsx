@@ -469,7 +469,7 @@ export default function HomePage() {
               />
 
               <AccessStat
-                value="111"
+                value="297"
                 label="Backend tests"
               />
 

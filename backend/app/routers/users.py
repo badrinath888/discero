@@ -15,6 +15,7 @@ from app.schemas import (
     PasswordChangeRequest,
     PasswordResetRequest,
     PublicMessage,
+    RefreshTokenRequest,
     TokenOut,
     TokenRequest,
     UserCreate,
@@ -24,7 +25,9 @@ from app.schemas import (
 from app.security import (
     create_access_token,
     create_one_time_token,
+    create_refresh_token,
     hash_one_time_token,
+    decode_refresh_token,
     hash_password,
     verify_password,
 )
@@ -126,6 +129,44 @@ def login(
 
     return TokenOut(
         access_token=create_access_token(user.id, user.token_version),
+        refresh_token=create_refresh_token(
+            user.id,
+            user.token_version,
+        ),
+        user=UserOut.model_validate(user),
+    )
+
+
+@router.post("/refresh", response_model=TokenOut)
+def refresh_access_token(
+    payload: RefreshTokenRequest,
+    db: Session = Depends(get_db),
+) -> TokenOut:
+    token_data = decode_refresh_token(payload.refresh_token)
+
+    if token_data is None:
+        raise HTTPException(
+            status_code=401,
+            detail="invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user_id, token_version = token_data
+    user = db.get(User, user_id)
+
+    if user is None or token_version != user.token_version:
+        raise HTTPException(
+            status_code=401,
+            detail="session expired; please sign in again",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return TokenOut(
+        access_token=create_access_token(user.id, user.token_version),
+        refresh_token=create_refresh_token(
+            user.id,
+            user.token_version,
+        ),
         user=UserOut.model_validate(user),
     )
 

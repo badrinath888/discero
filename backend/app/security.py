@@ -41,11 +41,58 @@ def create_access_token(user_id: int, token_version: int) -> str:
         {
             "sub": str(user_id),
             "ver": token_version,
+            "type": "access",
             "exp": expires_at,
         },
         settings.jwt_secret,
         algorithm=settings.jwt_algorithm,
     )
+
+
+def create_refresh_token(user_id: int, token_version: int) -> str:
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        days=settings.refresh_token_expire_days
+    )
+
+    return jwt.encode(
+        {
+            "sub": str(user_id),
+            "ver": token_version,
+            "type": "refresh",
+            "exp": expires_at,
+        },
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+
+
+def decode_refresh_token(token: str) -> tuple[int, int | None] | None:
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+        )
+
+        if payload.get("type") != "refresh":
+            return None
+
+        subject = payload.get("sub")
+        token_version = payload.get("ver")
+
+        if not isinstance(subject, str):
+            return None
+
+        if type(token_version) is not int:
+            token_version = None
+
+        return int(subject), token_version
+    except (
+        InvalidTokenError,
+        TypeError,
+        ValueError,
+    ):
+        return None
 
 
 def decode_access_token(token: str) -> tuple[int, int | None] | None:
@@ -55,6 +102,10 @@ def decode_access_token(token: str) -> tuple[int, int | None] | None:
             settings.jwt_secret,
             algorithms=[settings.jwt_algorithm],
         )
+
+        token_type = payload.get("type")
+        if token_type is not None and token_type != "access":
+            return None
 
         subject = payload.get("sub")
         token_version = payload.get("ver")

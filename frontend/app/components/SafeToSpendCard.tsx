@@ -26,6 +26,9 @@ export default function SafeToSpendCard({
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState("");
+  const [reserveAmount, setReserveAmount] = useState("0");
+  const [essentialAmount, setEssentialAmount] = useState("0");
+  const [horizonDays, setHorizonDays] = useState("30");
 
   const loadSafeToSpend = useCallback(async () => {
     if (userId === null) return;
@@ -34,11 +37,20 @@ export default function SafeToSpendCard({
     setError("");
 
     try {
+      const reserveCents = Math.round(Number(reserveAmount) * 100);
+      const essentialCents = Math.round(Number(essentialAmount) * 100);
+      const parsedHorizonDays = Number(horizonDays);
+
       const data = await api.getSafeToSpend(userId, {
-        safety_reserve_cents: DEFAULT_RESERVE_CENTS,
-        essential_spending_cents:
-          DEFAULT_ESSENTIAL_SPENDING_CENTS,
-        horizon_days: DEFAULT_HORIZON_DAYS,
+        safety_reserve_cents: Number.isFinite(reserveCents)
+          ? Math.max(reserveCents, 0)
+          : DEFAULT_RESERVE_CENTS,
+        essential_spending_cents: Number.isFinite(essentialCents)
+          ? Math.max(essentialCents, 0)
+          : DEFAULT_ESSENTIAL_SPENDING_CENTS,
+        horizon_days: Number.isFinite(parsedHorizonDays)
+          ? Math.min(Math.max(Math.round(parsedHorizonDays), 1), 365)
+          : DEFAULT_HORIZON_DAYS,
       });
 
       setResult(data);
@@ -51,7 +63,7 @@ export default function SafeToSpendCard({
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [essentialAmount, horizonDays, reserveAmount, userId]);
 
 useEffect(() => {
   if (userId === null) return;
@@ -108,6 +120,59 @@ useEffect(() => {
                 {statusLabel}
               </span>
             )}
+          </div>
+
+          <div data-testid="safe-to-spend-controls" className="mt-7 grid gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:grid-cols-4">
+            <label>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">
+                Safety reserve
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={reserveAmount}
+                onChange={(event) => setReserveAmount(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white outline-none"
+              />
+            </label>
+
+            <label>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">
+                Essential spending
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={essentialAmount}
+                onChange={(event) => setEssentialAmount(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white outline-none"
+              />
+            </label>
+
+            <label>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">
+                Horizon days
+              </span>
+              <input
+                type="number"
+                min="1"
+                max="365"
+                value={horizonDays}
+                onChange={(event) => setHorizonDays(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white outline-none"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={() => void loadSafeToSpend()}
+              disabled={loading}
+              className="min-h-11 self-end rounded-xl bg-[#83dcb9] px-4 text-sm font-semibold text-[#12261f] disabled:opacity-50"
+            >
+              {loading ? "Calculating..." : "Recalculate"}
+            </button>
           </div>
 
           <div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">

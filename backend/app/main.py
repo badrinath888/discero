@@ -6,6 +6,7 @@ from app.routers import (
     accounts,
     budgets,
     financial_stress_test,
+    goal_conflict_detection,
     goals,
     major_purchase,
     plaid,
@@ -32,6 +33,7 @@ app.include_router(major_purchase.router)
 app.include_router(recurring.router)
 app.include_router(safe_to_spend.router)
 app.include_router(financial_stress_test.router)
+app.include_router(goal_conflict_detection.router)
 app.include_router(plaid.router)
 app.include_router(accounts.router)
 

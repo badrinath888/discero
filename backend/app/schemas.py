@@ -922,3 +922,47 @@ class FinancialStressTestOut(BaseModel):
     explanation: str
     recommendations: list[str]
     safe_to_spend: SafeToSpendOut
+
+
+class GoalConflictDetectionRequest(BaseModel):
+    monthly_savings_capacity_cents: int | None = Field(
+        default=None,
+        ge=0,
+    )
+
+
+class GoalConflictGoalOut(BaseModel):
+    goal_id: int
+    name: str
+    target_cents: int
+    saved_cents: int
+    remaining_cents: int
+    target_date: date | None
+    months_remaining: int | None
+    required_monthly_cents: int
+    allocated_monthly_cents: int
+    monthly_shortfall_cents: int
+    status: Literal[
+        "on_track",
+        "at_risk",
+        "unfunded",
+        "no_deadline",
+        "completed",
+    ]
+
+
+class GoalConflictDetectionOut(BaseModel):
+    as_of: date
+    conflict_status: Literal[
+        "no_conflict",
+        "strained",
+        "conflict",
+    ]
+    monthly_savings_capacity_cents: int
+    total_required_monthly_cents: int
+    monthly_shortfall_cents: int
+    confidence_score: float
+    goals: list[GoalConflictGoalOut]
+    explanation: str
+    recommendations: list[str]
+    warnings: list[str] = Field(default_factory=list)

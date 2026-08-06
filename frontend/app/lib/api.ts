@@ -194,6 +194,22 @@ export type TransactionCategoryUpdateInput = {
   category: string;
 };
 
+export type TransactionCreateInput = {
+  posted_on: string;
+  description: string;
+  merchant_name?: string | null;
+  amount_cents: number;
+  category?: string;
+};
+
+export type TransactionUpdateInput = {
+  posted_on?: string;
+  description?: string;
+  merchant_name?: string | null;
+  amount_cents?: number;
+  category?: string;
+};
+
 export type CategoryTotal = {
   category: string;
   total_cents: number;
@@ -768,17 +784,27 @@ export const api = {
     ).then((res) => handle<TransactionPage>(res));
   },
 
+  createTransaction: (
+    userId: number,
+    payload: TransactionCreateInput
+  ): Promise<Transaction> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/transactions`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }).then((res) => handle<Transaction>(res)),
+
   updateTransaction: (
     userId: number,
     transactionId: number,
-    category: string
+    payload: TransactionUpdateInput
   ): Promise<Transaction> =>
     fetchWithTimeout(
       `${API_URL}/users/${userId}/transactions/${transactionId}`,
       {
         method: "PATCH",
         headers: jsonHeaders(),
-        body: JSON.stringify({ category }),
+        body: JSON.stringify(payload),
       }
     ).then((res) => handle<Transaction>(res)),
 

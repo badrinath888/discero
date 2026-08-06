@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   getMe: vi.fn(),
   getAccounts: vi.fn(),
   searchTransactions: vi.fn(),
+  createTransaction: vi.fn(),
   updateTransaction: vi.fn(),
   bulkUpdateTransactionCategory: vi.fn(),
   bulkUpdateTransactionCategories: vi.fn(),
@@ -85,6 +93,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       getMe: mocks.getMe,
       getAccounts: mocks.getAccounts,
       searchTransactions: mocks.searchTransactions,
+      createTransaction: mocks.createTransaction,
       updateTransaction: mocks.updateTransaction,
       bulkUpdateTransactionCategory:
         mocks.bulkUpdateTransactionCategory,
@@ -325,10 +334,14 @@ describe("TransactionsPage bulk workflows", () => {
   it("replaces an older category Undo without stale timer interference", async () => {
     const items = await renderPage();
     mocks.updateTransaction.mockImplementation(
-      (_userId: number, transactionId: number, category: string) =>
+      (
+        _userId: number,
+        transactionId: number,
+        payload: { category?: string }
+      ) =>
         Promise.resolve({
           ...items.find((item) => item.id === transactionId)!,
-          category,
+          category: payload.category,
         })
     );
     mocks.bulkUpdateTransactionCategories.mockResolvedValue([
@@ -457,5 +470,288 @@ describe("TransactionsPage bulk workflows", () => {
       [1, 2],
       "Groceries"
     );
+  });
+});
+
+describe("TransactionsPage manual create and edit", () => {
+  it("creates a manual transaction and refreshes the current page", async () => {
+    await renderPage();
+
+    const created: Transaction = {
+      id: 99,
+      posted_on: "2026-08-05",
+      description: "Farmers market",
+      merchant_name: "Farmers Market Co",
+      amount_cents: -2_500,
+      category: "Groceries",
+      source: "manual",
+      pending: false,
+      financial_account_id: null,
+      account_name: null,
+      institution_name: null,
+    };
+    mocks.createTransaction.mockResolvedValue(created);
+    mocks.searchTransactions.mockResolvedValue(
+      page([created, ...transactions])
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add transaction" })
+    );
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Add transaction",
+    });
+
+    fireEvent.change(within(dialog).getByLabelText("Amount"), {
+      target: { value: "25" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Date"), {
+      target: { value: "2026-08-05" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Description"), {
+      target: { value: "Farmers market" },
+    });
+    fireEvent.change(
+      within(dialog).getByLabelText("Merchant (optional)"),
+      { target: { value: "Farmers Market Co" } }
+    );
+    fireEvent.change(within(dialog).getByLabelText("Category"), {
+      target: { value: "Groceries" },
+    });
+
+    await act(async () => {
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "Add transaction" })
+      );
+    });
+
+    expect(mocks.createTransaction).toHaveBeenCalledWith(1, {
+      posted_on: "2026-08-05",
+      description: "Farmers market",
+      merchant_name: "Farmers Market Co",
+      amount_cents: -2_500,
+      category: "Groceries",
+    });
+    expect(
+      screen.queryByRole("dialog", { name: "Add transaction" })
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Transaction added.")).toBeVisible();
+  });
+
+  it("shows a validation error instead of calling the API for a zero amount", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add transaction" })
+    );
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Add transaction",
+    });
+
+    fireEvent.change(within(dialog).getByLabelText("Description"), {
+      target: { value: "Bad amount" },
+    });
+
+    await act(async () => {
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "Add transaction" })
+      );
+    });
+
+    expect(mocks.createTransaction).not.toHaveBeenCalled();
+    expect(
+      within(dialog).getByText("Enter an amount greater than $0.")
+    ).toBeVisible();
+  });
+
+  it("edits an existing transaction with full field changes", async () => {
+    await renderPage();
+    mocks.updateTransaction.mockResolvedValue({
+      ...transactions[0],
+      description: "Updated coffee",
+      amount_cents: -700,
+    });
+    mocks.searchTransactions.mockResolvedValue(page(transactions));
+
+    fireEvent.click(screen.getAllByLabelText("Transaction actions")[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Edit transaction",
+    });
+
+    expect(within(dialog).getByLabelText("Description")).toHaveValue(
+      "Coffee"
+    );
+    expect(within(dialog).getByLabelText("Amount")).toHaveValue(5.5);
+
+    fireEvent.change(within(dialog).getByLabelText("Description"), {
+      target: { value: "Updated coffee" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Amount"), {
+      target: { value: "7" },
+    });
+
+    await act(async () => {
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "Save changes" })
+      );
+    });
+
+    expect(mocks.updateTransaction).toHaveBeenCalledWith(1, 1, {
+      posted_on: "2026-08-01",
+      description: "Updated coffee",
+      merchant_name: null,
+      amount_cents: -700,
+      category: "Dining",
+    });
+    expect(
+      screen.queryByRole("dialog", { name: "Edit transaction" })
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("TransactionsPage filtered export", () => {
+  it("exports only transactions matching the current filters across pages", async () => {
+    await renderPage();
+
+    const firstPageItems = [transactions[0]];
+    const secondPageItems = [transactions[1]];
+    mocks.searchTransactions.mockImplementation(
+      (_userId: number, params: { page?: number }) =>
+        Promise.resolve(
+          params.page === 2
+            ? {
+                ...page(secondPageItems),
+                page: 2,
+                total: 2,
+                total_pages: 2,
+              }
+            : {
+                ...page(firstPageItems),
+                total: 2,
+                total_pages: 2,
+              }
+        )
+    );
+
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    URL.createObjectURL = vi.fn(() => "blob:mock");
+    URL.revokeObjectURL = vi.fn();
+
+    try {
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole("button", { name: "Export CSV" })
+        );
+      });
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            "Exported 2 transactions matching the current filters."
+          )
+        ).toBeVisible()
+      );
+
+      expect(mocks.searchTransactions).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ page: 1, page_size: 100 })
+      );
+      expect(mocks.searchTransactions).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ page: 2, page_size: 100 })
+      );
+      expect(URL.createObjectURL).toHaveBeenCalledOnce();
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+    }
+  });
+});
+
+describe("TransactionsPage Undo edge cases", () => {
+  it("merges an overlapping delete into a single request within the Undo window", async () => {
+    await renderPage();
+    vi.useFakeTimers();
+
+    fireEvent.click(screen.getAllByLabelText("Transaction actions")[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Delete permanently" })
+      );
+    });
+
+    act(() => vi.advanceTimersByTime(3_000));
+
+    fireEvent.click(screen.getAllByLabelText("Transaction actions")[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Delete permanently" })
+      );
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(6_000);
+    });
+
+    expect(mocks.bulkDeleteTransactions).toHaveBeenCalledOnce();
+    expect(mocks.bulkDeleteTransactions).toHaveBeenCalledWith(1, [1, 2]);
+  });
+
+  it("restores every row when Undo is clicked after an overlapping delete", async () => {
+    await renderPage();
+    vi.useFakeTimers();
+
+    fireEvent.click(screen.getAllByLabelText("Transaction actions")[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Delete permanently" })
+      );
+    });
+
+    act(() => vi.advanceTimersByTime(1_000));
+
+    fireEvent.click(screen.getAllByLabelText("Transaction actions")[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Delete permanently" })
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+    expect(screen.getByLabelText("Select Coffee")).toBeVisible();
+    expect(screen.getByLabelText("Select Rent")).toBeVisible();
+    expect(mocks.bulkDeleteTransactions).not.toHaveBeenCalled();
+  });
+
+  it("still commits the deletion after the Undo toast is closed", async () => {
+    await renderPage();
+    vi.useFakeTimers();
+
+    selectTransactions("Coffee", "Rent");
+    await confirmBulkDeletion();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close notification" })
+    );
+    expect(
+      screen.queryByRole("button", { name: "Undo" })
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(6_000);
+    });
+
+    expect(mocks.bulkDeleteTransactions).toHaveBeenCalledOnce();
+    expect(mocks.bulkDeleteTransactions).toHaveBeenCalledWith(1, [1, 2]);
   });
 });

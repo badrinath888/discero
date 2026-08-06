@@ -20,6 +20,7 @@ import {
   session,
   type User,
 } from "../lib/api";
+import { downloadCsv, transactionsToCsv } from "../lib/csv";
 
 type AccountStats = {
   connectedAccounts: number;
@@ -218,56 +219,14 @@ export default function SettingsPage() {
 
     try {
       const transactions = await api.getTransactions(user.id);
+      const csv = transactionsToCsv(transactions);
 
-      const escapeCsv = (value: string | number | boolean | null) => {
-        const normalized = value === null ? "" : String(value);
-        return `"${normalized.replaceAll('"', '""')}"`;
-      };
-
-      const rows = transactions.map((transaction) => [
-        transaction.posted_on,
-        transaction.description,
-        transaction.merchant_name,
-        transaction.category,
-        (transaction.amount_cents / 100).toFixed(2),
-        transaction.source,
-        transaction.pending ? "Pending" : "Posted",
-        transaction.account_name,
-        transaction.institution_name,
-      ]);
-
-      const csv = [
-        [
-          "Date",
-          "Description",
-          "Merchant",
-          "Category",
-          "Amount",
-          "Source",
-          "Status",
-          "Account",
-          "Institution",
-        ],
-        ...rows,
-      ]
-        .map((row) => row.map(escapeCsv).join(","))
-        .join("\n");
-
-      const blob = new Blob([csv], {
-        type: "text/csv;charset=utf-8",
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-
-      link.href = url;
-      link.download = `finsight-transactions-${
-        new Date().toISOString().split("T")[0]
-      }.csv`;
-
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      downloadCsv(
+        `finsight-transactions-${
+          new Date().toISOString().split("T")[0]
+        }.csv`,
+        csv
+      );
 
       setMessage(
         transactions.length

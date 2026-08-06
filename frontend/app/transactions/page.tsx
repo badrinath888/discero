@@ -18,6 +18,7 @@ import {
   session,
   Transaction,
 } from "../lib/api";
+import { downloadCsv, transactionsToCsv } from "../lib/csv";
 import { PageReveal, Reveal } from "../components/PremiumMotion";
 
 const CATEGORIES = [
@@ -39,6 +40,12 @@ const EDITABLE_CATEGORIES = CATEGORIES.filter(
 );
 
 const PAGE_SIZE = 20;
+
+function sourceLabel(source: string): string {
+  if (source === "plaid") return "Plaid";
+  if (source === "manual") return "Manual";
+  return "CSV";
+}
 
 type Density = "compact" | "comfortable";
 
@@ -84,11 +91,31 @@ export default function TransactionsPage() {
   const deleteTimerRef = useRef<number | null>(null);
   const categoryUndoTimerRef = useRef<number | null>(null);
   const categoryUndoGenerationRef = useRef(0);
+  const pendingDeleteBatchRef = useRef<Transaction[]>([]);
   const [pendingDelete, setPendingDelete] = useState<
     | { type: "single"; transaction: Transaction }
     | { type: "bulk"; transactionIds: number[] }
     | null
   >(null);
+  const [formOpen, setFormOpen] = useState<"create" | "edit" | null>(
+    null
+  );
+  const [formTransactionId, setFormTransactionId] = useState<
+    number | null
+  >(null);
+  const [formDate, setFormDate] = useState("");
+  const [formDescription, setFormDescription] = useState("");
+  const [formMerchant, setFormMerchant] = useState("");
+  const [formCategory, setFormCategory] = useState(
+    EDITABLE_CATEGORIES[0]
+  );
+  const [formType, setFormType] = useState<"expense" | "income">(
+    "expense"
+  );
+  const [formAmount, setFormAmount] = useState("");
+  const [formBusy, setFormBusy] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -374,7 +401,7 @@ export default function TransactionsPage() {
       const updated = await api.updateTransaction(
         userId,
         transactionId,
-        nextCategory
+        { category: nextCategory }
       );
 
       setTransactions((current) =>
@@ -566,8 +593,16 @@ export default function TransactionsPage() {
       deletedTransactions.map((transaction) => transaction.id)
     );
 
+    const mergedBatch = [
+      ...pendingDeleteBatchRef.current.filter(
+        (transaction) => !deletedIds.has(transaction.id)
+      ),
+      ...deletedTransactions,
+    ];
+    pendingDeleteBatchRef.current = mergedBatch;
+
     setError("");
-    setUndoTransactions(deletedTransactions);
+    setUndoTransactions(mergedBatch);
     setTransactions((current) =>
       current.filter((transaction) => !deletedIds.has(transaction.id))
     );
@@ -609,6 +644,8 @@ export default function TransactionsPage() {
     setMessage("");
 
     deleteTimerRef.current = window.setTimeout(async () => {
+      const batchToDelete = pendingDeleteBatchRef.current;
+      pendingDeleteBatchRef.current = [];
       setUndoTransactions([]);
       setMessage("");
       deleteTimerRef.current = null;
@@ -617,10 +654,10 @@ export default function TransactionsPage() {
       try {
         await api.bulkDeleteTransactions(
           userId,
-          deletedTransactions.map((transaction) => transaction.id)
+          batchToDelete.map((transaction) => transaction.id)
         );
       } catch (err) {
-        restoreDeletedTransactions(deletedTransactions);
+        restoreDeletedTransactions(batchToDelete);
         setError(
           err instanceof Error
             ? err.message
@@ -641,6 +678,8 @@ export default function TransactionsPage() {
       window.clearTimeout(deleteTimerRef.current);
       deleteTimerRef.current = null;
     }
+
+    pendingDeleteBatchRef.current = [];
 
     setTransactions((current) => {
       const currentIds = new Set(
@@ -734,6 +773,204 @@ export default function TransactionsPage() {
     }
   }
 
+  async function refreshCurrentSearch(targetPage: number) {
+    if (!userId) return;
+
+    const refreshed = await api.searchTransactions(userId, {
+      search: search.trim() || undefined,
+      category: category === "All" ? undefined : category,
+      source:
+        source === "All" || source === "Pending"
+          ? undefined
+          : source.toLowerCase(),
+      pending: source === "Pending" ? true : undefined,
+      account_id:
+        accountId === "All" ? undefined : Number(accountId),
+      start_date: fromDate || undefined,
+      end_date: toDate || undefined,
+      duplicates_only: duplicatesOnly || undefined,
+      page: targetPage,
+      page_size: PAGE_SIZE,
+    });
+
+    setTransactions(refreshed.items);
+    setTotal(refreshed.total);
+    setTotalPages(refreshed.total_pages);
+    setTotalIncome(refreshed.total_income_cents);
+    setTotalSpending(refreshed.total_spending_cents);
+    setNet(refreshed.net_cents);
+    setPage(targetPage);
+  }
+
+  function openCreateForm() {
+    setFormOpen("create");
+    setFormTransactionId(null);
+    setFormDate(new Date().toISOString().split("T")[0]);
+    setFormDescription("");
+    setFormMerchant("");
+    setFormCategory(EDITABLE_CATEGORIES[0]);
+    setFormType("expense");
+    setFormAmount("");
+    setFormError("");
+  }
+
+  function openEditForm(transaction: Transaction) {
+    setMenuId(null);
+    setFormOpen("edit");
+    setFormTransactionId(transaction.id);
+    setFormDate(transaction.posted_on);
+    setFormDescription(transaction.description);
+    setFormMerchant(transaction.merchant_name || "");
+    setFormCategory(transaction.category);
+    setFormType(
+      transaction.amount_cents >= 0 ? "income" : "expense"
+    );
+    setFormAmount(
+      (Math.abs(transaction.amount_cents) / 100).toFixed(2)
+    );
+    setFormError("");
+  }
+
+  function closeForm() {
+    if (formBusy) return;
+
+    setFormOpen(null);
+    setFormTransactionId(null);
+  }
+
+  async function submitTransactionForm() {
+    if (!userId || formBusy || !formOpen) return;
+
+    const description = formDescription.trim();
+    const magnitude = Math.round(Number(formAmount) * 100);
+
+    if (!formDate) {
+      setFormError("Choose a transaction date.");
+      return;
+    }
+
+    if (!description) {
+      setFormError("Enter a description.");
+      return;
+    }
+
+    if (!Number.isFinite(magnitude) || magnitude <= 0) {
+      setFormError("Enter an amount greater than $0.");
+      return;
+    }
+
+    const amountCents =
+      formType === "expense" ? -magnitude : magnitude;
+
+    setFormBusy(true);
+    setFormError("");
+
+    try {
+      if (formOpen === "create") {
+        await api.createTransaction(userId, {
+          posted_on: formDate,
+          description,
+          merchant_name: formMerchant.trim() || null,
+          amount_cents: amountCents,
+          category: formCategory,
+        });
+        setMessage("Transaction added.");
+      } else if (formTransactionId !== null) {
+        await api.updateTransaction(userId, formTransactionId, {
+          posted_on: formDate,
+          description,
+          merchant_name: formMerchant.trim() || null,
+          amount_cents: amountCents,
+          category: formCategory,
+        });
+        setMessage("Transaction updated.");
+      }
+
+      const nextPage = formOpen === "create" ? 1 : page;
+      setFormOpen(null);
+      setFormTransactionId(null);
+      setExpandedId(null);
+      await refreshCurrentSearch(nextPage);
+    } catch (err) {
+      setFormError(
+        err instanceof Error
+          ? err.message
+          : "Unable to save transaction"
+      );
+    } finally {
+      setFormBusy(false);
+    }
+  }
+
+  async function exportFilteredTransactions() {
+    if (!userId || exporting) return;
+
+    setExporting(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const baseParams = {
+        search: search.trim() || undefined,
+        category: category === "All" ? undefined : category,
+        source:
+          source === "All" || source === "Pending"
+            ? undefined
+            : source.toLowerCase(),
+        pending: source === "Pending" ? true : undefined,
+        account_id:
+          accountId === "All" ? undefined : Number(accountId),
+        start_date: fromDate || undefined,
+        end_date: toDate || undefined,
+        duplicates_only: duplicatesOnly || undefined,
+      };
+
+      const first = await api.searchTransactions(userId, {
+        ...baseParams,
+        page: 1,
+        page_size: 100,
+      });
+
+      const items = [...first.items];
+
+      for (
+        let nextPage = 2;
+        nextPage <= first.total_pages;
+        nextPage += 1
+      ) {
+        const chunk = await api.searchTransactions(userId, {
+          ...baseParams,
+          page: nextPage,
+          page_size: 100,
+        });
+        items.push(...chunk.items);
+      }
+
+      const csv = transactionsToCsv(items);
+
+      downloadCsv(
+        `finsight-transactions-${
+          new Date().toISOString().split("T")[0]
+        }.csv`,
+        csv
+      );
+
+      setMessage(
+        items.length
+          ? `Exported ${items.length.toLocaleString()} transactions matching the current filters.`
+          : "No transactions matched the current filters."
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to export transactions"
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function toggleSelection(transactionId: number) {
     setSelectedIds((current) =>
       current.includes(transactionId)
@@ -791,14 +1028,34 @@ export default function TransactionsPage() {
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={syncTransactions}
-              disabled={!userId || syncing}
-              className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#14241e] px-5 text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {syncing ? "Syncing transactions..." : "Sync transactions"}
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={openCreateForm}
+                disabled={!userId}
+                className="inline-flex min-h-11 items-center justify-center rounded-full border border-[#14241e]/10 bg-white px-5 text-sm font-semibold text-[#14241e] transition hover:bg-[#f7f4ed] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Add transaction
+              </button>
+
+              <button
+                type="button"
+                onClick={exportFilteredTransactions}
+                disabled={!userId || exporting}
+                className="inline-flex min-h-11 items-center justify-center rounded-full border border-[#14241e]/10 bg-white px-5 text-sm font-semibold text-[#14241e] transition hover:bg-[#f7f4ed] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {exporting ? "Preparing export..." : "Export CSV"}
+              </button>
+
+              <button
+                type="button"
+                onClick={syncTransactions}
+                disabled={!userId || syncing}
+                className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#14241e] px-5 text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {syncing ? "Syncing transactions..." : "Sync transactions"}
+              </button>
+            </div>
           </header>
           </Reveal>
 
@@ -963,6 +1220,7 @@ export default function TransactionsPage() {
                       { value: "All", label: "All sources" },
                       { value: "Plaid", label: "Plaid" },
                       { value: "CSV", label: "CSV" },
+                      { value: "Manual", label: "Manual" },
                       { value: "Pending", label: "Pending" },
                     ]}
                   />
@@ -1116,23 +1374,25 @@ export default function TransactionsPage() {
                     duplicatesOnly
                       ? "No transactions match another transaction by date, amount, and merchant or description."
                       : total === 0 && activeFilterCount === 0 && !search.trim()
-                      ? "Upload a CSV file or synchronize a connected account to add financial activity."
+                      ? "Upload a CSV file, synchronize a connected account, or add a transaction manually."
                       : "Adjust or clear your current filters to see more transactions."
                   }
                   actionLabel={
-                    !duplicatesOnly &&
-                    total === 0 &&
-                    activeFilterCount === 0 &&
-                    !search.trim()
+                    duplicatesOnly
                       ? undefined
+                      : total === 0 &&
+                        activeFilterCount === 0 &&
+                        !search.trim()
+                      ? "Add transaction"
                       : "Clear filters"
                   }
                   onAction={
-                    !duplicatesOnly &&
-                    total === 0 &&
-                    activeFilterCount === 0 &&
-                    !search.trim()
+                    duplicatesOnly
                       ? undefined
+                      : total === 0 &&
+                        activeFilterCount === 0 &&
+                        !search.trim()
+                      ? openCreateForm
                       : clearFilters
                   }
                 />
@@ -1151,6 +1411,7 @@ export default function TransactionsPage() {
                   onOpen={openDetails}
                   onMenuChange={setMenuId}
                   onCategoryChange={updateCategory}
+                  onEdit={openEditForm}
                   onDelete={deleteTransaction}
                 />
               ))
@@ -1208,6 +1469,7 @@ export default function TransactionsPage() {
             onCategoryChange={(nextCategory) =>
               updateCategory(activeTransaction.id, nextCategory)
             }
+            onEdit={() => openEditForm(activeTransaction)}
             onDelete={() => deleteTransaction(activeTransaction)}
           />
         )}
@@ -1305,6 +1567,30 @@ export default function TransactionsPage() {
           />
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {formOpen && (
+          <TransactionFormModal
+            mode={formOpen}
+            date={formDate}
+            description={formDescription}
+            merchant={formMerchant}
+            category={formCategory}
+            type={formType}
+            amount={formAmount}
+            busy={formBusy}
+            error={formError}
+            onDateChange={setFormDate}
+            onDescriptionChange={setFormDescription}
+            onMerchantChange={setFormMerchant}
+            onCategoryChange={setFormCategory}
+            onTypeChange={setFormType}
+            onAmountChange={setFormAmount}
+            onCancel={closeForm}
+            onSubmit={() => void submitTransactionForm()}
+          />
+        )}
+      </AnimatePresence>
     </main>
   );
 }
@@ -1374,6 +1660,7 @@ function TransactionGroup({
   onOpen,
   onMenuChange,
   onCategoryChange,
+  onEdit,
   onDelete,
 }: {
   date: string;
@@ -1389,6 +1676,7 @@ function TransactionGroup({
     transactionId: number,
     category: string
   ) => void;
+  onEdit: (transaction: Transaction) => void;
   onDelete: (transaction: Transaction) => void;
 }) {
   const dailyTotal = transactions.reduce(
@@ -1435,6 +1723,7 @@ function TransactionGroup({
           onCategoryChange={(nextCategory) =>
             onCategoryChange(transaction.id, nextCategory)
           }
+          onEdit={() => onEdit(transaction)}
           onDelete={() => onDelete(transaction)}
         />
       ))}
@@ -1452,6 +1741,7 @@ function TransactionListRow({
   onOpen,
   onMenuChange,
   onCategoryChange,
+  onEdit,
   onDelete,
 }: {
   transaction: Transaction;
@@ -1463,6 +1753,7 @@ function TransactionListRow({
   onOpen: () => void;
   onMenuChange: (open: boolean) => void;
   onCategoryChange: (category: string) => void;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
   const positive = transaction.amount_cents >= 0;
@@ -1515,7 +1806,7 @@ function TransactionListRow({
             )}
 
           <span className="rounded-full bg-[#edf5ee] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#476457]">
-            {transaction.source === "plaid" ? "Plaid" : "CSV"}
+            {sourceLabel(transaction.source)}
           </span>
         </div>
       </button>
@@ -1532,6 +1823,8 @@ function TransactionListRow({
           {transaction.institution_name ||
             (transaction.source === "plaid"
               ? "Connected account"
+              : transaction.source === "manual"
+              ? "Manually added"
               : "CSV import")}
         </p>
       </button>
@@ -1592,6 +1885,17 @@ function TransactionListRow({
 
             <button
               type="button"
+              onClick={() => {
+                onEdit();
+                onMenuChange(false);
+              }}
+              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-[#f7f4ed]"
+            >
+              Edit
+            </button>
+
+            <button
+              type="button"
               onClick={onDelete}
               className="w-full px-4 py-2.5 text-left text-sm font-medium text-[#a64b3d] hover:bg-[#fdf1ed]"
             >
@@ -1610,12 +1914,14 @@ function TransactionDrawer({
   busy,
   onClose,
   onCategoryChange,
+  onEdit,
   onDelete,
 }: {
   transaction: Transaction;
   busy: boolean;
   onClose: () => void;
   onCategoryChange: (category: string) => void;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
   const positive = transaction.amount_cents >= 0;
@@ -1679,7 +1985,7 @@ function TransactionDrawer({
 
             <div className="mt-3 flex flex-wrap gap-2">
               <StatusBadge>
-                {transaction.source === "plaid" ? "Plaid" : "CSV"}
+                {sourceLabel(transaction.source)}
               </StatusBadge>
 
               {transaction.pending && (
@@ -1728,6 +2034,8 @@ function TransactionDrawer({
               value={
                 transaction.source === "plaid"
                   ? "Plaid synchronization"
+                  : transaction.source === "manual"
+                  ? "Manually added"
                   : "CSV import"
               }
             />
@@ -1753,7 +2061,16 @@ function TransactionDrawer({
           </div>
         </div>
 
-        <footer className="border-t border-[#14241e]/10 p-6">
+        <footer className="flex flex-col gap-3 border-t border-[#14241e]/10 p-6">
+          <button
+            type="button"
+            onClick={onEdit}
+            disabled={busy}
+            className="h-11 w-full rounded-xl border border-[#14241e]/10 bg-white text-sm font-semibold text-[#14241e] transition hover:bg-[#f7f4ed] disabled:opacity-50"
+          >
+            Edit transaction
+          </button>
+
           <button
             type="button"
             onClick={onDelete}
@@ -1764,6 +2081,235 @@ function TransactionDrawer({
           </button>
         </footer>
       </motion.aside>
+    </motion.div>
+  );
+}
+
+function TransactionFormModal({
+  mode,
+  date,
+  description,
+  merchant,
+  category,
+  type,
+  amount,
+  busy,
+  error,
+  onDateChange,
+  onDescriptionChange,
+  onMerchantChange,
+  onCategoryChange,
+  onTypeChange,
+  onAmountChange,
+  onCancel,
+  onSubmit,
+}: {
+  mode: "create" | "edit";
+  date: string;
+  description: string;
+  merchant: string;
+  category: string;
+  type: "expense" | "income";
+  amount: string;
+  busy: boolean;
+  error: string;
+  onDateChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+  onMerchantChange: (value: string) => void;
+  onCategoryChange: (value: string) => void;
+  onTypeChange: (value: "expense" | "income") => void;
+  onAmountChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-8"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.18 }}
+    >
+      <button
+        type="button"
+        aria-label="Close transaction form"
+        onClick={onCancel}
+        disabled={busy}
+        className="absolute inset-0 bg-[#14241e]/45 backdrop-blur-[3px]"
+      />
+
+      <motion.form
+        role="dialog"
+        aria-modal="true"
+        aria-label={
+          mode === "create" ? "Add transaction" : "Edit transaction"
+        }
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+        initial={
+          reduceMotion ? false : { opacity: 0, scale: 0.96, y: 16 }
+        }
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 16 }}
+        transition={{
+          duration: reduceMotion ? 0 : 0.22,
+          ease: [0.22, 1, 0.36, 1],
+        }}
+        className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[28px] border border-[#14241e]/10 bg-[#fdfcf8] p-6 shadow-[0_30px_90px_rgba(20,36,30,0.28)] sm:p-7"
+      >
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+          {mode === "create" ? "New transaction" : "Edit transaction"}
+        </p>
+
+        <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+          {mode === "create"
+            ? "Add a transaction"
+            : "Update transaction"}
+        </h2>
+
+        <div className="mt-6 grid gap-4">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => onTypeChange("expense")}
+              aria-pressed={type === "expense"}
+              disabled={busy}
+              className={`h-10 rounded-xl border text-sm font-semibold transition disabled:opacity-50 ${
+                type === "expense"
+                  ? "border-[#a64b3d] bg-[#fdf1ed] text-[#a64b3d]"
+                  : "border-[#14241e]/10 bg-white text-[#66746e]"
+              }`}
+            >
+              Expense
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onTypeChange("income")}
+              aria-pressed={type === "income"}
+              disabled={busy}
+              className={`h-10 rounded-xl border text-sm font-semibold transition disabled:opacity-50 ${
+                type === "income"
+                  ? "border-[#167c5a] bg-[#e7f3eb] text-[#126a4d]"
+                  : "border-[#14241e]/10 bg-white text-[#66746e]"
+              }`}
+            >
+              Income
+            </button>
+          </div>
+
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[#7a8780]">
+              Amount
+            </span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0.01"
+              step="0.01"
+              value={amount}
+              onChange={(event) => onAmountChange(event.target.value)}
+              disabled={busy}
+              className="mt-1 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm outline-none focus:border-[#167c5a] disabled:opacity-50"
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[#7a8780]">
+              Date
+            </span>
+            <input
+              type="date"
+              value={date}
+              onChange={(event) => onDateChange(event.target.value)}
+              disabled={busy}
+              className="mt-1 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm outline-none focus:border-[#167c5a] disabled:opacity-50"
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[#7a8780]">
+              Description
+            </span>
+            <input
+              type="text"
+              value={description}
+              onChange={(event) =>
+                onDescriptionChange(event.target.value)
+              }
+              disabled={busy}
+              maxLength={512}
+              className="mt-1 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm outline-none focus:border-[#167c5a] disabled:opacity-50"
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[#7a8780]">
+              Merchant (optional)
+            </span>
+            <input
+              type="text"
+              value={merchant}
+              onChange={(event) => onMerchantChange(event.target.value)}
+              disabled={busy}
+              maxLength={255}
+              className="mt-1 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm outline-none focus:border-[#167c5a] disabled:opacity-50"
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[#7a8780]">
+              Category
+            </span>
+            <select
+              value={category}
+              onChange={(event) => onCategoryChange(event.target.value)}
+              disabled={busy}
+              className="mt-1 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm outline-none focus:border-[#167c5a] disabled:opacity-50"
+            >
+              {EDITABLE_CATEGORIES.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {error && (
+          <p
+            role="alert"
+            className="mt-4 text-sm font-medium text-[#a64b3d]"
+          >
+            {error}
+          </p>
+        )}
+
+        <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="min-h-11 rounded-full border border-[#14241e]/10 bg-white px-5 text-sm font-semibold transition hover:bg-[#f5f1e8] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Cancel
+          </button>
+
+          <button
+            type="submit"
+            disabled={busy}
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#167c5a] px-5 text-sm font-semibold text-white transition hover:bg-[#126a4d] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy
+              ? "Saving..."
+              : mode === "create"
+              ? "Add transaction"
+              : "Save changes"}
+          </button>
+        </div>
+      </motion.form>
     </motion.div>
   );
 }

@@ -13,6 +13,7 @@ Since the previous audit, FinSight has added:
 - Financial Stress Testing built on Safe-to-Spend, modeling an emergency expense, temporary income loss, delayed paycheck, or recurring bill increase
 - A `/decisions` frontend route surfacing all four decision-intelligence features
 - Two additional Alembic revisions (`8adb0528864c` recurring items, `146ccae6e522` goal contributions); Financial Stress Testing required no migration
+- Manual transaction creation, full transaction editing (date/description/merchant/amount/category), and filter-aware CSV export on the Transactions page, plus a fix for a real Undo data-loss bug (details below); no migration required
 
 Secure password recovery, email verification, hardened Plaid synchronization, and fully month-specific budgets — described below — were integrated earlier and remain unchanged.
 
@@ -91,13 +92,27 @@ Secure password recovery, email verification, hardened Plaid synchronization, an
 - The Transactions page toggle reuses existing selection, bulk delete, confirmation, and Undo behavior; a frontend test confirms bulk actions stay compatible with the toggle enabled.
 - This is implemented and verified, not in-progress; see the corrected [ROADMAP.md](ROADMAP.md).
 
+## Manual transaction entry, full editing, and filter-aware export
+
+- `POST /users/{user_id}/transactions` creates a `source="manual"`, `category_locked=True` transaction from a trimmed description/category and non-zero `amount_cents`; `category` defaults to `Uncategorized` and blank `merchant_name` normalizes to `null`.
+- `PATCH /users/{user_id}/transactions/{transaction_id}` was category-only; it now accepts a partial update to any of `posted_on`/`description`/`merchant_name`/`amount_cents`/`category` using the same `payload.model_dump(exclude_unset=True)` convention already used by `RecurringItem` updates, and rejects an empty payload with 422.
+- The Transactions page exposes an "Add transaction" header button and an "Edit" action (row menu and detail drawer) that open a shared modal; both call the broadened API and refresh the current filtered page afterward.
+- The Transactions page's "Export CSV" button pages through the search endpoint with the currently active filters (search/category/source/account/date range/duplicates) instead of exporting every transaction; CSV formatting and the download trigger were extracted to `frontend/app/lib/csv.ts` and are now shared with the Settings full export.
+- 22 new backend tests (`test_transaction_edit.py`) close a gap: the single-transaction PATCH/DELETE routes previously had no dedicated test coverage.
+
+## Undo data-loss fix
+
+- `scheduleDeletion` in `transactions/page.tsx` had a real bug: triggering a second optimistic delete while an earlier delete's 6-second Undo window was still open cleared the first batch's timer without ever sending it to the backend, and overwrote `undoTransactions` so the first batch was no longer restorable either — a silent, permanent loss of the deleted rows' backend state.
+- Fixed by tracking the pending batch in a ref (`pendingDeleteBatchRef`) that merges overlapping deletions; the single deferred `bulkDeleteTransactions` call and the Undo restore path now always operate on the full merged set.
+- Three new regression tests cover this: overlapping deletes merge into one request, Undo after an overlap restores every row, and a scheduled deletion still commits after the Undo toast is closed (existing, deliberate behavior, now locked in by a test).
+
 ## Validation baseline
 
 Current verified result:
 
-- Backend: 275 tests (`pytest -q`)
-- Frontend: 32 tests across 5 files (`npm run test:run`)
-  - 10 Transactions
+- Backend: 297 tests (`pytest -q`)
+- Frontend: 41 tests across 5 files (`npm run test:run`)
+  - 17 Transactions
   - 5 authentication recovery
   - 2 Budgets
   - 6 Accounts/Plaid

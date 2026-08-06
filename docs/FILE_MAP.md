@@ -29,7 +29,7 @@
 - `app/recurring.py`: algorithmic merchant normalization, cadence/confidence, next-date and price-change detection used by `summary/recurring`; distinct from the persisted `RecurringItem` model/router below.
 - `app/token_encryption.py`: Fernet configuration, encrypt/decrypt and safe errors.
 - `app/routers/users.py`: registration, login, forgot-password/reset-password/verify-email/resend-verification, self/get-user, credential changes.
-- `app/routers/transactions.py`: upload/list/search/update/delete, bulk category/delete, and every summary/insight/forecast endpoint.
+- `app/routers/transactions.py`: upload/create/list/search/update/delete (create and update accept full field payloads), bulk category/delete, and every summary/insight/forecast endpoint.
 - `app/routers/budgets.py`: list/upsert/copy/progress.
 - `app/routers/goals.py`: goal CRUD, derived status/progress, and `/goals/{goal_id}/contributions` deposit/withdrawal history CRUD.
 - `app/routers/recurring.py`: `RecurringItem` CRUD at `/users/{user_id}/recurring-items`.
@@ -52,6 +52,7 @@
 - `tests/conftest.py`: isolated SQLite test engine, dependency override, TestClient, registered-user/auth fixtures.
 - `test_api.py`: health, users, credential changes, upload/auth/isolation.
 - `test_transaction_search.py`, `test_transaction_bulk.py`: pagination, totals, text/source/type/account/date/category/duplicate filters, invalid range, and bulk category/delete atomicity.
+- `test_transaction_edit.py`: manual creation, partial/full single-transaction edits, validation, and ownership isolation for create/update/delete.
 - `test_budgets.py`, `test_goals.py`: domain CRUD/calculation/auth/isolation, including `test_goals.py` coverage of contribution/withdrawal history.
 - `test_recurring_items.py`: persisted `RecurringItem` CRUD, duplicate rejection, and cross-user isolation.
 - `test_safe_to_spend.py`, `test_major_purchase.py`, `test_scenario_comparison.py`, `test_financial_stress_test.py`: Safe-to-Spend, Major Purchase Simulator, Scenario Comparison, and Financial Stress Testing calculation and endpoint tests.
@@ -68,7 +69,8 @@
 - `app/page.tsx`: public marketing and authentication page.
 - `app/{dashboard,transactions,accounts,budgets,recurring,forecast,goals,insights,settings,forgot-password,reset-password,verify-email}/page.tsx`: route implementations (14 pages plus root); see [ARCHITECTURE.md](ARCHITECTURE.md).
 - `app/decisions/page.tsx`: Safe-to-Spend, Major Purchase Simulator, Scenario Comparison, and Financial Stress Testing (single purchase/compare/stress modes); covered by `app/decisions/page.test.tsx`.
-- `app/lib/api.ts`: API/result types, 15-second fetch wrapper, localStorage session, all endpoint methods (including `duplicates_only`, recurring items, goal contributions, Safe-to-Spend, major-purchase simulate/compare, and the financial stress test), money formatter.
+- `app/lib/api.ts`: API/result types, 15-second fetch wrapper, localStorage session, all endpoint methods (including `duplicates_only`, transaction create/update, recurring items, goal contributions, Safe-to-Spend, major-purchase simulate/compare, and the financial stress test), money formatter.
+- `app/lib/csv.ts`: shared transaction-to-CSV formatting and browser download trigger, used by the Transactions filtered export and the Settings full export.
 - `components/AppSidebar.tsx`: grouped desktop/mobile navigation and browser logout.
 - `components/AuthFlowCard.tsx`: shared layout for the forgot-password/reset-password/verify-email pages.
 - `ConfirmationModal.tsx`: accessible reusable destructive confirmation dialog.

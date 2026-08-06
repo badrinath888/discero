@@ -25,6 +25,7 @@ from app.schemas import (
     MonthlyInsightsOut,
     Overview,
     RecurringPaymentOut,
+    TransactionCreate,
     TransactionOut,
     TransactionPage,
     UpcomingCashFlowOut,
@@ -205,6 +206,38 @@ async def upload_transactions(
             for error in result.errors
         ],
     )
+
+
+@router.post(
+    "/transactions",
+    response_model=TransactionOut,
+    status_code=201,
+)
+def create_transaction(
+    user_id: int,
+    payload: TransactionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Transaction:
+    _authorize_user(user_id, current_user)
+
+    transaction = Transaction(
+        user_id=user_id,
+        posted_on=payload.posted_on,
+        description=payload.description,
+        merchant_name=payload.merchant_name,
+        amount_cents=payload.amount_cents,
+        category=payload.category,
+        category_locked=True,
+        source="manual",
+        pending=False,
+    )
+
+    db.add(transaction)
+    db.commit()
+    db.refresh(transaction)
+
+    return transaction
 
 
 @router.get(
@@ -509,16 +542,23 @@ def update_transaction(
         db,
     )
 
-    category = payload.category.strip()
+    changes = payload.model_dump(exclude_unset=True)
 
-    if not category:
-        raise HTTPException(
-            status_code=422,
-            detail="category cannot be empty",
-        )
+    if "posted_on" in changes:
+        transaction.posted_on = changes["posted_on"]
 
-    transaction.category = category
-    transaction.category_locked = True
+    if "description" in changes:
+        transaction.description = changes["description"]
+
+    if "merchant_name" in changes:
+        transaction.merchant_name = changes["merchant_name"]
+
+    if "amount_cents" in changes:
+        transaction.amount_cents = changes["amount_cents"]
+
+    if "category" in changes:
+        transaction.category = changes["category"]
+        transaction.category_locked = True
 
     db.commit()
     db.refresh(transaction)

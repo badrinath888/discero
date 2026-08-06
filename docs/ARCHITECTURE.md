@@ -95,7 +95,7 @@ All authenticated pages use `AppSidebar`, responsive desktop/mobile navigation, 
 
 - `/`: marketing plus login/register; validates existing token; form validation and inline auth errors.
 - `/dashboard`: loads overview, categories, budgets, all transactions, goals, forecast, and Safe-to-Spend; charts/KPIs, CSV upload, links to detail pages; bespoke loading/error/empty presentation.
-- `/transactions`: server search/filter/pagination, accounts, category edit, Plaid sync, bulk selection/category/delete, confirmation, success/error and six-second Undo toasts, detail drawer.
+- `/transactions`: server search/filter/pagination, accounts, manual creation and full editing (date/description/merchant/amount/category), Plaid sync, bulk selection/category/delete, confirmation, success/error and six-second Undo toasts, detail drawer, filter-aware CSV export.
 - `/accounts`: accounts plus transactions; portfolio totals/grouping/detail drawer, Plaid connect/sync/disconnect with confirmation and toast.
 - `/budgets`: monthly budgets/progress; save/edit drawer, copy previous month, overwrite choice, progress visuals and toast.
 - `/recurring`: combines detected recurring payments with persisted recurring items (create/update/delete); totals, due timing, warnings, rows/detail drawer; transaction CTA when empty.
@@ -103,7 +103,7 @@ All authenticated pages use `AppSidebar`, responsive desktop/mobile navigation, 
 - `/goals`: goal CRUD, contribution/withdrawal history per goal, status/progress, form/detail drawers, deletion confirmation/toast.
 - `/insights`: selected-month insights, metrics/severity filtering, rows/detail drawer and empty CTA.
 - `/decisions`: Safe-to-Spend summary card plus single-purchase simulation, side-by-side scenario comparison, and financial stress test modes; status/risk badges, explanation text, alternative-amount suggestions, and recovery estimates.
-- `/settings`: profile, account/transaction counts, password/email changes, logout, client-side CSV export; password visibility and toast errors/success.
+- `/settings`: profile, account/transaction counts, password/email changes, logout, client-side full CSV export (shared formatter with the Transactions filtered export); password visibility and toast errors/success.
 - `/forgot-password`: public email submission with enumeration-safe success and error/loading states.
 - `/reset-password`: token-based password replacement, invalid/expired state, and local session clearing on success.
 - `/verify-email`: automatic token verification plus a public resend action.

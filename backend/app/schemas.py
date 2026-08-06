@@ -7,6 +7,7 @@ from pydantic import (
     EmailStr,
     Field,
     field_validator,
+    model_validator,
 )
 
 
@@ -37,8 +38,127 @@ class TransactionPage(BaseModel):
     net_cents: int
 
 
+class TransactionCreate(BaseModel):
+    posted_on: date
+    description: str = Field(min_length=1, max_length=512)
+    merchant_name: str | None = Field(default=None, max_length=255)
+    amount_cents: int
+    category: str = Field(
+        default="Uncategorized",
+        min_length=1,
+        max_length=64,
+    )
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str) -> str:
+        stripped = value.strip()
+
+        if not stripped:
+            raise ValueError("description cannot be empty")
+
+        return stripped
+
+    @field_validator("merchant_name")
+    @classmethod
+    def validate_merchant_name(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        if value is None:
+            return None
+
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str) -> str:
+        stripped = value.strip()
+
+        if not stripped:
+            raise ValueError("category cannot be empty")
+
+        return stripped
+
+    @field_validator("amount_cents")
+    @classmethod
+    def validate_amount_cents(cls, value: int) -> int:
+        if value == 0:
+            raise ValueError("amount cannot be zero")
+
+        return value
+
+
 class TransactionUpdate(BaseModel):
-    category: str = Field(min_length=1, max_length=64)
+    posted_on: date | None = None
+    description: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=512,
+    )
+    merchant_name: str | None = Field(default=None, max_length=255)
+    amount_cents: int | None = None
+    category: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+    )
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        stripped = value.strip()
+
+        if not stripped:
+            raise ValueError("description cannot be empty")
+
+        return stripped
+
+    @field_validator("merchant_name")
+    @classmethod
+    def validate_merchant_name(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        if value is None:
+            return None
+
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        stripped = value.strip()
+
+        if not stripped:
+            raise ValueError("category cannot be empty")
+
+        return stripped
+
+    @field_validator("amount_cents")
+    @classmethod
+    def validate_amount_cents(cls, value: int | None) -> int | None:
+        if value == 0:
+            raise ValueError("amount cannot be zero")
+
+        return value
+
+    @model_validator(mode="after")
+    def validate_at_least_one_field(self) -> "TransactionUpdate":
+        if not self.model_fields_set:
+            raise ValueError(
+                "at least one field must be provided"
+            )
+
+        return self
 
 
 class BulkTransactionIds(BaseModel):

@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowDownRight,
   ArrowUpRight,
+  AlertTriangle,
   CalendarDays,
   Edit3,
   Flag,
@@ -34,6 +35,7 @@ import {
   api,
   formatCents,
   GoalContribution,
+  GoalConflictDetection,
   GoalContributionType,
   SavingsGoal,
   session,
@@ -84,6 +86,10 @@ export default function GoalsPage() {
 
   const [userId, setUserId] = useState<number | null>(null);
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
+  const [monthlyCapacity, setMonthlyCapacity] = useState("");
+  const [conflictAnalysis, setConflictAnalysis] =
+    useState<GoalConflictDetection | null>(null);
+  const [conflictLoading, setConflictLoading] = useState(false);
   const [drawerMode, setDrawerMode] = useState<DrawerMode | null>(null);
   const [activeGoalId, setActiveGoalId] = useState<number | null>(null);
   const [goalForm, setGoalForm] =
@@ -255,6 +261,40 @@ useEffect(() => {
           ? err.message
           : "Unable to load contribution history"
       );
+    }
+  }
+
+  async function analyzeGoalConflicts() {
+    if (!userId) return;
+
+    const capacityCents = Math.round(Number(monthlyCapacity) * 100);
+
+    if (
+      !monthlyCapacity.trim() ||
+      !Number.isFinite(capacityCents) ||
+      capacityCents < 0
+    ) {
+      setError("Enter a valid monthly savings capacity.");
+      return;
+    }
+
+    setConflictLoading(true);
+    setError("");
+
+    try {
+      const result = await api.detectGoalConflicts(userId, {
+        monthly_savings_capacity_cents: capacityCents,
+      });
+
+      setConflictAnalysis(result);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to analyze goal conflicts"
+      );
+    } finally {
+      setConflictLoading(false);
     }
   }
 
@@ -591,6 +631,17 @@ useEffect(() => {
             </section>
           </Reveal>
 
+          <Reveal delay={0.1}>
+            <GoalConflictPanel
+              monthlyCapacity={monthlyCapacity}
+              analysis={conflictAnalysis}
+              loading={conflictLoading}
+              disabled={goals.length === 0}
+              onCapacityChange={setMonthlyCapacity}
+              onAnalyze={() => void analyzeGoalConflicts()}
+            />
+          </Reveal>
+
           {loading ? (
             <div className="mt-8">
               <PageLoading message="Loading savings goals..." />
@@ -730,6 +781,99 @@ function Metric({ label, value }: { label: string; value: string }) {
       </p>
       <p className="mt-2 text-lg font-semibold">{value}</p>
     </div>
+  );
+}
+
+function GoalConflictPanel({
+  monthlyCapacity,
+  analysis,
+  loading,
+  disabled,
+  onCapacityChange,
+  onAnalyze,
+}: {
+  monthlyCapacity: string;
+  analysis: GoalConflictDetection | null;
+  loading: boolean;
+  disabled: boolean;
+  onCapacityChange: (value: string) => void;
+  onAnalyze: () => void;
+}) {
+  return (
+    <section className="mt-8 rounded-[30px] border border-[#14241e]/10 bg-white p-6">
+      <div className="flex items-center gap-3">
+        <AlertTriangle className="h-5 w-5 text-[#8b6518]" />
+        <h2 className="text-2xl font-semibold">Goal conflict check</h2>
+      </div>
+
+      <p className="mt-3 text-sm text-[#66746e]">
+        Compare your monthly savings capacity against every active goal.
+      </p>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-[320px_1fr]">
+        <div>
+          <Field label="Monthly savings capacity">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={monthlyCapacity}
+              onChange={(event) => onCapacityChange(event.target.value)}
+              className="input"
+              placeholder="1000.00"
+              disabled={disabled || loading}
+            />
+          </Field>
+
+          <button
+            type="button"
+            onClick={onAnalyze}
+            disabled={disabled || loading}
+            className="mt-4 min-h-11 w-full rounded-2xl bg-[#14241e] px-5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {loading ? "Analyzing..." : "Analyze goal conflicts"}
+          </button>
+        </div>
+
+        <div className="rounded-2xl bg-[#f5f1e8] p-5">
+          {!analysis ? (
+            <p className="text-sm text-[#66746e]">
+              {disabled
+                ? "Create a savings goal before running the analysis."
+                : "Run the analysis to see goal risk and monthly shortfalls."}
+            </p>
+          ) : (
+            <>
+              <p className="text-lg font-semibold capitalize">
+                {analysis.conflict_status.replaceAll("_", " ")}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-[#66746e]">
+                {analysis.explanation}
+              </p>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <SummaryCard
+                  label="Capacity"
+                  value={formatCents(
+                    analysis.monthly_savings_capacity_cents
+                  )}
+                />
+                <SummaryCard
+                  label="Required"
+                  value={formatCents(
+                    analysis.total_required_monthly_cents
+                  )}
+                />
+                <SummaryCard
+                  label="Shortfall"
+                  value={formatCents(analysis.monthly_shortfall_cents)}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 

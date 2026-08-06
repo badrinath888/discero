@@ -492,6 +492,43 @@ export type GoalContributionUpdate = {
   note?: string | null;
 };
 
+
+export type GoalConflictDetectionRequest = {
+  monthly_savings_capacity_cents?: number | null;
+};
+
+export type GoalConflictGoal = {
+  goal_id: number;
+  name: string;
+  target_cents: number;
+  saved_cents: number;
+  remaining_cents: number;
+  target_date: string | null;
+  months_remaining: number | null;
+  required_monthly_cents: number;
+  allocated_monthly_cents: number;
+  monthly_shortfall_cents: number;
+  status:
+    | "on_track"
+    | "at_risk"
+    | "unfunded"
+    | "no_deadline"
+    | "completed";
+};
+
+export type GoalConflictDetection = {
+  as_of: string;
+  conflict_status: "no_conflict" | "strained" | "conflict";
+  monthly_savings_capacity_cents: number;
+  total_required_monthly_cents: number;
+  monthly_shortfall_cents: number;
+  confidence_score: number;
+  goals: GoalConflictGoal[];
+  explanation: string;
+  recommendations: string[];
+  warnings: string[];
+};
+
 export type RecurringPayment = {
   merchant: string;
   amount_cents: number;
@@ -1088,6 +1125,20 @@ runFinancialStressTest: (
     fetchWithTimeout(`${API_URL}/users/${userId}/goals`, {
       headers: authHeaders(),
     }).then((res) => handle<SavingsGoal[]>(res)),
+
+
+  detectGoalConflicts: (
+    userId: number,
+    payload: GoalConflictDetectionRequest
+  ): Promise<GoalConflictDetection> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/goal-conflicts`,
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify(payload),
+      }
+    ).then((res) => handle<GoalConflictDetection>(res)),
 
   createSavingsGoal: (
     userId: number,

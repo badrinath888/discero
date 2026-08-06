@@ -6,9 +6,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models import (
+    Budget,
     FinancialAccount,
     PlaidItem,
     RecurringItem,
+    Transaction,
     User,
 )
 from app.schemas import SafeToSpendRequest
@@ -85,12 +87,13 @@ def create_recurring_item(
     next_payment: date,
     status: str = "active",
     confidence_score: float = 90.0,
+    category: str = "Bills",
 ) -> RecurringItem:
     item = RecurringItem(
         user_id=user.id,
         merchant=merchant,
         normalized_merchant=f"{merchant.upper()}-{uuid4().hex}",
-        category="Bills",
+        category=category,
         amount_cents=amount_cents,
         frequency="Monthly",
         last_payment=next_payment - timedelta(days=30),
@@ -104,6 +107,51 @@ def create_recurring_item(
     db.refresh(item)
 
     return item
+
+
+def create_budget(
+    db: Session,
+    user: User,
+    *,
+    category: str,
+    month: str,
+    limit_cents: int,
+) -> Budget:
+    budget = Budget(
+        user_id=user.id,
+        category=category,
+        month=month,
+        limit_cents=limit_cents,
+    )
+
+    db.add(budget)
+    db.commit()
+    db.refresh(budget)
+
+    return budget
+
+
+def create_spend_transaction(
+    db: Session,
+    user: User,
+    *,
+    posted_on: date,
+    amount_cents: int,
+    category: str,
+) -> Transaction:
+    transaction = Transaction(
+        user_id=user.id,
+        posted_on=posted_on,
+        description="Test spend",
+        amount_cents=-abs(amount_cents),
+        category=category,
+    )
+
+    db.add(transaction)
+    db.commit()
+    db.refresh(transaction)
+
+    return transaction
 
 
 def test_calculates_safe_to_spend() -> None:
@@ -355,6 +403,666 @@ def test_does_not_include_another_users_data() -> None:
         assert result.breakdown.upcoming_obligations_cents == 0
         assert result.safe_to_spend_cents == 250_000
 
+
+def test_includes_remaining_monthly_budget_obligation() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "budget-remaining")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=50_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert len(result.obligations) == 1
+
+        obligation = result.obligations[0]
+
+        assert obligation.source == "budget"
+        assert obligation.category == "Groceries"
+        assert obligation.name == "Groceries budget"
+        assert obligation.amount_cents == 50_000
+        assert result.breakdown.upcoming_obligations_cents == 50_000
+
+
+def test_partially_spent_budget_subtracts_remaining_amount_only() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "budget-partial")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=50_000,
+        )
+
+        create_spend_transaction(
+            db,
+            user,
+            posted_on=TEST_DATE,
+            amount_cents=20_000,
+            category="Groceries",
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert len(result.obligations) == 1
+        assert result.obligations[0].amount_cents == 30_000
+
+
+def test_fully_spent_budget_is_excluded() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "budget-full")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=50_000,
+        )
+
+        create_spend_transaction(
+            db,
+            user,
+            posted_on=TEST_DATE,
+            amount_cents=50_000,
+            category="Groceries",
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.obligations == []
+
+
+def test_overspent_budget_is_excluded() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "budget-overspent")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=50_000,
+        )
+
+        create_spend_transaction(
+            db,
+            user,
+            posted_on=TEST_DATE,
+            amount_cents=70_000,
+            category="Groceries",
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.obligations == []
+
+
+def test_budget_spending_outside_its_own_month_is_ignored() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "budget-month-scope")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=50_000,
+        )
+
+        create_spend_transaction(
+            db,
+            user,
+            posted_on=date(2026, 7, 15),
+            amount_cents=40_000,
+            category="Groceries",
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert len(result.obligations) == 1
+        assert result.obligations[0].amount_cents == 50_000
+
+
+def test_budget_obligations_ignore_another_users_data() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "budget-owner")
+        other_user = create_user(db, "budget-other-owner")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=250_000,
+        )
+
+        create_account(
+            db,
+            other_user,
+            available_balance_cents=900_000,
+        )
+
+        create_budget(
+            db,
+            other_user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+
+        create_spend_transaction(
+            db,
+            other_user,
+            posted_on=TEST_DATE,
+            amount_cents=10_000,
+            category="Groceries",
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.obligations == []
+        assert result.breakdown.upcoming_obligations_cents == 0
+
+
+def test_budget_outside_horizon_is_excluded() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "budget-outside-horizon")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Travel",
+            month="2026-10",
+            limit_cents=100_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=30),
+            as_of=TEST_DATE,
+        )
+
+        assert result.obligations == []
+
+
+def test_horizon_crossing_months_includes_applicable_budgets() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "budget-crossing-months")
+        as_of = date(2026, 8, 25)
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=40_000,
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Dining",
+            month="2026-09",
+            limit_cents=30_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=10),
+            as_of=as_of,
+        )
+
+        assert result.through_date == date(2026, 9, 4)
+        assert len(result.obligations) == 2
+
+        by_category = {
+            obligation.category: obligation
+            for obligation in result.obligations
+        }
+
+        assert by_category["Groceries"].amount_cents == 40_000
+        assert by_category["Groceries"].expected_date == date(
+            2026, 8, 31
+        )
+        assert by_category["Dining"].amount_cents == 30_000
+        assert by_category["Dining"].expected_date == date(
+            2026, 9, 4
+        )
+
+
+def test_matching_recurring_expense_reduces_budget_obligation() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "offset-partial")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=60_000,
+            next_payment=TEST_DATE + timedelta(days=5),
+            category="Housing",
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Housing",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        recurring = [
+            o for o in result.obligations if o.source == "recurring"
+        ]
+        budget = [
+            o for o in result.obligations if o.source == "budget"
+        ]
+
+        assert len(recurring) == 1
+        assert recurring[0].amount_cents == 60_000
+
+        assert len(budget) == 1
+        assert budget[0].amount_cents == 40_000
+        assert result.breakdown.upcoming_obligations_cents == 100_000
+
+
+def test_recurring_equal_to_remaining_budget_removes_obligation() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "offset-equal")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=100_000,
+            next_payment=TEST_DATE + timedelta(days=5),
+            category="Housing",
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Housing",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        budget = [
+            o for o in result.obligations if o.source == "budget"
+        ]
+
+        assert budget == []
+        assert result.breakdown.upcoming_obligations_cents == 100_000
+
+
+def test_recurring_larger_than_budget_removes_obligation() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "offset-larger")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=TEST_DATE + timedelta(days=5),
+            category="Housing",
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Housing",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        budget = [
+            o for o in result.obligations if o.source == "budget"
+        ]
+        recurring = [
+            o for o in result.obligations if o.source == "recurring"
+        ]
+
+        assert budget == []
+        assert len(recurring) == 1
+        assert recurring[0].amount_cents == 150_000
+        assert result.breakdown.upcoming_obligations_cents == 150_000
+
+
+def test_different_categories_are_not_offset() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "offset-different-category")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_recurring_item(
+            db,
+            user,
+            merchant="Streaming",
+            amount_cents=50_000,
+            next_payment=TEST_DATE + timedelta(days=5),
+            category="Entertainment",
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Housing",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        budget = [
+            o for o in result.obligations if o.source == "budget"
+        ]
+
+        assert len(budget) == 1
+        assert budget[0].amount_cents == 100_000
+        assert result.breakdown.upcoming_obligations_cents == 150_000
+
+
+def test_recurring_in_another_month_is_not_offset() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "offset-different-month")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=90_000,
+            next_payment=date(2026, 9, 2),
+            category="Housing",
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Housing",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=30),
+            as_of=TEST_DATE,
+        )
+
+        budget = [
+            o for o in result.obligations if o.source == "budget"
+        ]
+
+        assert len(budget) == 1
+        assert budget[0].amount_cents == 100_000
+        assert result.breakdown.upcoming_obligations_cents == 190_000
+
+
+def test_category_offset_matching_is_case_insensitive() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "offset-case-insensitive")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=60_000,
+            next_payment=TEST_DATE + timedelta(days=5),
+            category="  housing  ",
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Housing",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        budget = [
+            o for o in result.obligations if o.source == "budget"
+        ]
+
+        assert len(budget) == 1
+        assert budget[0].amount_cents == 40_000
+
+
+def test_recurring_and_budget_obligations_combine() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "budget-and-recurring")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=TEST_DATE + timedelta(days=5),
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=50_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert len(result.obligations) == 2
+        assert result.breakdown.upcoming_obligations_cents == 200_000
+
+        sources = {
+            obligation.source for obligation in result.obligations
+        }
+
+        assert sources == {"recurring", "budget"}
+        assert result.warnings == []
+
+
+def test_no_obligations_warning_only_when_both_kinds_are_absent() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "budget-warning")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=50_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert not any(
+            "recurring" in warning.lower()
+            for warning in result.warnings
+        )
+
+        no_obligations_result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=date(2026, 12, 1),
+        )
+
+        assert any(
+            "no active recurring or budget obligations" in warning.lower()
+            for warning in no_obligations_result.warnings
+        )
+
+
 def test_safe_to_spend_endpoint(
     client: TestClient,
 ) -> None:
@@ -406,6 +1114,59 @@ def test_safe_to_spend_endpoint(
     )
     assert len(payload["obligations"]) == 1
     assert payload["obligations"][0]["name"] == "Rent"
+
+
+def test_safe_to_spend_endpoint_includes_budget_source(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(
+        client,
+        "safe-to-spend-budget-endpoint",
+    )
+    current_month = date.today().strftime("%Y-%m")
+
+    with TestingSessionLocal() as db:
+        user = db.get(User, user_id)
+
+        assert user is not None
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month=current_month,
+            limit_cents=50_000,
+        )
+
+    response = client.post(
+        f"/users/{user_id}/safe-to-spend",
+        headers=headers,
+        json={
+            "safety_reserve_cents": 0,
+            "essential_spending_cents": 0,
+            "horizon_days": 30,
+        },
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+    budget_obligations = [
+        obligation
+        for obligation in payload["obligations"]
+        if obligation["source"] == "budget"
+    ]
+
+    assert len(budget_obligations) == 1
+    assert budget_obligations[0]["category"] == "Groceries"
+    assert budget_obligations[0]["amount_cents"] == 50_000
+    assert budget_obligations[0]["name"] == "Groceries budget"
 
 
 def test_safe_to_spend_endpoint_blocks_other_user(

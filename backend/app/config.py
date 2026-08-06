@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "development-only-change-this-secret"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    refresh_token_expire_days: int = 30
 
     app_env: Literal["development", "test", "production"] = "production"
     frontend_url: str = "http://localhost:3000"

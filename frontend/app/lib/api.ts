@@ -2,6 +2,7 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const TOKEN_KEY = "accessToken";
+const REFRESH_TOKEN_KEY = "refreshToken";
 const USER_ID_KEY = "userId";
 const SESSION_NOTICE_KEY = "sessionNotice";
 const INVALIDATED_SESSION_DETAIL =
@@ -10,7 +11,8 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 async function fetchWithTimeout(
   input: RequestInfo | URL,
-  init: RequestInit = {}
+  init: RequestInit = {},
+  allowRefresh = true
 ): Promise<Response> {
   const controller = new AbortController();
   const timeout = window.setTimeout(
@@ -19,10 +21,38 @@ async function fetchWithTimeout(
   );
 
   try {
-    return await fetch(input, {
+    const response = await fetch(input, {
       ...init,
       signal: controller.signal,
     });
+
+    const requestHeaders = new Headers(init.headers);
+    const wasAuthenticated = requestHeaders.has("Authorization");
+
+    if (
+      response.status === 401 &&
+      allowRefresh &&
+      wasAuthenticated &&
+      (await refreshSession())
+    ) {
+      const token = getToken();
+      const retryHeaders = new Headers(init.headers);
+
+      if (token) {
+        retryHeaders.set("Authorization", `Bearer ${token}`);
+      }
+
+      return fetchWithTimeout(
+        input,
+        {
+          ...init,
+          headers: retryHeaders,
+        },
+        false
+      );
+    }
+
+    return response;
   } catch (error) {
     if (
       error instanceof DOMException &&
@@ -45,6 +75,39 @@ function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+async function refreshSession(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+
+  if (!refreshToken) return false;
+
+  const response = await fetchWithTimeout(
+    `${API_URL}/users/refresh`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        refresh_token: refreshToken,
+      }),
+    },
+    false
+  );
+
+  if (!response.ok) return false;
+
+  const auth = (await response.json()) as AuthResponse;
+  session.save(auth);
+  return true;
+}
+
+
 function authHeaders(): HeadersInit {
   const token = getToken();
 
@@ -66,6 +129,7 @@ function clearSession(): void {
   if (typeof window === "undefined") return;
 
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(USER_ID_KEY);
 }
 
@@ -141,6 +205,7 @@ export type PublicMessage = {
 
 export type AuthResponse = {
   access_token: string;
+  refresh_token: string;
   token_type: string;
   user: User;
 };
@@ -651,6 +716,10 @@ export type PlaidConnection = {
 export const session = {
   save(auth: AuthResponse): void {
     localStorage.setItem(TOKEN_KEY, auth.access_token);
+    localStorage.setItem(
+      REFRESH_TOKEN_KEY,
+      auth.refresh_token
+    );
     localStorage.setItem(USER_ID_KEY, String(auth.user.id));
     sessionStorage.removeItem(SESSION_NOTICE_KEY);
   },

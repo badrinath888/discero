@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
+import GoalImpactList from "../components/GoalImpactList";
 import { PageReveal, Reveal } from "../components/PremiumMotion";
 import {
   api,
@@ -1071,6 +1072,8 @@ function SinglePurchaseResult({
             </div>
           </div>
         )}
+
+        <GoalImpactList goalImpacts={result.goal_impacts} />
       </div>
     </article>
   );
@@ -1613,6 +1616,8 @@ function StressTestResult({
             </ul>
           </div>
         )}
+
+        <GoalImpactList goalImpacts={result.goal_impacts} />
 
         <div className="mt-7 rounded-2xl border border-white/10 bg-white/[0.045] p-5">
           <div className="flex items-start gap-3">

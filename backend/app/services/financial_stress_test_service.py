@@ -16,6 +16,7 @@ from app.schemas import (
 from app.services.goal_conflict_detection_service import (
     detect_goal_conflicts,
 )
+from app.services.goal_impact_service import calculate_goal_impacts
 from app.services.safe_to_spend_service import (
     calculate_safe_to_spend,
 )
@@ -201,13 +202,18 @@ def run_financial_stress_test(
         shortfall,
     )
 
+    baseline_monthly_capacity = max(
+        average_monthly_income - recurring_obligations_cents,
+        0,
+    )
+    adjusted_monthly_capacity = max(
+        baseline_monthly_capacity - monthly_reduction,
+        0,
+    )
+
     affected_goals: list[StressAffectedGoalOut] = []
 
     if monthly_reduction > 0:
-        baseline_monthly_capacity = max(
-            average_monthly_income - recurring_obligations_cents,
-            0,
-        )
         affected_goals = _compute_affected_goals(
             db,
             user_id,
@@ -215,6 +221,14 @@ def run_financial_stress_test(
             monthly_reduction_cents=monthly_reduction,
             as_of=calculation_date,
         )
+
+    goal_impacts = calculate_goal_impacts(
+        db,
+        user_id,
+        baseline_monthly_capacity_cents=baseline_monthly_capacity,
+        adjusted_monthly_capacity_cents=adjusted_monthly_capacity,
+        as_of=calculation_date,
+    )
 
     resilience_factors = _build_resilience_factors(
         raw_safe_after,
@@ -267,6 +281,7 @@ def run_financial_stress_test(
         confidence_score=confidence_score,
         estimated_recovery_days=recovery_days,
         data_disclaimer=_DATA_DISCLAIMER,
+        goal_impacts=goal_impacts,
         explanation=_build_explanation(
             scenario_type=payload.scenario_type,
             scenario_name=scenario_name,

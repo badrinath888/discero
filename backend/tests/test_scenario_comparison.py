@@ -800,6 +800,52 @@ def test_goal_impact_is_sourced_from_savings_goals() -> None:
         )
 
 
+def test_goal_impacts_included_on_both_comparison_options() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "goal-impacts-comparison")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        goal = SavingsGoal(
+            user_id=user.id,
+            name="Vacation",
+            target_cents=120_000,
+            saved_cents=0,
+            target_date=date(2026, 10, 4),
+        )
+        db.add(goal)
+        db.commit()
+
+        result = compare_major_purchase_scenarios(
+            db,
+            user.id,
+            _comparison_request(
+                option_a_amount=200_000,
+                option_b_amount=100_000,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        # Additive field on the shared simulation model used by both
+        # options; existing top-level comparison fields still work.
+        assert len(result.option_a.simulation.goal_impacts) == 1
+        assert len(result.option_b.simulation.goal_impacts) == 1
+        assert (
+            result.option_a.simulation.goal_impacts[0].goal_name
+            == "Vacation"
+        )
+        assert result.recommended_option in (
+            "option_a",
+            "option_b",
+            "tie",
+        )
+        assert result.scorecard.max_score > 0
+
+
 def test_reasons_match_actual_metrics() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db, "reasons-match-metrics")

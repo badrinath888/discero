@@ -4,16 +4,19 @@ from math import ceil
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import SavingsGoal
+from app.models import SavingsGoal, Transaction
 from app.schemas import (
     MajorPurchaseAlternativeOut,
     MajorPurchaseSimulationOut,
     MajorPurchaseSimulationRequest,
     SafeToSpendRequest,
 )
+from app.services.goal_impact_service import calculate_goal_impacts
 from app.services.safe_to_spend_service import (
     calculate_safe_to_spend,
 )
+
+_TRAILING_MONTHS_FOR_INCOME_AVERAGE = 3
 
 
 def simulate_major_purchase(
@@ -80,6 +83,31 @@ def simulate_major_purchase(
         goal_monthly_required_cents,
     )
 
+    baseline_monthly_capacity_cents = max(
+        _average_monthly_income_cents(db, user_id, calculation_date)
+        - safe_to_spend.breakdown.upcoming_obligations_cents,
+        0,
+    )
+    # A major purchase is modeled as a one-time draw against this
+    # month's available savings capacity, since it comes from the
+    # same liquid funds that would otherwise fund goal contributions.
+    adjusted_monthly_capacity_cents = max(
+        baseline_monthly_capacity_cents
+        - payload.purchase_amount_cents,
+        0,
+    )
+    goal_impacts = calculate_goal_impacts(
+        db,
+        user_id,
+        baseline_monthly_capacity_cents=(
+            baseline_monthly_capacity_cents
+        ),
+        adjusted_monthly_capacity_cents=(
+            adjusted_monthly_capacity_cents
+        ),
+        as_of=calculation_date,
+    )
+
     return MajorPurchaseSimulationOut(
         purchase_name=payload.purchase_name.strip(),
         purchase_amount_cents=payload.purchase_amount_cents,
@@ -116,6 +144,7 @@ def simulate_major_purchase(
             recommended_max_cents=recommended_max,
         ),
         safe_to_spend=safe_to_spend,
+        goal_impacts=goal_impacts,
     )
 
 
@@ -208,6 +237,42 @@ def _goal_months_remaining(
         month_difference += 1
 
     return max(month_difference, 0)
+
+
+def _average_monthly_income_cents(
+    db: Session,
+    user_id: int,
+    as_of: date,
+) -> int:
+    transactions = list(
+        db.scalars(
+            select(Transaction).where(
+                Transaction.user_id == user_id,
+                Transaction.amount_cents > 0,
+            )
+        ).all()
+    )
+
+    current_month = f"{as_of.year:04d}-{as_of.month:02d}"
+    totals: dict[str, int] = {}
+
+    for transaction in transactions:
+        month = (
+            f"{transaction.posted_on.year:04d}"
+            f"-{transaction.posted_on.month:02d}"
+        )
+
+        if month >= current_month:
+            continue
+
+        totals[month] = totals.get(month, 0) + transaction.amount_cents
+
+    recent = sorted(totals)[-_TRAILING_MONTHS_FOR_INCOME_AVERAGE:]
+
+    if not recent:
+        return 0
+
+    return round(sum(totals[month] for month in recent) / len(recent))
 
 
 def _goal_impact_months(

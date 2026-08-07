@@ -809,6 +809,31 @@ class SafeToSpendOut(BaseModel):
     obligations: list[SafeToSpendObligationOut]
     warnings: list[str] = Field(default_factory=list)
 
+class GoalImpactOut(BaseModel):
+    goal_id: int
+    goal_name: str
+    target_date: date | None
+    target_amount_cents: int
+    saved_amount_cents: int
+    remaining_amount_cents: int
+    current_required_monthly_contribution_cents: int
+    baseline_monthly_allocation_cents: int
+    adjusted_monthly_allocation_cents: int
+    monthly_allocation_change_cents: int
+    baseline_estimated_completion_date: date | None
+    adjusted_estimated_completion_date: date | None
+    delay_months: int
+    funding_shortfall_cents: int
+    status: Literal[
+        "unaffected",
+        "reduced",
+        "delayed",
+        "at_risk",
+        "impossible",
+    ]
+    explanation: str
+
+
 class MajorPurchaseSimulationRequest(BaseModel):
     purchase_name: str = Field(
         min_length=1,
@@ -862,6 +887,7 @@ class MajorPurchaseSimulationOut(BaseModel):
     explanation: str
     alternatives: list[MajorPurchaseAlternativeOut]
     safe_to_spend: SafeToSpendOut
+    goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
 
 
 class ScenarioComparisonRequest(BaseModel):
@@ -1025,6 +1051,7 @@ class FinancialStressTestOut(BaseModel):
     recommendations: list[str]
     data_disclaimer: str
     safe_to_spend: SafeToSpendOut
+    goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
 
 
 class GoalConflictDetectionRequest(BaseModel):

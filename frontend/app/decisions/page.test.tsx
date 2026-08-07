@@ -239,10 +239,50 @@ const stressTestResult: FinancialStressTestResult = {
   as_of: "2026-08-04",
   through_date: "2026-10-03",
   risk_level: "strained",
+  severity: "moderate",
   safe_to_spend_before_stress_cents: 500_000,
   safe_to_spend_after_stress_cents: 200_000,
   total_financial_impact_cents: 300_000,
   shortfall_cents: 0,
+  baseline_projected_balance_cents: 500_000,
+  stressed_projected_balance_cents: 200_000,
+  balance_change_cents: -300_000,
+  balance_change_percent: -60,
+  cash_flow_positive: true,
+  resilience_score: 65,
+  resilience_factors: [
+    {
+      key: "liquidity_remaining",
+      label: "Liquidity remaining after stress",
+      weight: 35,
+      score: 40,
+    },
+    {
+      key: "monthly_cash_flow_margin",
+      label: "Monthly cash-flow margin",
+      weight: 20,
+      score: 70,
+    },
+    {
+      key: "safe_to_spend_reduction",
+      label: "Safe-to-spend reduction",
+      weight: 20,
+      score: 40,
+    },
+    {
+      key: "goal_disruption",
+      label: "Goal disruption",
+      weight: 15,
+      score: 100,
+    },
+    {
+      key: "recurring_obligation_pressure",
+      label: "Recurring-obligation pressure",
+      weight: 10,
+      score: 90,
+    },
+  ],
+  affected_goals: [],
   confidence_score: 83.8,
   estimated_recovery_days: 14,
   explanation:
@@ -254,6 +294,8 @@ const stressTestResult: FinancialStressTestResult = {
     "Pause discretionary purchases until your safe-to-spend balance recovers.",
     "Build a safety reserve so future stress events are easier to absorb.",
   ],
+  data_disclaimer:
+    "This is a simulation based on your current FinSight data, not a probabilistic forecast or financial advice.",
   safe_to_spend: {
     as_of: "2026-08-04",
     through_date: "2026-10-03",
@@ -281,10 +323,50 @@ const emergencyStressResult: FinancialStressTestResult = {
   as_of: "2026-08-04",
   through_date: "2026-09-03",
   risk_level: "resilient",
+  severity: "low",
   safe_to_spend_before_stress_cents: 500_000,
   safe_to_spend_after_stress_cents: 400_000,
   total_financial_impact_cents: 100_000,
   shortfall_cents: 0,
+  baseline_projected_balance_cents: 500_000,
+  stressed_projected_balance_cents: 400_000,
+  balance_change_cents: -100_000,
+  balance_change_percent: -20,
+  cash_flow_positive: true,
+  resilience_score: 92,
+  resilience_factors: [
+    {
+      key: "liquidity_remaining",
+      label: "Liquidity remaining after stress",
+      weight: 35,
+      score: 80,
+    },
+    {
+      key: "monthly_cash_flow_margin",
+      label: "Monthly cash-flow margin",
+      weight: 20,
+      score: 100,
+    },
+    {
+      key: "safe_to_spend_reduction",
+      label: "Safe-to-spend reduction",
+      weight: 20,
+      score: 80,
+    },
+    {
+      key: "goal_disruption",
+      label: "Goal disruption",
+      weight: 15,
+      score: 100,
+    },
+    {
+      key: "recurring_obligation_pressure",
+      label: "Recurring-obligation pressure",
+      weight: 10,
+      score: 100,
+    },
+  ],
+  affected_goals: [],
   confidence_score: 88,
   estimated_recovery_days: 0,
   explanation:
@@ -295,6 +377,8 @@ const emergencyStressResult: FinancialStressTestResult = {
     "Keep an emergency fund earmarked specifically for unexpected costs like this.",
     "Maintain your current safety reserve; it is sufficient to absorb this scenario.",
   ],
+  data_disclaimer:
+    "This is a simulation based on your current FinSight data, not a probabilistic forecast or financial advice.",
   safe_to_spend: {
     as_of: "2026-08-04",
     through_date: "2026-09-03",
@@ -575,6 +659,8 @@ describe("decisions financial stress test mode", () => {
         scenario_type: "temporary_income_loss",
         scenario_name: "Job loss buffer",
         stress_amount_cents: 300_000,
+        income_reduction_percent: null,
+        recurring_expense_increase_percent: null,
         event_date: "2026-08-15",
         duration_days: 14,
         safety_reserve_cents: 120_000,
@@ -606,6 +692,142 @@ describe("decisions financial stress test mode", () => {
         "Look into short-term income sources or unemployment support to bridge the gap."
       )
     ).toBeInTheDocument();
+  });
+
+  it("shows severity, resilience score, and the data disclaimer", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    expect(await screen.findByText("Job loss buffer")).toBeInTheDocument();
+    expect(screen.getByText("Moderate severity")).toBeInTheDocument();
+    expect(screen.getByText("65 / 100")).toBeInTheDocument();
+    expect(
+      screen.getByText(stressTestResult.data_disclaimer)
+    ).toBeInTheDocument();
+  });
+
+  it("renders affected goals when present", async () => {
+    mocks.runFinancialStressTest.mockResolvedValue({
+      ...stressTestResult,
+      affected_goals: [
+        {
+          goal_id: 1,
+          name: "Vacation",
+          status_before: "on_track",
+          status_after: "at_risk",
+          monthly_shortfall_before_cents: 0,
+          monthly_shortfall_after_cents: 5_000,
+          estimated_delay_months: 2,
+        },
+      ],
+    });
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    expect(await screen.findByText("Vacation")).toBeInTheDocument();
+    expect(
+      screen.getByText(/on_track → at_risk/)
+    ).toBeInTheDocument();
+  });
+
+  it("validates the income reduction percent before submitting", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Scenario type" }),
+      { target: { value: "income_reduction" } }
+    );
+    fireEvent.change(screen.getByLabelText(/Income reduction/i), {
+      target: { value: "150" },
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    expect(
+      await screen.findByText(
+        "Income reduction must be between 0 and 100 percent."
+      )
+    ).toBeInTheDocument();
+    expect(mocks.runFinancialStressTest).not.toHaveBeenCalled();
+  });
+
+  it("validates the recurring expense increase percent before submitting", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Scenario type" }),
+      { target: { value: "recurring_expense_increase" } }
+    );
+    fireEvent.change(
+      screen.getByLabelText(/Recurring expense increase/i),
+      { target: { value: "600" } }
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    expect(
+      await screen.findByText(
+        "Recurring expense increase must be between 0 and 500 percent."
+      )
+    ).toBeInTheDocument();
+    expect(mocks.runFinancialStressTest).not.toHaveBeenCalled();
+  });
+
+  it("sends derived percent inputs for the combined scenario", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Scenario type" }),
+      { target: { value: "combined" } }
+    );
+    fireEvent.change(screen.getByLabelText(/Income reduction/i), {
+      target: { value: "20" },
+    });
+    fireEvent.change(
+      screen.getByLabelText(/Recurring expense increase/i),
+      { target: { value: "15" } }
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    await waitFor(() =>
+      expect(mocks.runFinancialStressTest).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          scenario_type: "combined",
+          income_reduction_percent: 20,
+          recurring_expense_increase_percent: 15,
+        })
+      )
+    );
   });
 
   it("shows the recovery duration caption for scenarios where a duration was entered", async () => {

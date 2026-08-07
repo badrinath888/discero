@@ -48,7 +48,30 @@ const SCENARIO_OPTIONS: {
     value: "recurring_bill_increase",
     label: "Recurring bill increase",
   },
+  {
+    value: "income_reduction",
+    label: "Temporary income reduction",
+  },
+  { value: "one_time_expense", label: "One-time expense" },
+  {
+    value: "recurring_expense_increase",
+    label: "Recurring expense increase",
+  },
+  { value: "combined", label: "Combined downside scenario" },
 ];
+
+const INCOME_PERCENT_SCENARIOS = new Set<FinancialStressScenarioType>([
+  "income_reduction",
+  "combined",
+]);
+const RECURRING_PERCENT_SCENARIOS = new Set<FinancialStressScenarioType>([
+  "recurring_expense_increase",
+  "combined",
+]);
+const AMOUNT_HIDDEN_SCENARIOS = new Set<FinancialStressScenarioType>([
+  "income_reduction",
+  "recurring_expense_increase",
+]);
 
 const DURATION_REQUIRED_SCENARIOS = new Set<FinancialStressScenarioType>([
   "temporary_income_loss",
@@ -73,6 +96,67 @@ function dollarsToCents(value: string): number {
   }
 
   return Math.round(amount * 100);
+}
+
+function validateStressInputs(input: {
+  scenarioType: FinancialStressScenarioType;
+  stressAmount: string;
+  stressAmountRequired: boolean;
+  showIncomePercent: boolean;
+  incomeReductionPercent: string;
+  showRecurringPercent: boolean;
+  recurringIncreasePercent: string;
+}): string {
+  const {
+    stressAmount,
+    stressAmountRequired,
+    showIncomePercent,
+    incomeReductionPercent,
+    showRecurringPercent,
+    recurringIncreasePercent,
+  } = input;
+
+  if (stressAmountRequired) {
+    const amount = Number(stressAmount);
+
+    if (!stressAmount.trim() || !Number.isFinite(amount) || amount <= 0) {
+      return "Enter a stress amount greater than $0.";
+    }
+  }
+
+  if (showIncomePercent && incomeReductionPercent.trim()) {
+    const percent = Number(incomeReductionPercent);
+
+    if (!Number.isFinite(percent) || percent <= 0 || percent > 100) {
+      return "Income reduction must be between 0 and 100 percent.";
+    }
+  } else if (showIncomePercent && input.scenarioType === "income_reduction") {
+    return "Enter an income reduction percentage.";
+  }
+
+  if (showRecurringPercent && recurringIncreasePercent.trim()) {
+    const percent = Number(recurringIncreasePercent);
+
+    if (!Number.isFinite(percent) || percent <= 0 || percent > 500) {
+      return "Recurring expense increase must be between 0 and 500 percent.";
+    }
+  } else if (
+    showRecurringPercent &&
+    input.scenarioType === "recurring_expense_increase"
+  ) {
+    return "Enter a recurring expense increase percentage.";
+  }
+
+  if (
+    input.scenarioType === "combined" &&
+    !stressAmount.trim() &&
+    !incomeReductionPercent.trim() &&
+    !recurringIncreasePercent.trim()
+  ) {
+    return "Enter at least one stress input for the combined scenario.";
+  }
+
+  return "";
 }
 
 const STATUS_CONTENT = {
@@ -123,6 +207,22 @@ const RISK_CONTENT = {
   },
 } as const;
 
+const SEVERITY_CONTENT: Record<
+  FinancialStressTestResult["severity"],
+  { label: string; className: string }
+> = {
+  low: { label: "Low", className: "bg-[#dff6c7] text-[#315d31]" },
+  moderate: {
+    label: "Moderate",
+    className: "bg-[#f5d66f] text-[#66500f]",
+  },
+  high: { label: "High", className: "bg-[#f5d66f] text-[#66500f]" },
+  critical: {
+    label: "Critical",
+    className: "bg-[#f0b8a8] text-[#7b3528]",
+  },
+};
+
 export default function DecisionsPage() {
   const router = useRouter();
   const today = useMemo(() => new Date(), []);
@@ -153,6 +253,10 @@ export default function DecisionsPage() {
     "Emergency car repair"
   );
   const [stressAmount, setStressAmount] = useState("1500");
+  const [incomeReductionPercent, setIncomeReductionPercent] =
+    useState("20");
+  const [recurringIncreasePercent, setRecurringIncreasePercent] =
+    useState("15");
   const [eventDate, setEventDate] = useState(
     toDateInputValue(addDays(today, 7))
   );
@@ -168,6 +272,12 @@ export default function DecisionsPage() {
   const [error, setError] = useState("");
 
   const durationRequired = DURATION_REQUIRED_SCENARIOS.has(scenarioType);
+  const showIncomePercent = INCOME_PERCENT_SCENARIOS.has(scenarioType);
+  const showRecurringPercent =
+    RECURRING_PERCENT_SCENARIOS.has(scenarioType);
+  const showStressAmount = !AMOUNT_HIDDEN_SCENARIOS.has(scenarioType);
+  const stressAmountRequired =
+    showStressAmount && scenarioType !== "combined";
 
   useEffect(() => {
     async function initialize() {
@@ -214,6 +324,23 @@ export default function DecisionsPage() {
 
     if (userId === null) return;
 
+    if (mode === "stress") {
+      const validationError = validateStressInputs({
+        scenarioType,
+        stressAmount,
+        stressAmountRequired,
+        showIncomePercent,
+        incomeReductionPercent,
+        showRecurringPercent,
+        recurringIncreasePercent,
+      });
+
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+    }
+
     setError("");
     setSimulating(true);
 
@@ -258,7 +385,18 @@ export default function DecisionsPage() {
         const data = await api.runFinancialStressTest(userId, {
           scenario_type: scenarioType,
           scenario_name: scenarioName.trim(),
-          stress_amount_cents: dollarsToCents(stressAmount),
+          stress_amount_cents:
+            showStressAmount && stressAmount.trim()
+              ? dollarsToCents(stressAmount)
+              : null,
+          income_reduction_percent:
+            showIncomePercent && incomeReductionPercent.trim()
+              ? Number(incomeReductionPercent)
+              : null,
+          recurring_expense_increase_percent:
+            showRecurringPercent && recurringIncreasePercent.trim()
+              ? Number(recurringIncreasePercent)
+              : null,
           event_date: eventDate,
           duration_days: durationDays.trim()
             ? Number(durationDays)
@@ -469,22 +607,64 @@ export default function DecisionsPage() {
                         required
                       />
 
-                      <Field
-                        label="Stress amount"
-                        value={stressAmount}
-                        onChange={setStressAmount}
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        prefix="$"
-                        required
-                      />
+                      {showStressAmount && (
+                        <Field
+                          label={
+                            scenarioType === "one_time_expense" ||
+                            scenarioType === "combined"
+                              ? "One-time expense amount"
+                              : "Stress amount"
+                          }
+                          value={stressAmount}
+                          onChange={setStressAmount}
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          prefix="$"
+                          required={stressAmountRequired}
+                        />
+                      )}
+
+                      {showIncomePercent && (
+                        <Field
+                          label="Income reduction (%)"
+                          value={incomeReductionPercent}
+                          onChange={setIncomeReductionPercent}
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          required={scenarioType === "income_reduction"}
+                        />
+                      )}
+
+                      {showRecurringPercent && (
+                        <Field
+                          label="Recurring expense increase (%)"
+                          value={recurringIncreasePercent}
+                          onChange={setRecurringIncreasePercent}
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          required={
+                            scenarioType === "recurring_expense_increase"
+                          }
+                        />
+                      )}
 
                       {scenarioType === "recurring_bill_increase" && (
                         <p className="-mt-3 text-xs leading-5 text-[#66746e]">
                           Enter the total added cost for this scenario.
                           FinSight uses this amount as-is and does not
                           multiply it by month.
+                        </p>
+                      )}
+
+                      {(scenarioType === "income_reduction" ||
+                        scenarioType === "recurring_expense_increase" ||
+                        scenarioType === "combined") && (
+                        <p className="-mt-3 text-xs leading-5 text-[#66746e]">
+                          Percentages are applied to your recent income or
+                          current recurring obligations from FinSight data.
                         </p>
                       )}
 
@@ -1311,12 +1491,19 @@ function StressTestResult({
             </p>
           </div>
 
-          <span
-            className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${riskContent.className}`}
-          >
-            <RiskIcon className="h-4 w-4" />
-            {riskContent.label}
-          </span>
+          <div className="flex flex-col items-start gap-2 sm:items-end">
+            <span
+              className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${riskContent.className}`}
+            >
+              <RiskIcon className="h-4 w-4" />
+              {riskContent.label}
+            </span>
+            <span
+              className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${SEVERITY_CONTENT[result.severity].className}`}
+            >
+              {SEVERITY_CONTENT[result.severity].label} severity
+            </span>
+          </div>
         </div>
 
         <div className="mt-8">
@@ -1351,6 +1538,81 @@ function StressTestResult({
             value={`${Math.round(result.confidence_score)}%`}
           />
         </div>
+
+        <div className="mt-7 rounded-2xl border border-white/10 bg-white/[0.045] p-6">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-white/40">
+              Resilience score
+            </p>
+            <p className="text-sm font-semibold">
+              {Math.round(result.resilience_score)} / 100
+            </p>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {result.resilience_factors.map((factor) => (
+              <div key={factor.key} className="flex items-center justify-between gap-3">
+                <span className="text-xs text-white/60">
+                  {factor.label}
+                </span>
+                <span className="text-xs font-semibold text-white/85">
+                  {Math.round(factor.score)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-7 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
+          <ResultMetric
+            label="Baseline projected balance"
+            value={formatCents(result.baseline_projected_balance_cents)}
+          />
+          <ResultMetric
+            label="Stressed projected balance"
+            value={formatCents(result.stressed_projected_balance_cents)}
+            warning={!result.cash_flow_positive}
+          />
+          <ResultMetric
+            label="Change"
+            value={`${result.balance_change_percent}%`}
+            warning={result.balance_change_percent < 0}
+          />
+        </div>
+
+        <p className="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-white/40">
+          {result.cash_flow_positive
+            ? "Remains cash-flow positive"
+            : "Would go cash-flow negative"}
+        </p>
+
+        {result.affected_goals.length > 0 && (
+          <div className="mt-7">
+            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-white/40">
+              Affected goals
+            </p>
+            <ul className="mt-4 space-y-3">
+              {result.affected_goals.map((goal) => (
+                <li
+                  key={goal.goal_id}
+                  className="rounded-2xl border border-white/10 bg-white/[0.045] p-4"
+                >
+                  <p className="text-sm font-semibold">{goal.name}</p>
+                  <p className="mt-1 text-xs text-white/60">
+                    {goal.status_before} → {goal.status_after}
+                    {goal.estimated_delay_months !== null &&
+                      goal.estimated_delay_months > 0 &&
+                      ` · delayed by ~${goal.estimated_delay_months} month(s)`}
+                    {goal.monthly_shortfall_after_cents > 0 &&
+                      ` · ${formatCents(
+                        -goal.monthly_shortfall_after_cents
+                      )}/mo shortfall`}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className="mt-7 rounded-2xl border border-white/10 bg-white/[0.045] p-5">
           <div className="flex items-start gap-3">
@@ -1408,6 +1670,10 @@ function StressTestResult({
             </ul>
           </div>
         )}
+
+        <p className="mt-7 text-xs leading-5 text-white/40">
+          {result.data_disclaimer}
+        </p>
       </div>
     </article>
   );
@@ -1467,16 +1733,24 @@ function Field({
 function ResultMetric({
   label,
   value,
+  warning = false,
 }: {
   label: string;
   value: string;
+  warning?: boolean;
 }) {
   return (
     <div className="bg-white/[0.045] p-4">
       <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
         {label}
       </p>
-      <p className="mt-2 text-lg font-semibold">{value}</p>
+      <p
+        className={`mt-2 text-lg font-semibold ${
+          warning ? "text-[#f4a594]" : ""
+        }`}
+      >
+        {value}
+      </p>
     </div>
   );
 }

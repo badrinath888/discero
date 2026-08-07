@@ -477,17 +477,40 @@ export type FinancialStressScenarioType =
   | "emergency_expense"
   | "temporary_income_loss"
   | "delayed_paycheck"
-  | "recurring_bill_increase";
+  | "recurring_bill_increase"
+  | "income_reduction"
+  | "one_time_expense"
+  | "recurring_expense_increase"
+  | "combined";
 
 export type FinancialStressTestRequest = {
   scenario_type: FinancialStressScenarioType;
   scenario_name: string;
-  stress_amount_cents: number;
+  stress_amount_cents?: number | null;
+  income_reduction_percent?: number | null;
+  recurring_expense_increase_percent?: number | null;
   event_date: string;
   duration_days?: number | null;
   safety_reserve_cents: number;
   essential_spending_cents: number;
   horizon_days: number;
+};
+
+export type StressResilienceFactor = {
+  key: string;
+  label: string;
+  weight: number;
+  score: number;
+};
+
+export type StressAffectedGoal = {
+  goal_id: number;
+  name: string;
+  status_before: string;
+  status_after: string;
+  monthly_shortfall_before_cents: number;
+  monthly_shortfall_after_cents: number;
+  estimated_delay_months: number | null;
 };
 
 export type FinancialStressTestResult = {
@@ -498,14 +521,24 @@ export type FinancialStressTestResult = {
   as_of: string;
   through_date: string;
   risk_level: "resilient" | "strained" | "critical";
+  severity: "low" | "moderate" | "high" | "critical";
   safe_to_spend_before_stress_cents: number;
   safe_to_spend_after_stress_cents: number;
   total_financial_impact_cents: number;
   shortfall_cents: number;
+  baseline_projected_balance_cents: number;
+  stressed_projected_balance_cents: number;
+  balance_change_cents: number;
+  balance_change_percent: number;
+  cash_flow_positive: boolean;
+  resilience_score: number;
+  resilience_factors: StressResilienceFactor[];
+  affected_goals: StressAffectedGoal[];
   confidence_score: number;
   estimated_recovery_days: number | null;
   explanation: string;
   recommendations: string[];
+  data_disclaimer: string;
   safe_to_spend: SafeToSpendResult;
 };
 

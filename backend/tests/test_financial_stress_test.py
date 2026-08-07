@@ -4,7 +4,14 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import FinancialAccount, PlaidItem, User
+from app.models import (
+    Budget,
+    FinancialAccount,
+    PlaidItem,
+    SavingsGoal,
+    Transaction,
+    User,
+)
 from app.schemas import FinancialStressTestRequest
 from app.services.financial_stress_test_service import (
     run_financial_stress_test,
@@ -65,6 +72,83 @@ def create_account(
     db.refresh(account)
 
     return account
+
+
+def create_transaction(
+    db: Session,
+    user: User,
+    *,
+    posted_on: date,
+    amount_cents: int,
+    category: str = "General",
+) -> Transaction:
+    transaction = Transaction(
+        user_id=user.id,
+        posted_on=posted_on,
+        description="Test transaction",
+        amount_cents=amount_cents,
+        category=category,
+    )
+
+    db.add(transaction)
+    db.commit()
+
+    return transaction
+
+
+def create_budget(
+    db: Session,
+    user: User,
+    *,
+    category: str,
+    month: str,
+    limit_cents: int,
+) -> Budget:
+    budget = Budget(
+        user_id=user.id,
+        category=category,
+        month=month,
+        limit_cents=limit_cents,
+    )
+
+    db.add(budget)
+    db.commit()
+
+    return budget
+
+
+def create_goal(
+    db: Session,
+    user: User,
+    *,
+    name: str = "Vacation",
+    target_cents: int = 600_000,
+    saved_cents: int = 0,
+    target_date: date | None = date(2026, 11, 4),
+) -> SavingsGoal:
+    goal = SavingsGoal(
+        user_id=user.id,
+        name=name,
+        target_cents=target_cents,
+        saved_cents=saved_cents,
+        target_date=target_date,
+    )
+
+    db.add(goal)
+    db.commit()
+
+    return goal
+
+
+def seed_income(db: Session, user: User) -> None:
+    for month in (5, 6, 7):
+        create_transaction(
+            db,
+            user,
+            posted_on=date(2026, month, 1),
+            amount_cents=300_000,
+            category="Income",
+        )
 
 
 def register_and_login(
@@ -830,3 +914,444 @@ def test_financial_stress_test_endpoint_blocks_other_user(
     assert response.json()["detail"] == (
         "you cannot access another user's data"
     )
+
+
+def test_income_reduction_derives_amount_from_income_history() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "income-reduction")
+        create_account(db, user)
+        seed_income(db, user)
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="income_reduction",
+                scenario_name="Reduced hours",
+                income_reduction_percent=30,
+                event_date=TEST_DATE + timedelta(days=5),
+                duration_days=30,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.total_financial_impact_cents == 90_000
+        assert result.data_disclaimer
+        assert 0 <= result.resilience_score <= 100
+
+
+def test_income_reduction_requires_percent() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "income-reduction-missing")
+        create_account(db, user)
+        seed_income(db, user)
+
+        try:
+            run_financial_stress_test(
+                db,
+                user.id,
+                FinancialStressTestRequest(
+                    scenario_type="income_reduction",
+                    scenario_name="Reduced hours",
+                    event_date=TEST_DATE + timedelta(days=5),
+                    duration_days=30,
+                ),
+                as_of=TEST_DATE,
+            )
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "income_reduction_percent" in str(exc)
+
+
+def test_income_reduction_requires_income_history() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "income-reduction-no-history")
+        create_account(db, user)
+
+        try:
+            run_financial_stress_test(
+                db,
+                user.id,
+                FinancialStressTestRequest(
+                    scenario_type="income_reduction",
+                    scenario_name="Reduced hours",
+                    income_reduction_percent=30,
+                    event_date=TEST_DATE + timedelta(days=5),
+                    duration_days=30,
+                ),
+                as_of=TEST_DATE,
+            )
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "income history" in str(exc)
+
+
+def test_one_time_expense_matches_legacy_emergency_expense_behavior() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db, "one-time-expense")
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="one_time_expense",
+                scenario_name="Car repair",
+                stress_amount_cents=100_000,
+                event_date=TEST_DATE + timedelta(days=5),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.total_financial_impact_cents == 100_000
+        assert result.risk_level == "resilient"
+        assert result.severity in (
+            "low",
+            "moderate",
+            "high",
+            "critical",
+        )
+        assert result.cash_flow_positive is True
+        assert result.affected_goals == []
+
+
+def test_recurring_expense_increase_derives_amount_from_obligations() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db, "recurring-increase")
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="recurring_expense_increase",
+                scenario_name="Grocery inflation",
+                recurring_expense_increase_percent=50,
+                event_date=TEST_DATE + timedelta(days=5),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.total_financial_impact_cents == 50_000
+
+
+def test_recurring_expense_increase_requires_obligations() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "recurring-increase-none")
+        create_account(db, user)
+
+        try:
+            run_financial_stress_test(
+                db,
+                user.id,
+                FinancialStressTestRequest(
+                    scenario_type="recurring_expense_increase",
+                    scenario_name="Grocery inflation",
+                    recurring_expense_increase_percent=50,
+                    event_date=TEST_DATE + timedelta(days=5),
+                ),
+                as_of=TEST_DATE,
+            )
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "recurring obligations" in str(exc)
+
+
+def test_combined_scenario_sums_provided_components() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "combined")
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="combined",
+                scenario_name="Everything at once",
+                income_reduction_percent=20,
+                recurring_expense_increase_percent=20,
+                stress_amount_cents=50_000,
+                event_date=TEST_DATE + timedelta(days=5),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.total_financial_impact_cents == (
+            60_000 + 20_000 + 50_000
+        )
+        assert len(result.resilience_factors) == 5
+        assert sum(
+            factor.weight for factor in result.resilience_factors
+        ) == 100
+        assert 0 <= result.resilience_score <= 100
+
+
+def test_combined_scenario_requires_at_least_one_component() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "combined-empty")
+        create_account(db, user)
+
+        try:
+            run_financial_stress_test(
+                db,
+                user.id,
+                FinancialStressTestRequest(
+                    scenario_type="combined",
+                    scenario_name="Nothing entered",
+                    event_date=TEST_DATE + timedelta(days=5),
+                ),
+                as_of=TEST_DATE,
+            )
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "at least one of" in str(exc)
+
+
+def test_goal_impact_reported_when_goal_exists() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "goal-impact")
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+        create_goal(db, user, name="Vacation")
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="recurring_expense_increase",
+                scenario_name="Grocery inflation",
+                recurring_expense_increase_percent=50,
+                event_date=TEST_DATE + timedelta(days=5),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert len(result.affected_goals) == 1
+        assert result.affected_goals[0].name == "Vacation"
+        assert (
+            result.affected_goals[0].status_after
+            != result.affected_goals[0].status_before
+        )
+
+
+def test_no_goal_impact_when_no_goals_exist() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "no-goals")
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="recurring_expense_increase",
+                scenario_name="Grocery inflation",
+                recurring_expense_increase_percent=50,
+                event_date=TEST_DATE + timedelta(days=5),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.affected_goals == []
+
+
+def test_no_goal_impact_for_one_time_expense() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "one-time-no-goal-impact")
+        create_account(db, user, available_balance_cents=500_000)
+        create_goal(db, user)
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="one_time_expense",
+                scenario_name="Car repair",
+                stress_amount_cents=100_000,
+                event_date=TEST_DATE + timedelta(days=5),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.affected_goals == []
+
+
+def test_resilience_score_bounded_with_no_data() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "sparse-data")
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="one_time_expense",
+                scenario_name="Car repair",
+                stress_amount_cents=100_000,
+                event_date=TEST_DATE + timedelta(days=5),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert 0 <= result.resilience_score <= 100
+        assert result.cash_flow_positive is False
+        assert result.severity in ("high", "critical")
+        assert result.affected_goals == []
+
+
+def test_severity_thresholds() -> None:
+    from app.services.financial_stress_test_service import (
+        _determine_severity,
+    )
+
+    assert _determine_severity(100.0) == "low"
+    assert _determine_severity(80.0) == "low"
+    assert _determine_severity(79.9) == "moderate"
+    assert _determine_severity(60.0) == "moderate"
+    assert _determine_severity(59.9) == "high"
+    assert _determine_severity(35.0) == "high"
+    assert _determine_severity(34.9) == "critical"
+    assert _determine_severity(0.0) == "critical"
+
+
+def test_negative_percent_rejected() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "negative-percent")
+        create_account(db, user)
+
+        try:
+            FinancialStressTestRequest(
+                scenario_type="income_reduction",
+                scenario_name="Reduced hours",
+                income_reduction_percent=-10,
+                event_date=TEST_DATE + timedelta(days=5),
+                duration_days=30,
+            )
+            assert False, "expected validation error"
+        except Exception as exc:
+            assert "greater than" in str(exc) or "0" in str(exc)
+
+
+def test_unreasonable_recurring_increase_percent_rejected() -> None:
+    try:
+        FinancialStressTestRequest(
+            scenario_type="recurring_expense_increase",
+            scenario_name="Grocery inflation",
+            recurring_expense_increase_percent=1000,
+            event_date=TEST_DATE + timedelta(days=5),
+        )
+        assert False, "expected validation error"
+    except Exception as exc:
+        assert "less than" in str(exc) or "500" in str(exc)
+
+
+def test_endpoint_rejects_income_reduction_over_100_percent(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(
+        client,
+        "stress-test-over-100",
+    )
+
+    response = client.post(
+        f"/users/{user_id}/financial-stress-test",
+        headers=headers,
+        json={
+            "scenario_type": "income_reduction",
+            "scenario_name": "Reduced hours",
+            "income_reduction_percent": 150,
+            "event_date": (
+                date.today() + timedelta(days=3)
+            ).isoformat(),
+            "duration_days": 14,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_endpoint_combined_scenario_returns_new_fields(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(
+        client,
+        "stress-test-combined-endpoint",
+    )
+
+    with TestingSessionLocal() as db:
+        user = db.get(User, user_id)
+        assert user is not None
+
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month=date.today().strftime("%Y-%m"),
+            limit_cents=100_000,
+        )
+
+    response = client.post(
+        f"/users/{user_id}/financial-stress-test",
+        headers=headers,
+        json={
+            "scenario_type": "combined",
+            "scenario_name": "Everything at once",
+            "income_reduction_percent": 20,
+            "recurring_expense_increase_percent": 20,
+            "stress_amount_cents": 50_000,
+            "event_date": (
+                date.today() + timedelta(days=3)
+            ).isoformat(),
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["severity"] in (
+        "low",
+        "moderate",
+        "high",
+        "critical",
+    )
+    assert 0 <= body["resilience_score"] <= 100
+    assert len(body["resilience_factors"]) == 5
+    assert body["data_disclaimer"]
+    assert "baseline_projected_balance_cents" in body
+    assert "stressed_projected_balance_cents" in body

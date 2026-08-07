@@ -907,12 +907,29 @@ class FinancialStressTestRequest(BaseModel):
         "temporary_income_loss",
         "delayed_paycheck",
         "recurring_bill_increase",
+        "income_reduction",
+        "one_time_expense",
+        "recurring_expense_increase",
+        "combined",
     ]
     scenario_name: str = Field(
         min_length=1,
         max_length=120,
     )
-    stress_amount_cents: int = Field(gt=0)
+    stress_amount_cents: int | None = Field(
+        default=None,
+        ge=0,
+    )
+    income_reduction_percent: float | None = Field(
+        default=None,
+        gt=0,
+        le=100,
+    )
+    recurring_expense_increase_percent: float | None = Field(
+        default=None,
+        gt=0,
+        le=500,
+    )
     event_date: date
     duration_days: int | None = Field(
         default=None,
@@ -946,12 +963,33 @@ class FinancialStressTestRequest(BaseModel):
         return scenario_name
 
 
+class StressResilienceFactorOut(BaseModel):
+    key: str
+    label: str
+    weight: float
+    score: float
+
+
+class StressAffectedGoalOut(BaseModel):
+    goal_id: int
+    name: str
+    status_before: str
+    status_after: str
+    monthly_shortfall_before_cents: int
+    monthly_shortfall_after_cents: int
+    estimated_delay_months: int | None
+
+
 class FinancialStressTestOut(BaseModel):
     scenario_type: Literal[
         "emergency_expense",
         "temporary_income_loss",
         "delayed_paycheck",
         "recurring_bill_increase",
+        "income_reduction",
+        "one_time_expense",
+        "recurring_expense_increase",
+        "combined",
     ]
     scenario_name: str
     event_date: date
@@ -963,14 +1001,29 @@ class FinancialStressTestOut(BaseModel):
         "strained",
         "critical",
     ]
+    severity: Literal[
+        "low",
+        "moderate",
+        "high",
+        "critical",
+    ]
     safe_to_spend_before_stress_cents: int
     safe_to_spend_after_stress_cents: int
     total_financial_impact_cents: int
     shortfall_cents: int
+    baseline_projected_balance_cents: int
+    stressed_projected_balance_cents: int
+    balance_change_cents: int
+    balance_change_percent: float
+    cash_flow_positive: bool
+    resilience_score: float
+    resilience_factors: list[StressResilienceFactorOut]
+    affected_goals: list[StressAffectedGoalOut]
     confidence_score: float
     estimated_recovery_days: int | None
     explanation: str
     recommendations: list[str]
+    data_disclaimer: str
     safe_to_spend: SafeToSpendOut
 
 

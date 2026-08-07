@@ -1355,3 +1355,102 @@ def test_endpoint_combined_scenario_returns_new_fields(
     assert body["data_disclaimer"]
     assert "baseline_projected_balance_cents" in body
     assert "stressed_projected_balance_cents" in body
+
+
+def test_goal_impacts_included_for_active_goal_in_stress_test() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "goal-impacts-stress")
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+        create_goal(
+            db,
+            user,
+            name="Vacation",
+            target_cents=600_000,
+            target_date=date(2026, 11, 4),
+        )
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="recurring_expense_increase",
+                scenario_name="Grocery inflation",
+                recurring_expense_increase_percent=50,
+                event_date=TEST_DATE + timedelta(days=5),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert len(result.goal_impacts) == 1
+        impact = result.goal_impacts[0]
+        assert impact.goal_name == "Vacation"
+        assert impact.status in (
+            "unaffected",
+            "reduced",
+            "delayed",
+            "at_risk",
+            "impossible",
+        )
+        # Existing aggregate field must remain untouched alongside
+        # the new individual-goal list (backward compatibility).
+        assert len(result.affected_goals) == 1
+
+
+def test_goal_impacts_empty_when_no_active_goals_in_stress_test() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "goal-impacts-empty-stress")
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="one_time_expense",
+                scenario_name="Car repair",
+                stress_amount_cents=100_000,
+                event_date=TEST_DATE + timedelta(days=5),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.goal_impacts == []
+
+
+def test_goal_impacts_present_even_for_one_time_scenario() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "goal-impacts-one-time")
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+        create_goal(
+            db,
+            user,
+            name="Vacation",
+            target_cents=600_000,
+            target_date=date(2027, 8, 6),
+        )
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="one_time_expense",
+                scenario_name="Car repair",
+                stress_amount_cents=100_000,
+                event_date=TEST_DATE + timedelta(days=5),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        # A one-time scenario has no recurring monthly reduction, so
+        # every goal impact is reported as unaffected.
+        assert len(result.goal_impacts) == 1
+        assert result.goal_impacts[0].status == "unaffected"
+        assert result.affected_goals == []

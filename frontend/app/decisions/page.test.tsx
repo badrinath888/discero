@@ -171,6 +171,7 @@ const comparisonResult: ScenarioComparisonResult = {
       confidence_score: 85,
       explanation: "New laptop is within the recommended purchase range.",
       alternatives: [],
+      goal_impacts: [],
       safe_to_spend: {
         as_of: "2026-08-04",
         through_date: "2026-09-03",
@@ -210,6 +211,7 @@ const comparisonResult: ScenarioComparisonResult = {
       confidence_score: 85,
       explanation: "Used laptop is technically affordable.",
       alternatives: [],
+      goal_impacts: [],
       safe_to_spend: {
         as_of: "2026-08-04",
         through_date: "2026-09-03",
@@ -313,6 +315,7 @@ const stressTestResult: FinancialStressTestResult = {
     obligations: [],
     warnings: [],
   },
+  goal_impacts: [],
 };
 
 const emergencyStressResult: FinancialStressTestResult = {
@@ -396,6 +399,7 @@ const emergencyStressResult: FinancialStressTestResult = {
     obligations: [],
     warnings: [],
   },
+  goal_impacts: [],
 };
 
 async function renderPage() {

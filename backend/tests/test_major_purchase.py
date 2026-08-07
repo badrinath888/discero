@@ -4,7 +4,13 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import FinancialAccount, PlaidItem, User
+from app.models import (
+    FinancialAccount,
+    PlaidItem,
+    SavingsGoal,
+    Transaction,
+    User,
+)
 from app.schemas import MajorPurchaseSimulationRequest
 from app.services.major_purchase_service import (
     simulate_major_purchase,
@@ -309,6 +315,98 @@ def test_major_purchase_endpoint(
     assert payload["shortfall_after_purchase_cents"] == 0
     assert payload["recommended_max_purchase_cents"] == 375_000
     assert payload["safe_to_spend"]["safe_to_spend_cents"] == 500_000
+
+
+def create_goal(
+    db: Session,
+    user: User,
+    *,
+    name: str = "Vacation",
+    target_cents: int = 600_000,
+    saved_cents: int = 0,
+    target_date: date | None = date(2027, 8, 4),
+) -> SavingsGoal:
+    goal = SavingsGoal(
+        user_id=user.id,
+        name=name,
+        target_cents=target_cents,
+        saved_cents=saved_cents,
+        target_date=target_date,
+    )
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+    return goal
+
+
+def seed_income(db: Session, user: User) -> None:
+    for month in (5, 6, 7):
+        transaction = Transaction(
+            user_id=user.id,
+            posted_on=date(2026, month, 1),
+            description="Paycheck",
+            amount_cents=300_000,
+            category="Income",
+        )
+        db.add(transaction)
+    db.commit()
+
+
+def test_goal_impacts_included_in_purchase_simulation() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "purchase-goal-impact")
+
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+        create_goal(db, user, name="Vacation")
+
+        result = simulate_major_purchase(
+            db,
+            user.id,
+            MajorPurchaseSimulationRequest(
+                purchase_name="Laptop",
+                purchase_amount_cents=200_000,
+                purchase_date=TEST_DATE + timedelta(days=7),
+                horizon_days=30,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        # Existing fields remain intact alongside the new list.
+        assert result.affordability_status == "affordable"
+        assert result.safe_to_spend_after_purchase_cents == 300_000
+
+        assert len(result.goal_impacts) == 1
+        impact = result.goal_impacts[0]
+        assert impact.goal_name == "Vacation"
+        assert impact.status in (
+            "unaffected",
+            "reduced",
+            "delayed",
+            "at_risk",
+            "impossible",
+        )
+
+
+def test_goal_impacts_empty_when_no_active_goals_in_purchase() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "purchase-no-goals")
+
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = simulate_major_purchase(
+            db,
+            user.id,
+            MajorPurchaseSimulationRequest(
+                purchase_name="Laptop",
+                purchase_amount_cents=200_000,
+                purchase_date=TEST_DATE + timedelta(days=7),
+                horizon_days=30,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.goal_impacts == []
 
 
 def test_major_purchase_endpoint_blocks_other_user(

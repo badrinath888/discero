@@ -397,6 +397,32 @@ export type SafeToSpendResult = {
   warnings: string[];
 };
 
+export type GoalImpactStatus =
+  | "unaffected"
+  | "reduced"
+  | "delayed"
+  | "at_risk"
+  | "impossible";
+
+export type GoalImpact = {
+  goal_id: number;
+  goal_name: string;
+  target_date: string | null;
+  target_amount_cents: number;
+  saved_amount_cents: number;
+  remaining_amount_cents: number;
+  current_required_monthly_contribution_cents: number;
+  baseline_monthly_allocation_cents: number;
+  adjusted_monthly_allocation_cents: number;
+  monthly_allocation_change_cents: number;
+  baseline_estimated_completion_date: string | null;
+  adjusted_estimated_completion_date: string | null;
+  delay_months: number;
+  funding_shortfall_cents: number;
+  status: GoalImpactStatus;
+  explanation: string;
+};
+
 export type MajorPurchaseSimulationRequest = {
   purchase_name: string;
   purchase_amount_cents: number;
@@ -434,6 +460,7 @@ export type MajorPurchaseSimulationResult = {
   explanation: string;
   alternatives: MajorPurchaseAlternative[];
   safe_to_spend: SafeToSpendResult;
+  goal_impacts: GoalImpact[];
 };
 
 export type ScenarioComparisonRequest = {
@@ -540,6 +567,7 @@ export type FinancialStressTestResult = {
   recommendations: string[];
   data_disclaimer: string;
   safe_to_spend: SafeToSpendResult;
+  goal_impacts: GoalImpact[];
 };
 
 export type UploadSummary = {

@@ -22,6 +22,7 @@ import AppSidebar from "../components/AppSidebar";
 import ConfirmationModal from "../components/ConfirmationModal";
 import Toast from "../components/Toast";
 import {
+  CardSkeleton,
   EmptyState,
   PageError,
   PageLoading,
@@ -454,7 +455,14 @@ useEffect(() => {
       }
 
       resetContributionForm();
-      await refreshFundData();
+
+      try {
+        await refreshFundData();
+      } catch {
+        // The contribution itself was saved successfully; only the
+        // follow-up list refresh failed, so keep the success message
+        // instead of contradicting it with an error.
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -503,8 +511,15 @@ useEffect(() => {
       );
       setPendingDeleteContribution(null);
       resetContributionForm();
-      await refreshFundData();
       setMessage("Contribution deleted.");
+
+      try {
+        await refreshFundData();
+      } catch {
+        // The deletion itself succeeded; only the follow-up list
+        // refresh failed, so keep the success message instead of
+        // contradicting it with an error.
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -573,10 +588,18 @@ useEffect(() => {
 
           {error && !drawerMode && (
   <div className="mt-5">
-    <PageError message={error} />
+    <PageError
+      message={error}
+      onRetry={userId ? () => void loadGoals(userId) : undefined}
+    />
   </div>
 )}
 
+          {loading ? (
+            <div className="mt-6">
+              <CardSkeleton count={2} />
+            </div>
+          ) : (
           <Reveal delay={0.06}>
             <section className="mt-6 grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
               <article className="relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.18)] sm:p-9">
@@ -630,13 +653,14 @@ useEffect(() => {
               </article>
             </section>
           </Reveal>
+          )}
 
           <Reveal delay={0.1}>
             <GoalConflictPanel
               monthlyCapacity={monthlyCapacity}
               analysis={conflictAnalysis}
               loading={conflictLoading}
-              disabled={goals.length === 0}
+              disabled={loading || goals.length === 0}
               onCapacityChange={setMonthlyCapacity}
               onAnalyze={() => void analyzeGoalConflicts()}
             />
@@ -647,6 +671,7 @@ useEffect(() => {
               <PageLoading message="Loading savings goals..." />
             </div>
           ) : goals.length === 0 ? (
+            error ? null : (
             <div className="mt-8">
               <EmptyState
                 title="No savings goals yet"
@@ -655,6 +680,7 @@ useEffect(() => {
                 onAction={openCreateDrawer}
               />
             </div>
+            )
           ) : (
             <Reveal>
               <section className="mt-8 overflow-hidden rounded-[24px] border border-[#14241e]/10 bg-white">
@@ -681,7 +707,14 @@ useEffect(() => {
           <DrawerShell onClose={closeDrawer}>
   {error && (
     <div className="mb-5">
-      <PageError message={error} />
+      <PageError
+        message={error}
+        onRetry={
+          drawerMode === "fund" && activeGoal
+            ? () => void openFundDrawer(activeGoal)
+            : undefined
+        }
+      />
     </div>
   )}
 

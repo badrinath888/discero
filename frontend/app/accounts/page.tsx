@@ -487,16 +487,19 @@ export default function AccountsPage() {
                   <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
                     <PortfolioMetric
                       label="Assets"
+                      loading={loading}
                       value={formatCents(assetTotal)}
                       tone="positive"
                     />
                     <PortfolioMetric
                       label="Liabilities"
+                      loading={loading}
                       value={formatCents(-liabilityTotal)}
                       tone="negative"
                     />
                     <PortfolioMetric
                       label="Available cash"
+                      loading={loading}
                       value={formatCents(availableBalance)}
                       tone="neutral"
                     />
@@ -509,27 +512,38 @@ export default function AccountsPage() {
                   Connected network
                 </p>
 
-                <AnimatedNumber
-                  value={accounts.length}
-                  format={(value) => String(value)}
-                  className="mt-4 block text-5xl font-semibold tracking-[-0.05em]"
-                />
+                {loading ? (
+                  <div className="mt-5 h-11 w-16 animate-pulse rounded-lg bg-[#14241e]/10" />
+                ) : (
+                  <AnimatedNumber
+                    value={accounts.length}
+                    format={(value) => String(value)}
+                    className="mt-4 block text-5xl font-semibold tracking-[-0.05em]"
+                  />
+                )}
 
                 <p className="mt-2 text-sm text-[#56705d]">
-                  Financial accounts across {institutionCount} institution
-                  {institutionCount === 1 ? "" : "s"}.
+                  {loading
+                    ? "Loading accounts..."
+                    : `Financial accounts across ${institutionCount} institution${
+                        institutionCount === 1 ? "" : "s"
+                      }.`}
                 </p>
 
                 <div className="mt-8 border-t border-[#14241e]/10 pt-5">
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#5c7663]">
                     Portfolio mix
                   </p>
-                  <p className="mt-2 text-sm text-[#52635b]">
-                    {assets.length} asset account
-                    {assets.length === 1 ? "" : "s"} · {liabilities.length}{" "}
-                    liability account
-                    {liabilities.length === 1 ? "" : "s"}
-                  </p>
+                  {loading ? (
+                    <div className="mt-2 h-5 w-40 animate-pulse rounded bg-[#14241e]/10" />
+                  ) : (
+                    <p className="mt-2 text-sm text-[#52635b]">
+                      {assets.length} asset account
+                      {assets.length === 1 ? "" : "s"} · {liabilities.length}{" "}
+                      liability account
+                      {liabilities.length === 1 ? "" : "s"}
+                    </p>
+                  )}
                 </div>
               </article>
             </section>
@@ -540,6 +554,7 @@ export default function AccountsPage() {
               <PageLoading message="Loading connected accounts..." />
             </div>
           ) : accounts.length === 0 ? (
+            error ? null : (
             <div className="mt-6">
               <EmptyState
                 title="No bank accounts connected"
@@ -553,6 +568,7 @@ export default function AccountsPage() {
                 )}
               </EmptyState>
             </div>
+            )
           ) : (
             <div className="mt-8 space-y-8">
               <AccountSection
@@ -643,10 +659,12 @@ function PortfolioMetric({
   label,
   value,
   tone,
+  loading = false,
 }: {
   label: string;
   value: string;
   tone: "positive" | "negative" | "neutral";
+  loading?: boolean;
 }) {
   const toneClass = {
     positive: "text-[#83dcb9]",
@@ -659,9 +677,13 @@ function PortfolioMetric({
       <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
         {label}
       </p>
-      <p className={`mt-2 text-lg font-semibold ${toneClass[tone]}`}>
-        {value}
-      </p>
+      {loading ? (
+        <div className="mt-2 h-[22px] w-16 animate-pulse rounded bg-white/10" />
+      ) : (
+        <p className={`mt-2 text-lg font-semibold ${toneClass[tone]}`}>
+          {value}
+        </p>
+      )}
     </div>
   );
 }

@@ -202,4 +202,38 @@ describe("Accounts Plaid lifecycle", () => {
     expect(screen.getByText(/Reconnect required/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Connect bank" })).toBeVisible();
   });
+
+  it("does not flash zero-value portfolio numbers while still loading", async () => {
+    let resolveAccounts!: (value: FinancialAccount[]) => void;
+    mocks.getAccounts.mockReturnValue(
+      new Promise((resolve) => {
+        resolveAccounts = resolve;
+      })
+    );
+    mocks.getTransactions.mockResolvedValue([]);
+
+    render(<AccountsPage />);
+
+    await screen.findByText("Connected network");
+    expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No bank accounts connected")
+    ).not.toBeInTheDocument();
+
+    resolveAccounts([account]);
+
+    expect(await screen.findByText("Everyday Checking")).toBeInTheDocument();
+  });
+
+  it("shows a retryable error instead of a misleading empty state when the load fails", async () => {
+    mocks.getAccounts.mockRejectedValueOnce(new Error("network down"));
+    mocks.getTransactions.mockResolvedValue([]);
+
+    render(<AccountsPage />);
+
+    expect(await screen.findByText("network down")).toBeInTheDocument();
+    expect(
+      screen.queryByText("No bank accounts connected")
+    ).not.toBeInTheDocument();
+  });
 });

@@ -385,6 +385,7 @@ export default function RecurringPage() {
               <CardSkeleton count={3} />
             </section>
           ) : !hasContent ? (
+            error ? null : (
             <div className="mt-8">
               <EmptyState
                 title="No recurring bills detected"
@@ -393,6 +394,7 @@ export default function RecurringPage() {
                 onAction={() => router.push("/transactions")}
               />
             </div>
+            )
           ) : (
             <>
               <Reveal delay={0.06}>

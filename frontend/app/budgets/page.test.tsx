@@ -174,4 +174,20 @@ describe("monthly budgets", () => {
       )
     );
   });
+
+  it("shows a retryable error instead of a misleading empty state when the load fails", async () => {
+    mocks.getBudgets.mockRejectedValueOnce(new Error("network down"));
+
+    render(<BudgetsPage />);
+
+    expect(await screen.findByText("network down")).toBeInTheDocument();
+    expect(
+      screen.queryByText("No budgets configured")
+    ).not.toBeInTheDocument();
+
+    mocks.getBudgets.mockResolvedValue([budget]);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findAllByText("Over budget")).not.toHaveLength(0);
+  });
 });

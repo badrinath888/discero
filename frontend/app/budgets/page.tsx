@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   CalendarDays,
@@ -19,6 +19,7 @@ import AppSidebar from "../components/AppSidebar";
 import ConfirmationModal from "../components/ConfirmationModal";
 import Toast from "../components/Toast";
 import {
+  CardSkeleton,
   EmptyState,
   PageError,
   PageLoading,
@@ -126,31 +127,33 @@ export default function BudgetsPage() {
       });
   }, [router]);
 
-  useEffect(() => {
+  const loadBudgets = useCallback(async () => {
     if (!userId) return;
 
-    void Promise.resolve().then(async () => {
-      setLoading(true);
-      setError("");
-      setSuccess("");
+    setLoading(true);
+    setError("");
+    setSuccess("");
 
-      try {
-        const [budgetData, progressData] = await Promise.all([
-          api.getBudgets(userId, selectedMonth),
-          api.getBudgetProgress(userId, selectedMonth),
-        ]);
+    try {
+      const [budgetData, progressData] = await Promise.all([
+        api.getBudgets(userId, selectedMonth),
+        api.getBudgetProgress(userId, selectedMonth),
+      ]);
 
-        setBudgets(budgetData);
-        setProgress(progressData);
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Unable to load budgets"
-        );
-      } finally {
-        setLoading(false);
-      }
-    });
+      setBudgets(budgetData);
+      setProgress(progressData);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to load budgets"
+      );
+    } finally {
+      setLoading(false);
+    }
   }, [userId, selectedMonth]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadBudgets);
+  }, [loadBudgets]);
 
   const totalBudget = useMemo(
     () =>
@@ -446,10 +449,15 @@ export default function BudgetsPage() {
 
           {error && (
             <div className="mt-5">
-              <PageError message={error} />
+              <PageError message={error} onRetry={() => void loadBudgets()} />
             </div>
           )}
 
+          {loading ? (
+            <div className="mt-6">
+              <CardSkeleton count={2} />
+            </div>
+          ) : (
           <Reveal delay={0.06}>
             <section className="mt-6 grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
               <article className="premium-hover relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.18)] sm:p-9">
@@ -529,12 +537,14 @@ export default function BudgetsPage() {
               </article>
             </section>
           </Reveal>
+          )}
 
           {loading ? (
             <div className="mt-6">
               <PageLoading message="Loading budgets..." />
             </div>
           ) : budgets.length === 0 && progress.length === 0 ? (
+            error ? null : (
             <div className="mt-6">
               <EmptyState
                 title="No budgets configured"
@@ -545,6 +555,7 @@ export default function BudgetsPage() {
                 onAction={() => openEditor(CATEGORIES[0])}
               />
             </div>
+            )
           ) : (
             <Reveal>
               <section className="mt-8 overflow-hidden rounded-[24px] border border-[#14241e]/10 bg-white">

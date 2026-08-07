@@ -101,6 +101,7 @@ export default function InsightsPage() {
           await api.getMonthlyInsights(id, selectedMonth)
         );
       } catch (err) {
+        setInsights(null);
         setError(
           err instanceof Error
             ? err.message
@@ -429,7 +430,7 @@ export default function InsightsPage() {
                 transaction history. Results improve as more data is added.
               </p>
             </>
-          ) : (
+          ) : error ? null : (
             <div className="mt-8">
               <EmptyState
                 title="No insights available"

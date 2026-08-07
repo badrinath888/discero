@@ -381,7 +381,11 @@ export default function Dashboard() {
           </header>
 
           {message && !error && (
-            <div className="mt-6 rounded-2xl border border-[#187a59]/20 bg-[#dff6c7] px-4 py-3 text-sm text-[#285d42]">
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-6 rounded-2xl border border-[#187a59]/20 bg-[#dff6c7] px-4 py-3 text-sm text-[#285d42]"
+            >
               {message}
             </div>
           )}

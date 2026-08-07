@@ -158,7 +158,7 @@ useEffect(() => {
                 step="0.01"
                 value={reserveAmount}
                 onChange={(event) => setReserveAmount(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white outline-none"
+                className="mt-2 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white outline-none focus-visible:border-[#83dcb9] focus-visible:ring-2 focus-visible:ring-[#83dcb9]/60"
               />
             </label>
 
@@ -172,7 +172,7 @@ useEffect(() => {
                 step="0.01"
                 value={essentialAmount}
                 onChange={(event) => setEssentialAmount(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white outline-none"
+                className="mt-2 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white outline-none focus-visible:border-[#83dcb9] focus-visible:ring-2 focus-visible:ring-[#83dcb9]/60"
               />
             </label>
 
@@ -186,7 +186,7 @@ useEffect(() => {
                 max="365"
                 value={horizonDays}
                 onChange={(event) => setHorizonDays(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white outline-none"
+                className="mt-2 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white outline-none focus-visible:border-[#83dcb9] focus-visible:ring-2 focus-visible:ring-[#83dcb9]/60"
               />
             </label>
 

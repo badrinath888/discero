@@ -402,9 +402,13 @@ export default function BudgetsPage() {
                 </button>
 
                 <label className="relative">
-                  <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#728078]" />
+                  <CalendarDays
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#728078]"
+                  />
                   <input
                     type="month"
+                    aria-label="Select month"
                     value={selectedMonth}
                     onChange={(event) =>
                       setSelectedMonth(event.target.value)
@@ -447,7 +451,7 @@ export default function BudgetsPage() {
             </header>
           </Reveal>
 
-          {error && (
+          {error && !editingCategory && (
             <div className="mt-5">
               <PageError message={error} onRetry={() => void loadBudgets()} />
             </div>
@@ -606,6 +610,7 @@ export default function BudgetsPage() {
             currentBudget={activeBudget}
             value={draftAmount}
             saving={saving}
+            error={error}
             onChange={setDraftAmount}
             onClose={() => setEditingCategory(null)}
             onSave={saveBudget}
@@ -790,6 +795,7 @@ function BudgetDrawer({
   currentBudget,
   value,
   saving,
+  error,
   onChange,
   onClose,
   onSave,
@@ -800,6 +806,7 @@ function BudgetDrawer({
   currentBudget?: Budget;
   value: string;
   saving: boolean;
+  error?: string;
   onChange: (value: string) => void;
   onClose: () => void;
   onSave: () => void;
@@ -833,6 +840,9 @@ function BudgetDrawer({
           duration: reduceMotion ? 0 : 0.32,
           ease: [0.22, 1, 0.36, 1],
         }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="budget-drawer-title"
         className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-[#fdfcf8] shadow-2xl"
       >
         <header className="flex items-start justify-between border-b border-[#14241e]/10 px-6 py-5">
@@ -840,7 +850,7 @@ function BudgetDrawer({
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
               Budget editor
             </p>
-            <h2 className="mt-2 text-xl font-semibold">
+            <h2 id="budget-drawer-title" className="mt-2 text-xl font-semibold">
               {category}
             </h2>
             <p className="mt-1 text-sm text-[#728078]">
@@ -851,9 +861,10 @@ function BudgetDrawer({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close budget editor"
             className="flex h-10 w-10 items-center justify-center rounded-full border border-[#14241e]/10 bg-white"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </header>
 
@@ -888,6 +899,9 @@ function BudgetDrawer({
                 type="number"
                 min="0.01"
                 step="0.01"
+                aria-required="true"
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? "budget-amount-error" : undefined}
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
                 placeholder="0.00"
@@ -895,6 +909,16 @@ function BudgetDrawer({
                 className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-white pl-8 pr-4 text-lg font-semibold outline-none focus:border-[#167c5a]"
               />
             </div>
+
+            {error && (
+              <p
+                id="budget-amount-error"
+                role="alert"
+                className="mt-2 text-sm font-medium text-[#a64b3d]"
+              >
+                {error}
+              </p>
+            )}
           </label>
 
           {currentBudget && (

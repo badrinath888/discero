@@ -59,6 +59,7 @@ export default function Toast({
           }`}
         >
           <span
+            aria-hidden="true"
             className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white ${
               isSuccess ? "bg-[#167c5a]" : "bg-[#a64b3d]"
             }`}

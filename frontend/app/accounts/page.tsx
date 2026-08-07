@@ -1021,6 +1021,9 @@ function AccountDrawer({
       />
 
       <motion.aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="account-drawer-title"
         initial={reduceMotion ? false : { x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
@@ -1040,7 +1043,10 @@ function AccountDrawer({
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
                 Account details
               </p>
-              <h2 className="mt-1 truncate text-xl font-semibold">
+              <h2
+                id="account-drawer-title"
+                className="mt-1 truncate text-xl font-semibold"
+              >
                 {account.name}
               </h2>
             </div>
@@ -1049,9 +1055,10 @@ function AccountDrawer({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close account details"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#14241e]/10 bg-white"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </header>
 

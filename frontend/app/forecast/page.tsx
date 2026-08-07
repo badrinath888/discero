@@ -739,6 +739,9 @@ function ForecastDrawer({
       />
 
       <motion.aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="forecast-drawer-title"
         initial={reduceMotion ? false : { x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
@@ -756,7 +759,10 @@ function ForecastDrawer({
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
                 Forecast detail
               </p>
-              <h2 className="mt-1 truncate text-xl font-semibold">
+              <h2
+                id="forecast-drawer-title"
+                className="mt-1 truncate text-xl font-semibold"
+              >
                 {item.merchant}
               </h2>
             </div>
@@ -765,9 +771,10 @@ function ForecastDrawer({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close forecast details"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#14241e]/10 bg-white"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </header>
 

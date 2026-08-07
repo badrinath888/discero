@@ -580,6 +580,7 @@ export default function RecurringPage() {
                             onChange={(event) =>
                               setSearch(event.target.value)
                             }
+                            aria-label="Search recurring payments"
                             placeholder="Search merchant, frequency, or status"
                             className="h-11 w-full rounded-xl border border-[#14241e]/10 bg-white pl-10 pr-4 text-sm outline-none focus:border-[#167c5a]"
                           />
@@ -820,6 +821,9 @@ function RecurringDrawer({
       />
 
       <motion.aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="recurring-drawer-title"
         initial={reduceMotion ? false : { x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
@@ -838,7 +842,10 @@ function RecurringDrawer({
                   ? "Detected suggestion"
                   : "Managed recurring payment"}
               </p>
-              <h2 className="mt-1 truncate text-xl font-semibold">
+              <h2
+                id="recurring-drawer-title"
+                className="mt-1 truncate text-xl font-semibold"
+              >
                 {payment.merchant}
               </h2>
             </div>
@@ -847,9 +854,10 @@ function RecurringDrawer({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close recurring payment details"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#14241e]/10 bg-white"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </header>
 

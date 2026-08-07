@@ -704,7 +704,18 @@ useEffect(() => {
 
       <AnimatePresence>
         {drawerMode && (
-          <DrawerShell onClose={closeDrawer}>
+          <DrawerShell
+            onClose={closeDrawer}
+            label={
+              drawerMode === "create"
+                ? "Create a savings goal"
+                : drawerMode === "edit"
+                  ? "Edit savings goal"
+                  : activeGoal
+                    ? `Manage funds for ${activeGoal.name}`
+                    : "Manage funds"
+            }
+          >
   {error && (
     <div className="mb-5">
       <PageError
@@ -999,9 +1010,11 @@ function GoalRow({
 function DrawerShell({
   children,
   onClose,
+  label,
 }: {
   children: React.ReactNode;
   onClose: () => void;
+  label: string;
 }) {
   return (
     <>
@@ -1015,6 +1028,9 @@ function DrawerShell({
         className="fixed inset-0 z-40 bg-[#14241e]/35 backdrop-blur-sm"
       />
       <motion.aside
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
         initial={{ x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
@@ -1025,9 +1041,10 @@ function DrawerShell({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close drawer"
             className="flex h-10 w-10 items-center justify-center rounded-full border border-[#14241e]/10 bg-white"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
         <div className="px-6 pb-10 sm:px-8">{children}</div>

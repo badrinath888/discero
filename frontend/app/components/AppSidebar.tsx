@@ -1,6 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { session } from "../lib/api";
@@ -48,9 +49,8 @@ export default function AppSidebar() {
   const reduceMotion = useReducedMotion();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  function navigate(href: string) {
+  function closeMobileMenu() {
     setMobileOpen(false);
-    router.push(href);
   }
 
   function signOut() {
@@ -90,9 +90,9 @@ export default function AppSidebar() {
         }`}
       >
         <div className="flex h-14 items-center justify-between px-2">
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
+          <Link
+            href="/dashboard"
+            onClick={closeMobileMenu}
             className="focus-ring flex min-w-0 items-center gap-3 rounded-xl text-left"
           >
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#1b9a70] text-sm font-bold text-white shadow-sm">
@@ -107,7 +107,7 @@ export default function AppSidebar() {
                 Financial intelligence
               </span>
             </span>
-          </button>
+          </Link>
 
           <button
             type="button"
@@ -119,11 +119,14 @@ export default function AppSidebar() {
           </button>
         </div>
 
-        <nav className="mt-5 flex-1 overflow-y-auto pr-1">
+        <nav
+          aria-label="Main navigation"
+          className="mt-5 flex-1 overflow-y-auto pr-1"
+        >
           <NavigationGroup
             pathname={pathname}
             items={primaryNavigation}
-            onNavigate={navigate}
+            onNavigate={closeMobileMenu}
           />
 
           <div className="my-5 border-t border-white/8" />
@@ -132,7 +135,7 @@ export default function AppSidebar() {
             label="Intelligence"
             pathname={pathname}
             items={intelligenceNavigation}
-            onNavigate={navigate}
+            onNavigate={closeMobileMenu}
           />
         </nav>
 
@@ -162,7 +165,7 @@ function NavigationGroup({
   label?: string;
   pathname: string;
   items: NavigationItem[];
-  onNavigate: (href: string) => void;
+  onNavigate: () => void;
 }) {
   return (
     <div>
@@ -177,10 +180,11 @@ function NavigationGroup({
           const active = pathname === item.href;
 
           return (
-            <button
+            <Link
               key={item.href}
-              type="button"
-              onClick={() => onNavigate(item.href)}
+              href={item.href}
+              onClick={onNavigate}
+              aria-current={active ? "page" : undefined}
               className={`focus-ring group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm transition ${
                 active
                   ? "bg-[#d5e7da] font-semibold text-[#173c30] shadow-[0_6px_18px_rgba(20,36,30,0.10)]"
@@ -202,7 +206,7 @@ function NavigationGroup({
               {active && (
                 <span className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-[#22a879]" />
               )}
-            </button>
+            </Link>
           );
         })}
       </div>

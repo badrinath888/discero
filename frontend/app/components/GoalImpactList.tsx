@@ -88,7 +88,7 @@ export default function GoalImpactList({
                     role="status"
                     className={`inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusContent.className}`}
                   >
-                    <StatusIcon className="h-3.5 w-3.5" />
+                    <StatusIcon aria-hidden="true" className="h-3.5 w-3.5" />
                     {statusContent.label}
                   </span>
                 </div>

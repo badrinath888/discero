@@ -755,3 +755,19 @@ describe("TransactionsPage Undo edge cases", () => {
     expect(mocks.bulkDeleteTransactions).toHaveBeenCalledWith(1, [1, 2]);
   });
 });
+
+describe("TransactionsPage detail drawer accessibility", () => {
+  it("exposes dialog semantics, an accessible close control, and a labelled category select", async () => {
+    await renderPage();
+
+    fireEvent.click(screen.getByText("Coffee"));
+
+    const dialog = screen.getByRole("dialog", { name: "Coffee" });
+    expect(
+      within(dialog).getByRole("button", {
+        name: "Close transaction details",
+      })
+    ).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Category")).toBeInTheDocument();
+  });
+});

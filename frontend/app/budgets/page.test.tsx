@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -189,5 +195,38 @@ describe("monthly budgets", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
     expect(await screen.findAllByText("Over budget")).not.toHaveLength(0);
+  });
+});
+
+describe("budget editor drawer accessibility", () => {
+  it("exposes dialog semantics and an accessible close control", async () => {
+    await renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Dining" });
+    expect(
+      within(dialog).getByRole("button", { name: "Close budget editor" })
+    ).toBeInTheDocument();
+  });
+
+  it("associates the amount validation error with the input", async () => {
+    await renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    fireEvent.change(screen.getByRole("spinbutton"), {
+      target: { value: "0" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save|Update/ }));
+
+    const message = await screen.findByRole("alert");
+    expect(message).toHaveTextContent(
+      "Enter a valid budget amount greater than $0."
+    );
+
+    const amountInput = screen.getByRole("spinbutton");
+    expect(amountInput).toHaveAttribute("aria-describedby", message.id);
+    expect(amountInput).toHaveAttribute("aria-invalid", "true");
   });
 });

@@ -1,7 +1,10 @@
 from datetime import date
+from math import ceil
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models import SavingsGoal
 from app.schemas import (
     MajorPurchaseAlternativeOut,
     MajorPurchaseSimulationOut,
@@ -65,6 +68,18 @@ def simulate_major_purchase(
         recommended_max,
     )
 
+    goal_monthly_required_cents = (
+        _total_required_monthly_savings_cents(
+            db,
+            user_id,
+            calculation_date,
+        )
+    )
+    goal_impact_months = _goal_impact_months(
+        payload.purchase_amount_cents,
+        goal_monthly_required_cents,
+    )
+
     return MajorPurchaseSimulationOut(
         purchase_name=payload.purchase_name.strip(),
         purchase_amount_cents=payload.purchase_amount_cents,
@@ -77,6 +92,10 @@ def simulate_major_purchase(
         shortfall_after_purchase_cents=shortfall_after,
         recommended_max_purchase_cents=recommended_max,
         purchase_impact_percent=impact_percent,
+        goal_monthly_savings_required_cents=(
+            goal_monthly_required_cents
+        ),
+        goal_impact_months=goal_impact_months,
         confidence_score=safe_to_spend.confidence_score,
         explanation=_build_explanation(
             purchase_name=payload.purchase_name.strip(),
@@ -137,6 +156,72 @@ def _affordability_status(
         return "caution"
 
     return "affordable"
+
+def _total_required_monthly_savings_cents(
+    db: Session,
+    user_id: int,
+    as_of: date,
+) -> int:
+    goals = list(
+        db.scalars(
+            select(SavingsGoal).where(
+                SavingsGoal.user_id == user_id
+            )
+        ).all()
+    )
+
+    total_cents = 0
+
+    for goal in goals:
+        remaining_cents = max(
+            goal.target_cents - goal.saved_cents, 0
+        )
+
+        if remaining_cents <= 0 or goal.target_date is None:
+            continue
+
+        months_remaining = _goal_months_remaining(
+            as_of, goal.target_date
+        )
+
+        if months_remaining <= 0:
+            total_cents += remaining_cents
+        else:
+            total_cents += ceil(
+                remaining_cents / months_remaining
+            )
+
+    return total_cents
+
+
+def _goal_months_remaining(
+    as_of: date,
+    target_date: date,
+) -> int:
+    month_difference = (
+        (target_date.year - as_of.year) * 12
+        + target_date.month
+        - as_of.month
+    )
+
+    if target_date.day > as_of.day:
+        month_difference += 1
+
+    return max(month_difference, 0)
+
+
+def _goal_impact_months(
+    purchase_amount_cents: int,
+    goal_monthly_required_cents: int,
+) -> float:
+    if goal_monthly_required_cents <= 0:
+        return 0.0
+
+    return round(
+        purchase_amount_cents / goal_monthly_required_cents,
+        1,
+    )
+
 
 def _format_currency(cents: int) -> str:
     return f"${cents / 100:,.2f}"

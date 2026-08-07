@@ -28,6 +28,7 @@ import {
   formatCents,
   MajorPurchaseSimulationResult,
   ScenarioComparisonResult,
+  ScenarioComparisonScorecard,
   session,
 } from "../lib/api";
 
@@ -954,6 +955,35 @@ function ComparisonResults({
             </p>
           </div>
         </div>
+
+        {result.reasons.length > 0 && (
+          <div
+            className={`mt-6 border-t pt-6 ${
+              isTie ? "border-[#14241e]/10" : "border-white/10"
+            }`}
+          >
+            <p
+              className={`text-xs font-semibold uppercase tracking-[0.16em] ${
+                isTie ? "text-[#167c5a]" : "text-[#83dcb9]"
+              }`}
+            >
+              {isTie ? "Why they tie" : "Why this wins"}
+            </p>
+
+            <ul
+              className={`mt-3 space-y-2 text-sm leading-6 ${
+                isTie ? "text-[#66746e]" : "text-white/70"
+              }`}
+            >
+              {result.reasons.map((reason) => (
+                <li key={reason} className="flex gap-2">
+                  <span aria-hidden="true">•</span>
+                  <span>{reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </article>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -970,6 +1000,8 @@ function ComparisonResults({
           isTie={isTie}
         />
       </div>
+
+      <ComparisonScorecard scorecard={result.scorecard} />
     </div>
   );
 }
@@ -1019,12 +1051,24 @@ function ComparisonOptionCard({
             </h3>
           </div>
 
-          {recommended && !isTie && (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#83dcb9]/15 px-3 py-1 text-xs font-semibold text-[#83dcb9]">
+          <span
+            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
+              recommended && !isTie
+                ? "bg-[#83dcb9]/15 text-[#83dcb9]"
+                : isTie
+                  ? "bg-[#f1eee7] text-[#66746e]"
+                  : "bg-[#14241e]/5 text-[#66746e]"
+            }`}
+          >
+            {recommended && !isTie && (
               <CheckCircle2 className="h-3.5 w-3.5" />
-              Recommended
-            </span>
-          )}
+            )}
+            {isTie
+              ? "Equally viable"
+              : recommended
+                ? "Recommended"
+                : "Alternative"}
+          </span>
         </div>
 
         <span
@@ -1061,6 +1105,11 @@ function ComparisonOptionCard({
             highlighted={recommended && !isTie}
           />
           <ComparisonMetric
+            label="Goal impact"
+            value={formatGoalImpact(simulation.goal_impact_months)}
+            highlighted={recommended && !isTie}
+          />
+          <ComparisonMetric
             label="Confidence"
             value={`${Math.round(simulation.confidence_score)}%`}
             highlighted={recommended && !isTie}
@@ -1069,6 +1118,14 @@ function ComparisonOptionCard({
       </div>
     </article>
   );
+}
+
+function formatGoalImpact(months: number): string {
+  if (months <= 0) {
+    return "No active goals";
+  }
+
+  return `${months} mo of goal savings`;
 }
 
 function ComparisonMetric({
@@ -1110,6 +1167,113 @@ function ComparisonMetric({
       >
         {value}
       </p>
+    </div>
+  );
+}
+
+function ComparisonScorecard({
+  scorecard,
+}: {
+  scorecard: ScenarioComparisonScorecard;
+}) {
+  const optionAPercent = Math.round(
+    (scorecard.option_a_score / scorecard.max_score) * 100
+  );
+  const optionBPercent = Math.round(
+    (scorecard.option_b_score / scorecard.max_score) * 100
+  );
+
+  return (
+    <article className="rounded-[30px] border border-[#14241e]/10 bg-white p-6 shadow-[0_18px_50px_rgba(20,36,30,0.08)] sm:p-8">
+      <div className="flex items-center gap-2">
+        <Scale className="h-4 w-4 text-[#167c5a]" aria-hidden="true" />
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+          Comparison scorecard
+        </p>
+      </div>
+
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#66746e]">
+        Every factor below is scored directly from your financial
+        data — a higher score always means a safer outcome for that
+        option.
+      </p>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <ScorecardTotal
+          label="Option A score"
+          score={scorecard.option_a_score}
+          maxScore={scorecard.max_score}
+          percent={optionAPercent}
+        />
+        <ScorecardTotal
+          label="Option B score"
+          score={scorecard.option_b_score}
+          maxScore={scorecard.max_score}
+          percent={optionBPercent}
+        />
+      </div>
+
+      <div className="mt-5 divide-y divide-[#14241e]/8 overflow-hidden rounded-2xl border border-[#14241e]/8">
+        {scorecard.criteria.map((criterion) => (
+          <div
+            key={criterion.key}
+            className="flex items-center justify-between gap-3 px-4 py-3"
+          >
+            <span className="text-sm font-medium text-[#14241e]">
+              {criterion.label}
+            </span>
+            <span
+              className={`text-xs font-semibold ${
+                criterion.winner === "tie"
+                  ? "text-[#66746e]"
+                  : "text-[#167c5a]"
+              }`}
+            >
+              {criterion.winner === "tie"
+                ? "Tie"
+                : criterion.winner === "option_a"
+                  ? "Option A"
+                  : "Option B"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function ScorecardTotal({
+  label,
+  score,
+  maxScore,
+  percent,
+}: {
+  label: string;
+  score: number;
+  maxScore: number;
+  percent: number;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#14241e]/8 bg-[#fbfaf7] p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#7f8c86]">
+        {label}
+      </p>
+      <p className="mt-2 text-lg font-semibold text-[#14241e]">
+        {score} / {maxScore}
+      </p>
+      <div
+        role="progressbar"
+        aria-valuenow={percent}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`${label}: ${percent}% of maximum`}
+        className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#14241e]/8"
+      >
+        <div
+          className="h-full rounded-full bg-[#167c5a]"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
     </div>
   );
 }

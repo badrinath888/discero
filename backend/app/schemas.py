@@ -832,6 +832,8 @@ class MajorPurchaseSimulationOut(BaseModel):
     shortfall_after_purchase_cents: int
     recommended_max_purchase_cents: int
     purchase_impact_percent: float
+    goal_monthly_savings_required_cents: int
+    goal_impact_months: float
     confidence_score: float
     explanation: str
     alternatives: list[MajorPurchaseAlternativeOut]
@@ -849,9 +851,25 @@ class ScenarioComparisonOptionOut(BaseModel):
     affordability_rank: int
 
 
+class ScenarioComparisonScoreCriterionOut(BaseModel):
+    key: str
+    label: str
+    weight: float
+    winner: Literal["option_a", "option_b", "tie"]
+
+
+class ScenarioComparisonScorecardOut(BaseModel):
+    option_a_score: float
+    option_b_score: float
+    max_score: float
+    criteria: list[ScenarioComparisonScoreCriterionOut]
+
+
 class ScenarioComparisonOut(BaseModel):
     recommended_option: Literal["option_a", "option_b", "tie"]
     recommendation: str
+    reasons: list[str]
+    scorecard: ScenarioComparisonScorecardOut
     safe_to_spend_difference_cents: int
     purchase_cost_difference_cents: int
     impact_difference_percent: float

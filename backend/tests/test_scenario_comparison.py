@@ -4,18 +4,85 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import FinancialAccount, PlaidItem, User
+from app.models import FinancialAccount, PlaidItem, SavingsGoal, User
 from app.schemas import (
+    MajorPurchaseSimulationOut,
     MajorPurchaseSimulationRequest,
+    SafeToSpendBreakdownOut,
+    SafeToSpendOut,
     ScenarioComparisonRequest,
 )
 from app.services.scenario_comparison_service import (
+    _build_reasons,
+    _build_scorecard,
+    _determine_recommendation,
     compare_major_purchase_scenarios,
 )
 from tests.conftest import TestingSessionLocal
 
 
 TEST_DATE = date(2026, 8, 4)
+
+
+def _currency(cents: int) -> str:
+    return f"${cents / 100:,.2f}"
+
+
+def _make_simulation(
+    *,
+    purchase_name: str,
+    purchase_amount_cents: int = 100_000,
+    affordability_status: str = "affordable",
+    safe_to_spend_after_purchase_cents: int = 400_000,
+    shortfall_after_purchase_cents: int = 0,
+    purchase_impact_percent: float = 20.0,
+    goal_impact_months: float = 0.0,
+    confidence_score: float = 85.0,
+) -> MajorPurchaseSimulationOut:
+    safe_before = (
+        safe_to_spend_after_purchase_cents + purchase_amount_cents
+    )
+    through_date = TEST_DATE + timedelta(days=30)
+
+    return MajorPurchaseSimulationOut(
+        purchase_name=purchase_name,
+        purchase_amount_cents=purchase_amount_cents,
+        purchase_date=TEST_DATE + timedelta(days=7),
+        as_of=TEST_DATE,
+        through_date=through_date,
+        affordability_status=affordability_status,
+        safe_to_spend_before_purchase_cents=safe_before,
+        safe_to_spend_after_purchase_cents=(
+            safe_to_spend_after_purchase_cents
+        ),
+        shortfall_after_purchase_cents=(
+            shortfall_after_purchase_cents
+        ),
+        recommended_max_purchase_cents=round(safe_before * 0.75),
+        purchase_impact_percent=purchase_impact_percent,
+        goal_monthly_savings_required_cents=0,
+        goal_impact_months=goal_impact_months,
+        confidence_score=confidence_score,
+        explanation="test explanation",
+        alternatives=[],
+        safe_to_spend=SafeToSpendOut(
+            as_of=TEST_DATE,
+            through_date=through_date,
+            horizon_days=30,
+            safe_to_spend_cents=safe_before,
+            shortfall_cents=0,
+            status="safe",
+            confidence_score=confidence_score,
+            breakdown=SafeToSpendBreakdownOut(
+                liquid_balance_cents=safe_before,
+                upcoming_obligations_cents=0,
+                essential_spending_cents=0,
+                safety_reserve_cents=0,
+            ),
+            obligations=[],
+            warnings=[],
+        ),
+    )
 
 
 def create_user(
@@ -169,6 +236,24 @@ def test_affordable_option_beats_caution_option() -> None:
             == "caution"
         )
 
+        affordability_criterion = next(
+            criterion
+            for criterion in result.scorecard.criteria
+            if criterion.key == "affordability"
+        )
+        assert affordability_criterion.winner == "option_a"
+        assert (
+            result.scorecard.option_a_score
+            > result.scorecard.option_b_score
+        )
+        assert (
+            result.scorecard.option_a_score
+            + result.scorecard.option_b_score
+            == result.scorecard.max_score
+        )
+        assert 2 <= len(result.reasons) <= 4
+        assert "affordable" in result.reasons[0].lower()
+
 
 def test_caution_option_beats_not_affordable_option() -> None:
     with TestingSessionLocal() as db:
@@ -229,6 +314,16 @@ def test_lower_shortfall_wins_when_affordability_ranks_match() -> None:
             == "not_affordable"
         )
 
+        shortfall_criterion = next(
+            criterion
+            for criterion in result.scorecard.criteria
+            if criterion.key == "shortfall"
+        )
+        assert shortfall_criterion.winner == "option_a"
+        assert any(
+            "lower shortfall" in reason for reason in result.reasons
+        )
+
 
 def test_higher_remaining_safe_to_spend_wins() -> None:
     with TestingSessionLocal() as db:
@@ -258,6 +353,17 @@ def test_higher_remaining_safe_to_spend_wins() -> None:
         assert (
             result.option_a.simulation.shortfall_after_purchase_cents
             == result.option_b.simulation.shortfall_after_purchase_cents
+        )
+
+        safe_to_spend_criterion = next(
+            criterion
+            for criterion in result.scorecard.criteria
+            if criterion.key == "safe_to_spend_after"
+        )
+        assert safe_to_spend_criterion.winner == "option_a"
+        assert any(
+            "more safe-to-spend after purchase" in reason
+            for reason in result.reasons
         )
 
 
@@ -336,6 +442,18 @@ def test_identical_options_return_tie() -> None:
 
         assert result.recommended_option == "tie"
         assert "equally viable" in result.recommendation.lower()
+
+        assert all(
+            criterion.winner == "tie"
+            for criterion in result.scorecard.criteria
+        )
+        assert (
+            result.scorecard.option_a_score
+            == result.scorecard.option_b_score
+            == result.scorecard.max_score / 2
+        )
+        assert len(result.reasons) == 1
+        assert "equally viable" in result.reasons[0].lower()
 
 
 def test_dollar_formatted_recommendation() -> None:
@@ -514,3 +632,211 @@ def test_compare_endpoint_blocks_other_user(
     assert response.json()["detail"] == (
         "you cannot access another user's data"
     )
+
+
+def test_near_tie_decided_by_single_factor() -> None:
+    simulation_a = _make_simulation(
+        purchase_name="A",
+        purchase_impact_percent=20.0,
+    )
+    simulation_b = _make_simulation(
+        purchase_name="B",
+        purchase_impact_percent=20.5,
+    )
+
+    recommended = _determine_recommendation(
+        simulation_a, simulation_b
+    )
+    scorecard = _build_scorecard(simulation_a, simulation_b)
+    reasons = _build_reasons(
+        recommended, scorecard, simulation_a, simulation_b
+    )
+
+    assert recommended == "option_a"
+
+    winning_criteria = [
+        criterion
+        for criterion in scorecard.criteria
+        if criterion.winner == "option_a"
+    ]
+    tied_criteria = [
+        criterion
+        for criterion in scorecard.criteria
+        if criterion.winner == "tie"
+    ]
+
+    assert len(winning_criteria) == 1
+    assert winning_criteria[0].key == "impact_percent"
+    assert len(tied_criteria) == 6
+
+    assert len(reasons) == 2
+    assert "impact" in reasons[0].lower()
+    assert "close call" in reasons[1].lower()
+
+
+def test_confidence_only_decides_when_everything_else_ties() -> None:
+    simulation_a = _make_simulation(
+        purchase_name="A",
+        confidence_score=90.0,
+    )
+    simulation_b = _make_simulation(
+        purchase_name="B",
+        confidence_score=70.0,
+    )
+
+    recommended = _determine_recommendation(
+        simulation_a, simulation_b
+    )
+    scorecard = _build_scorecard(simulation_a, simulation_b)
+    reasons = _build_reasons(
+        recommended, scorecard, simulation_a, simulation_b
+    )
+
+    assert recommended == "option_a"
+
+    confidence_criterion = next(
+        criterion
+        for criterion in scorecard.criteria
+        if criterion.key == "confidence"
+    )
+    assert confidence_criterion.winner == "option_a"
+
+    non_confidence_criteria = [
+        criterion
+        for criterion in scorecard.criteria
+        if criterion.key != "confidence"
+    ]
+    assert all(
+        criterion.winner == "tie"
+        for criterion in non_confidence_criteria
+    )
+    assert any("confidence" in reason.lower() for reason in reasons)
+
+
+def test_confidence_does_not_override_financial_safety() -> None:
+    simulation_a = _make_simulation(
+        purchase_name="A",
+        affordability_status="affordable",
+        confidence_score=50.0,
+    )
+    simulation_b = _make_simulation(
+        purchase_name="B",
+        affordability_status="caution",
+        confidence_score=99.0,
+    )
+
+    recommended = _determine_recommendation(
+        simulation_a, simulation_b
+    )
+
+    assert recommended == "option_a"
+
+
+def test_winner_due_to_lower_goal_impact() -> None:
+    simulation_a = _make_simulation(
+        purchase_name="A",
+        goal_impact_months=1.0,
+    )
+    simulation_b = _make_simulation(
+        purchase_name="B",
+        goal_impact_months=3.0,
+    )
+
+    recommended = _determine_recommendation(
+        simulation_a, simulation_b
+    )
+    scorecard = _build_scorecard(simulation_a, simulation_b)
+    reasons = _build_reasons(
+        recommended, scorecard, simulation_a, simulation_b
+    )
+
+    assert recommended == "option_a"
+
+    goal_criterion = next(
+        criterion
+        for criterion in scorecard.criteria
+        if criterion.key == "goal_impact"
+    )
+    assert goal_criterion.winner == "option_a"
+    assert any("goal" in reason.lower() for reason in reasons)
+    assert any("1.0 months" in reason for reason in reasons)
+
+
+def test_goal_impact_is_sourced_from_savings_goals() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "goal-impact-wiring")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        goal = SavingsGoal(
+            user_id=user.id,
+            name="Vacation",
+            target_cents=120_000,
+            saved_cents=0,
+            target_date=date(2026, 10, 4),
+        )
+        db.add(goal)
+        db.commit()
+
+        result = compare_major_purchase_scenarios(
+            db,
+            user.id,
+            _comparison_request(
+                option_a_amount=200_000,
+                option_b_amount=200_000,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        simulation = result.option_a.simulation
+
+        assert simulation.goal_monthly_savings_required_cents == 60_000
+        assert simulation.goal_impact_months == round(
+            200_000 / 60_000, 1
+        )
+
+
+def test_reasons_match_actual_metrics() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "reasons-match-metrics")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=500_000,
+        )
+
+        result = compare_major_purchase_scenarios(
+            db,
+            user.id,
+            _comparison_request(
+                option_a_amount=200_000,
+                option_b_amount=400_000,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        winner_sim = result.option_a.simulation
+        loser_sim = result.option_b.simulation
+        combined_reasons = " ".join(result.reasons)
+
+        assert (
+            _currency(winner_sim.safe_to_spend_after_purchase_cents)
+            in combined_reasons
+        )
+        assert (
+            _currency(loser_sim.safe_to_spend_after_purchase_cents)
+            in combined_reasons
+        )
+        assert (
+            f"{winner_sim.purchase_impact_percent}%"
+            in combined_reasons
+        )
+        assert (
+            f"{loser_sim.purchase_impact_percent}%"
+            in combined_reasons
+        )

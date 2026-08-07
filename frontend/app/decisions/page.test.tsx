@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -89,6 +95,59 @@ const comparisonResult: ScenarioComparisonResult = {
   recommended_option: "option_a",
   recommendation:
     "Option A (New laptop) is recommended because it is affordable while Used laptop is caution.",
+  reasons: [
+    "It is affordable while Used laptop is caution.",
+    "It has a lower impact on safe-to-spend (40.0% vs 24.0%).",
+  ],
+  scorecard: {
+    option_a_score: 96.0,
+    option_b_score: 31.0,
+    max_score: 127.0,
+    criteria: [
+      {
+        key: "affordability",
+        label: "Financial safety",
+        weight: 64.0,
+        winner: "option_a",
+      },
+      {
+        key: "shortfall",
+        label: "Shortfall risk",
+        weight: 32.0,
+        winner: "tie",
+      },
+      {
+        key: "safe_to_spend_after",
+        label: "Remaining safe-to-spend",
+        weight: 16.0,
+        winner: "option_b",
+      },
+      {
+        key: "impact_percent",
+        label: "Safe-to-spend impact",
+        weight: 8.0,
+        winner: "option_b",
+      },
+      {
+        key: "goal_impact",
+        label: "Goal impact",
+        weight: 4.0,
+        winner: "tie",
+      },
+      {
+        key: "confidence",
+        label: "Confidence",
+        weight: 2.0,
+        winner: "tie",
+      },
+      {
+        key: "purchase_cost",
+        label: "Purchase cost",
+        weight: 1.0,
+        winner: "option_b",
+      },
+    ],
+  },
   safe_to_spend_difference_cents: 800_00,
   purchase_cost_difference_cents: 800_00,
   impact_difference_percent: -16.0,
@@ -107,6 +166,8 @@ const comparisonResult: ScenarioComparisonResult = {
       shortfall_after_purchase_cents: 0,
       recommended_max_purchase_cents: 375_000,
       purchase_impact_percent: 40.0,
+      goal_monthly_savings_required_cents: 0,
+      goal_impact_months: 0,
       confidence_score: 85,
       explanation: "New laptop is within the recommended purchase range.",
       alternatives: [],
@@ -144,6 +205,8 @@ const comparisonResult: ScenarioComparisonResult = {
       shortfall_after_purchase_cents: 0,
       recommended_max_purchase_cents: 375_000,
       purchase_impact_percent: 24.0,
+      goal_monthly_savings_required_cents: 0,
+      goal_impact_months: 0,
       confidence_score: 85,
       explanation: "Used laptop is technically affordable.",
       alternatives: [],
@@ -349,6 +412,101 @@ describe("decisions comparison mode", () => {
     expect(screen.getAllByText("Proceed with caution").length).toBeGreaterThan(
       0
     );
+  });
+
+  it("renders the winner banner with a 'why this wins' reasons list", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Compare options" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run comparison" })
+    );
+
+    expect(
+      await screen.findByText("Option A: New laptop")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Why this wins")).toBeInTheDocument();
+
+    for (const reason of comparisonResult.reasons) {
+      expect(screen.getByText(reason)).toBeInTheDocument();
+    }
+  });
+
+  it("renders both options side by side with tradeoff details", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Compare options" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run comparison" })
+    );
+
+    await screen.findByText("Option A: New laptop");
+
+    const optionACard = screen.getByText("New laptop").closest("article");
+    const optionBCard = screen.getByText("Used laptop").closest("article");
+
+    expect(optionACard).not.toBeNull();
+    expect(optionBCard).not.toBeNull();
+
+    const withinA = within(optionACard as HTMLElement);
+    const withinB = within(optionBCard as HTMLElement);
+
+    expect(withinA.getByText("Recommended")).toBeInTheDocument();
+    expect(withinB.getByText("Alternative")).toBeInTheDocument();
+
+    expect(withinA.getByText("Purchase amount")).toBeInTheDocument();
+    expect(withinA.getByText("Safe to spend after")).toBeInTheDocument();
+    expect(withinA.getByText("Shortfall")).toBeInTheDocument();
+    expect(withinA.getByText("Impact")).toBeInTheDocument();
+    expect(withinA.getByText("Goal impact")).toBeInTheDocument();
+    expect(withinA.getByText("Confidence")).toBeInTheDocument();
+    expect(withinA.getByText("No active goals")).toBeInTheDocument();
+    expect(withinB.getByText("No active goals")).toBeInTheDocument();
+  });
+
+  it("renders the comparison scorecard with per-factor winners", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Compare options" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run comparison" })
+    );
+
+    await screen.findByText("Option A: New laptop");
+
+    const scorecardCard = screen
+      .getByText("Comparison scorecard")
+      .closest("article") as HTMLElement;
+    const withinScorecard = within(scorecardCard);
+
+    expect(withinScorecard.getByText("96 / 127")).toBeInTheDocument();
+    expect(withinScorecard.getByText("31 / 127")).toBeInTheDocument();
+
+    for (const criterion of comparisonResult.scorecard.criteria) {
+      expect(
+        withinScorecard.getByText(criterion.label)
+      ).toBeInTheDocument();
+    }
+
+    const financialSafetyRow = withinScorecard
+      .getByText("Financial safety")
+      .closest("div");
+    expect(
+      within(financialSafetyRow as HTMLElement).getByText("Option A")
+    ).toBeInTheDocument();
+
+    const shortfallRow = withinScorecard
+      .getByText("Shortfall risk")
+      .closest("div");
+    expect(
+      within(shortfallRow as HTMLElement).getByText("Tie")
+    ).toBeInTheDocument();
   });
 
   it("renders API errors from comparison requests", async () => {

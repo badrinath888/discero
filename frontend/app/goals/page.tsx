@@ -852,7 +852,7 @@ function GoalConflictPanel({
               step="0.01"
               value={monthlyCapacity}
               onChange={(event) => onCapacityChange(event.target.value)}
-              className="input"
+              className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
               placeholder="1000.00"
               disabled={disabled || loading}
             />
@@ -1021,7 +1021,7 @@ function DrawerShell({
         transition={{ type: "spring", stiffness: 300, damping: 32 }}
         className="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-[#fbfaf6] shadow-2xl sm:max-w-xl"
       >
-        <div className="flex justify-end p-5">
+        <div className="sticky top-0 z-10 flex justify-end bg-[#fbfaf6] p-5">
           <button
             type="button"
             onClick={onClose}
@@ -1074,7 +1074,7 @@ function GoalEditor({
             onChange={(event) =>
               onChange({ ...form, name: event.target.value })
             }
-            className="input"
+            className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
             placeholder="Emergency fund"
           />
         </Field>
@@ -1088,7 +1088,7 @@ function GoalEditor({
             onChange={(event) =>
               onChange({ ...form, targetAmount: event.target.value })
             }
-            className="input"
+            className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
             placeholder="10000"
           />
         </Field>
@@ -1103,7 +1103,7 @@ function GoalEditor({
               onChange={(event) =>
                 onChange({ ...form, savedAmount: event.target.value })
               }
-              className="input"
+              className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
               placeholder="0"
             />
           </Field>
@@ -1116,7 +1116,7 @@ function GoalEditor({
             onChange={(event) =>
               onChange({ ...form, targetDate: event.target.value })
             }
-            className="input"
+            className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
           />
         </Field>
 
@@ -1164,7 +1164,7 @@ function FundManager({
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
         Manage funds
       </p>
-      <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
+      <h2 className="mt-2 break-words text-3xl font-semibold tracking-[-0.04em]">
         {goal.name}
       </h2>
 
@@ -1208,7 +1208,7 @@ function FundManager({
               onChange={(event) =>
                 onFormChange({ ...form, amount: event.target.value })
               }
-              className="input"
+              className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
               placeholder="100.00"
             />
           </Field>
@@ -1223,7 +1223,7 @@ function FundManager({
                   contributedOn: event.target.value,
                 })
               }
-              className="input"
+              className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
             />
           </Field>
 
@@ -1233,7 +1233,7 @@ function FundManager({
               onChange={(event) =>
                 onFormChange({ ...form, note: event.target.value })
               }
-              className="input min-h-24 resize-none"
+              className="min-h-24 w-full resize-none rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 py-3 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
               placeholder="Optional note"
               maxLength={255}
             />

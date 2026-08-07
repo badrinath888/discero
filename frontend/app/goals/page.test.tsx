@@ -191,3 +191,16 @@ describe("goals contribution submission", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe("goals drawer mobile layout", () => {
+  it("renders full-width form fields instead of browser-default-sized inputs", async () => {
+    await renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Funds" }));
+    const amountInput = await screen.findByLabelText("Amount");
+
+    expect(amountInput.className).toContain("w-full");
+    expect(screen.getByLabelText("Date").className).toContain("w-full");
+    expect(screen.getByLabelText("Note").className).toContain("w-full");
+  });
+});

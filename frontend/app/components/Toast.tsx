@@ -70,7 +70,7 @@ export default function Toast({
             )}
           </span>
 
-          <p className="min-w-0 whitespace-nowrap text-sm font-semibold leading-5">
+          <p className="min-w-0 text-sm font-semibold leading-5">
             {message}
           </p>
 

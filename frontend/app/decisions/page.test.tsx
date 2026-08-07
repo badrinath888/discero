@@ -421,6 +421,18 @@ beforeEach(() => {
   mocks.runFinancialStressTest.mockResolvedValue(stressTestResult);
 });
 
+describe("decisions mobile layout", () => {
+  it("allows the mode toggle buttons to wrap instead of overflowing narrow screens", async () => {
+    await renderPage();
+
+    const toggleContainer = screen.getByRole("button", {
+      name: "Compare options",
+    }).parentElement;
+
+    expect(toggleContainer?.className).toContain("flex-wrap");
+  });
+});
+
 describe("decisions comparison mode", () => {
   it("sends the comparison payload with shared assumptions", async () => {
     await renderPage();

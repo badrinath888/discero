@@ -425,7 +425,7 @@ export default function ForecastPage() {
                                 (entry) => (
                                   <div
                                     key={entry.month}
-                                    className="flex items-center justify-between gap-3 px-4 py-3"
+                                    className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-3"
                                   >
                                     <span className="text-sm font-medium text-[#14241e]">
                                       {formatMonth(entry.month)}

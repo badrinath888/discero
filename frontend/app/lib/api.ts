@@ -404,6 +404,8 @@ export type MajorPurchaseSimulationResult = {
   shortfall_after_purchase_cents: number;
   recommended_max_purchase_cents: number;
   purchase_impact_percent: number;
+  goal_monthly_savings_required_cents: number;
+  goal_impact_months: number;
   confidence_score: number;
   explanation: string;
   alternatives: MajorPurchaseAlternative[];
@@ -421,9 +423,25 @@ export type ScenarioComparisonOption = {
   affordability_rank: number;
 };
 
+export type ScenarioComparisonScoreCriterion = {
+  key: string;
+  label: string;
+  weight: number;
+  winner: "option_a" | "option_b" | "tie";
+};
+
+export type ScenarioComparisonScorecard = {
+  option_a_score: number;
+  option_b_score: number;
+  max_score: number;
+  criteria: ScenarioComparisonScoreCriterion[];
+};
+
 export type ScenarioComparisonResult = {
   recommended_option: "option_a" | "option_b" | "tie";
   recommendation: string;
+  reasons: string[];
+  scorecard: ScenarioComparisonScorecard;
   safe_to_spend_difference_cents: number;
   purchase_cost_difference_cents: number;
   impact_difference_percent: number;

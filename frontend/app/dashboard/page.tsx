@@ -355,7 +355,7 @@ export default function Dashboard() {
                 {formatMonth(budgetMonth)}
               </p>
 
-              <h1 className="mt-3 whitespace-nowrap text-[clamp(1.45rem,4.8vw,3.75rem)] font-semibold leading-tight tracking-[-0.055em] text-[#12261f]">
+              <h1 className="mt-3 text-[clamp(1.45rem,4.8vw,3.75rem)] font-semibold leading-tight tracking-[-0.055em] text-[#12261f]">
   Here’s how your money is doing.
 </h1>
 

@@ -559,7 +559,7 @@ export default function BudgetsPage() {
           ) : (
             <Reveal>
               <section className="mt-8 overflow-hidden rounded-[24px] border border-[#14241e]/10 bg-white">
-                <header className="grid gap-3 border-b border-[#14241e]/10 bg-[#faf8f3] px-5 py-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780] md:grid-cols-[minmax(180px,1.3fr)_140px_minmax(200px,1fr)_140px_110px] md:items-center">
+                <header className="hidden gap-3 border-b border-[#14241e]/10 bg-[#faf8f3] px-5 py-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780] md:grid md:grid-cols-[minmax(180px,1.3fr)_140px_minmax(200px,1fr)_140px_110px] md:items-center">
                   <span>Category</span>
                   <span>Limit</span>
                   <span>Progress</span>

@@ -458,7 +458,7 @@ export default function DecisionsPage() {
                   : "Test a purchase before making it. FinSight compares the cost with your liquid balance, active obligations, safety reserve, and essential spending."}
               </p>
 
-              <div className="mt-6 inline-flex rounded-2xl border border-[#14241e]/10 bg-white p-1 shadow-[0_8px_24px_rgba(20,36,30,0.06)]">
+              <div className="mt-6 inline-flex flex-wrap gap-1 rounded-2xl border border-[#14241e]/10 bg-white p-1 shadow-[0_8px_24px_rgba(20,36,30,0.06)]">
                 <ModeButton
                   active={mode === "single"}
                   onClick={() => handleModeChange("single")}
@@ -1110,7 +1110,7 @@ function ComparisonResults({
             )}
           </span>
 
-          <div>
+          <div className="min-w-0">
             <p
               className={`text-xs font-semibold uppercase tracking-[0.16em] ${
                 isTie ? "text-[#167c5a]" : "text-[#83dcb9]"
@@ -1119,7 +1119,7 @@ function ComparisonResults({
               {isTie ? "Comparison result" : "Recommended option"}
             </p>
             <h2
-              className={`mt-2 text-2xl font-semibold tracking-[-0.04em] sm:text-3xl ${
+              className={`mt-2 break-words text-2xl font-semibold tracking-[-0.04em] sm:text-3xl ${
                 isTie ? "text-[#14241e]" : "text-white"
               }`}
             >
@@ -1219,7 +1219,7 @@ function ComparisonOptionCard({
 
       <div className="relative">
         <div className="flex items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <p
               className={`text-xs font-semibold uppercase tracking-[0.14em] ${
                 recommended && !isTie
@@ -1229,7 +1229,7 @@ function ComparisonOptionCard({
             >
               {title}
             </p>
-            <h3 className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+            <h3 className="mt-2 truncate text-2xl font-semibold tracking-[-0.04em]">
               {simulation.purchase_name}
             </h3>
           </div>

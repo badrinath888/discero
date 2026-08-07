@@ -322,7 +322,7 @@ export default function InsightsPage() {
                             : "Spending decreased compared with the previous month."}
                     </p>
 
-                    <div className="mt-8 grid grid-cols-3 gap-2">
+                    <div className="mt-8 grid grid-cols-2 gap-2 sm:grid-cols-3">
                       <SeverityCount
                         label="Positive"
                         value={severityCounts.positive}

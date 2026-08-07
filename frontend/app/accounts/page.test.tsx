@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { FinancialAccount } from "../lib/api";
+import type { FinancialAccount, Transaction } from "../lib/api";
 import AccountsPage from "./page";
 
 
@@ -235,5 +235,32 @@ describe("Accounts Plaid lifecycle", () => {
     expect(
       screen.queryByText("No bank accounts connected")
     ).not.toBeInTheDocument();
+  });
+
+  it("shows an account's recent transactions once expanded", async () => {
+    const transaction: Transaction = {
+      id: 1,
+      posted_on: "2026-08-01",
+      description: "Coffee shop",
+      merchant_name: "Coffee Shop",
+      amount_cents: -450,
+      category: "Dining",
+      source: "plaid",
+      pending: false,
+      financial_account_id: account.id,
+      account_name: account.name,
+      institution_name: account.institution_name,
+    };
+
+    mocks.getAccounts.mockResolvedValue([account]);
+    mocks.getTransactions.mockResolvedValue([transaction]);
+    render(<AccountsPage />);
+    await screen.findByText("Everyday Checking");
+
+    expect(screen.queryByText("Coffee Shop")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Everyday Checking"));
+
+    expect(await screen.findByText("Coffee Shop")).toBeInTheDocument();
   });
 });

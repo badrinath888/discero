@@ -205,6 +205,7 @@ export default function InsightsPage() {
                 <CalendarDays className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#728078]" />
                 <input
                   type="month"
+                  aria-label="Select month"
                   value={month}
                   max={getCurrentMonth()}
                   onChange={(event) => setMonth(event.target.value)}
@@ -360,6 +361,7 @@ export default function InsightsPage() {
                           onChange={(event) =>
                             setSearch(event.target.value)
                           }
+                          aria-label="Search insights"
                           placeholder="Search insights"
                           className="h-11 w-full rounded-xl border border-[#14241e]/10 bg-white pl-10 pr-4 text-sm outline-none focus:border-[#167c5a]"
                         />
@@ -606,6 +608,9 @@ function InsightDrawer({
       />
 
       <motion.aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="insight-drawer-title"
         initial={reduceMotion ? false : { x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
@@ -620,7 +625,7 @@ function InsightDrawer({
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
               Insight details
             </p>
-            <h2 className="mt-2 text-xl font-semibold">
+            <h2 id="insight-drawer-title" className="mt-2 text-xl font-semibold">
               {insight.title}
             </h2>
           </div>
@@ -628,9 +633,10 @@ function InsightDrawer({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close insight details"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#14241e]/10 bg-white"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </header>
 

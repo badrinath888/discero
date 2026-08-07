@@ -1117,6 +1117,7 @@ export default function TransactionsPage() {
                       setSearch(event.target.value);
                       setPage(1);
                     }}
+                    aria-label="Search transactions"
                     placeholder="Search merchant, description, category, or account"
                     className="h-11 w-full rounded-xl border border-[#14241e]/10 bg-white pl-11 pr-4 text-sm outline-none transition placeholder:text-[#98a19d] focus:border-[#167c5a]"
                   />
@@ -1126,6 +1127,7 @@ export default function TransactionsPage() {
                   <button
                     type="button"
                     onClick={() => setShowFilters((current) => !current)}
+                    aria-expanded={showFilters}
                     className={`inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${
                       showFilters || activeFilterCount > 0
                         ? "border-[#167c5a] bg-[#e7f3eb] text-[#126a4d]"
@@ -1174,6 +1176,7 @@ export default function TransactionsPage() {
                     <button
                       type="button"
                       onClick={() => setDensity("compact")}
+                      aria-pressed={density === "compact"}
                       className={`h-full rounded-lg px-3 text-xs font-semibold transition ${
                         density === "compact"
                           ? "bg-[#14241e] text-white"
@@ -1186,6 +1189,7 @@ export default function TransactionsPage() {
                     <button
                       type="button"
                       onClick={() => setDensity("comfortable")}
+                      aria-pressed={density === "comfortable"}
                       className={`h-full rounded-lg px-3 text-xs font-semibold transition ${
                         density === "comfortable"
                           ? "bg-[#14241e] text-white"
@@ -1213,6 +1217,7 @@ export default function TransactionsPage() {
                       setCategory(value);
                       setPage(1);
                     }}
+                    ariaLabel="Filter by category"
                     options={CATEGORIES.map((item) => ({
                       value: item,
                       label:
@@ -1228,6 +1233,7 @@ export default function TransactionsPage() {
                       setSource(value);
                       setPage(1);
                     }}
+                    ariaLabel="Filter by source"
                     options={[
                       { value: "All", label: "All sources" },
                       { value: "Plaid", label: "Plaid" },
@@ -1244,6 +1250,7 @@ export default function TransactionsPage() {
                       setPage(1);
                     }}
                     disabled={accountOptions.length === 0}
+                    ariaLabel="Filter by account"
                     options={[
                       { value: "All", label: "All accounts" },
                       ...accountOptions.map(([id, label]) => ({
@@ -1641,17 +1648,20 @@ function FilterSelect({
   onChange,
   options,
   disabled = false,
+  ariaLabel,
 }: {
   value: string;
   onChange: (value: string) => void;
   options: Array<{ value: string; label: string }>;
   disabled?: boolean;
+  ariaLabel: string;
 }) {
   return (
     <select
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
+      aria-label={ariaLabel}
       className="h-10 min-w-0 rounded-xl border border-[#14241e]/10 bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#167c5a] disabled:cursor-not-allowed disabled:opacity-50"
     >
       {options.map((option) => (
@@ -1859,6 +1869,9 @@ function TransactionListRow({
       <button
         type="button"
         onClick={onOpen}
+        aria-label={`Amount ${formatCents(transaction.amount_cents)} for ${
+          transaction.merchant_name || transaction.description
+        }`}
         className={`text-left text-base font-semibold lg:text-right ${
           positive ? "text-[#167c5a]" : "text-[#a64b3d]"
         }`}
@@ -1872,6 +1885,8 @@ function TransactionListRow({
           onClick={() => onMenuChange(!menuOpen)}
           disabled={busy}
           aria-label="Transaction actions"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
           className="flex h-9 w-9 items-center justify-center rounded-lg text-[#66746e] transition hover:bg-[#f0eee7] disabled:opacity-50"
         >
           <MoreIcon />
@@ -1961,6 +1976,9 @@ function TransactionDrawer({
       />
 
       <motion.aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="transaction-drawer-title"
         initial={reduceMotion ? false : { x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
@@ -1973,7 +1991,10 @@ function TransactionDrawer({
               Transaction details
             </p>
 
-            <h2 className="mt-2 truncate text-xl font-semibold">
+            <h2
+              id="transaction-drawer-title"
+              className="mt-2 truncate text-xl font-semibold"
+            >
               {transaction.merchant_name || transaction.description}
             </h2>
           </div>
@@ -1981,9 +2002,10 @@ function TransactionDrawer({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close transaction details"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#14241e]/10 bg-white text-xl"
           >
-            ×
+            <span aria-hidden="true">×</span>
           </button>
         </header>
 
@@ -2056,22 +2078,21 @@ function TransactionDrawer({
           </dl>
 
           <div className="mt-6">
-            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780]">
+            <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780]">
               Category
+              <select
+                value={transaction.category}
+                disabled={busy}
+                onChange={(event) =>
+                  onCategoryChange(event.target.value)
+                }
+                className="mt-2 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm font-normal normal-case tracking-normal outline-none focus:border-[#167c5a] disabled:opacity-50"
+              >
+                {EDITABLE_CATEGORIES.map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
             </label>
-
-            <select
-              value={transaction.category}
-              disabled={busy}
-              onChange={(event) =>
-                onCategoryChange(event.target.value)
-              }
-              className="mt-2 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm outline-none focus:border-[#167c5a] disabled:opacity-50"
-            >
-              {EDITABLE_CATEGORIES.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
           </div>
         </div>
 

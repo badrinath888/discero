@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useId } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 
 type ConfirmationModalProps = {
@@ -29,6 +29,19 @@ export default function ConfirmationModal({
   onConfirm,
 }: ConfirmationModalProps) {
   const reduceMotion = useReducedMotion();
+  const titleId = useId();
+  const descriptionId = useId();
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !busy) {
+        onCancel();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [busy, onCancel]);
 
   return (
     <motion.div
@@ -49,6 +62,8 @@ export default function ConfirmationModal({
       <motion.section
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
         initial={
           reduceMotion
             ? false
@@ -63,7 +78,10 @@ export default function ConfirmationModal({
         className="relative w-full max-w-md rounded-[28px] border border-[#14241e]/10 bg-[#fdfcf8] p-6 shadow-[0_30px_90px_rgba(20,36,30,0.28)] sm:p-7"
       >
         <div className="flex items-start gap-4">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#f6e6e1] text-[#a64b3d]">
+          <span
+            aria-hidden="true"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#f6e6e1] text-[#a64b3d]"
+          >
             {icon}
           </span>
 
@@ -72,13 +90,19 @@ export default function ConfirmationModal({
               {eyebrow}
             </p>
 
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+            <h2
+              id={titleId}
+              className="mt-2 text-2xl font-semibold tracking-[-0.04em]"
+            >
               {title}
             </h2>
           </div>
         </div>
 
-        <p className="mt-5 text-sm leading-6 text-[#66746e]">
+        <p
+          id={descriptionId}
+          className="mt-5 text-sm leading-6 text-[#66746e]"
+        >
           {description}
         </p>
 

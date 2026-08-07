@@ -100,7 +100,10 @@ export function EmptyState({
 }) {
   return (
     <div className="rounded-xl border border-dashed border-white/[0.1] bg-[#101916] px-6 py-12 text-center">
-      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.08] text-slate-600">
+      <div
+        aria-hidden="true"
+        className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.08] text-slate-600"
+      >
         ◎
       </div>
 

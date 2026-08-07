@@ -29,6 +29,8 @@ import {
 import {
   api,
   CashFlowForecast,
+  ForecastConfidence,
+  ForecastConfidenceFactor,
   formatCents,
   session,
 } from "../lib/api";
@@ -43,11 +45,54 @@ function formatDate(value: string): string {
   });
 }
 
+function formatMonth(value: string): string {
+  return new Date(`${value}-01T00:00:00`).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
 function confidenceLabel(score: number): string {
   if (score >= 90) return "High confidence";
   if (score >= 75) return "Moderate confidence";
   return "Low confidence";
 }
+
+const CONFIDENCE_LEVEL_CONTENT: Record<
+  ForecastConfidence["level"],
+  { label: string; className: string }
+> = {
+  high: {
+    label: "High confidence",
+    className: "bg-[#dff6c7] text-[#315d31]",
+  },
+  medium: {
+    label: "Medium confidence",
+    className: "bg-[#f5d66f] text-[#66500f]",
+  },
+  low: {
+    label: "Low confidence",
+    className: "bg-[#f8ddd5] text-[#923f32]",
+  },
+};
+
+const FACTOR_IMPACT_CONTENT: Record<
+  ForecastConfidenceFactor["impact"],
+  { label: string; className: string }
+> = {
+  positive: {
+    label: "Strength",
+    className: "bg-[#dff6c7] text-[#315d31]",
+  },
+  neutral: {
+    label: "Neutral",
+    className: "bg-[#f1eee7] text-[#66746e]",
+  },
+  negative: {
+    label: "Weak spot",
+    className: "bg-[#f8ddd5] text-[#923f32]",
+  },
+};
 
 export default function ForecastPage() {
   const router = useRouter();
@@ -56,6 +101,7 @@ export default function ForecastPage() {
   const [activeItem, setActiveItem] = useState<ForecastItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [confidenceExpanded, setConfidenceExpanded] = useState(false);
 
   const loadForecast = useCallback(async (id: number) => {
     setLoading(true);
@@ -180,6 +226,22 @@ export default function ForecastPage() {
                         Estimated through {formatDate(forecast.month_end)}.
                       </p>
 
+                      <span
+                        className={`mt-4 inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${
+                          CONFIDENCE_LEVEL_CONTENT[
+                            forecast.confidence.level
+                          ].className
+                        }`}
+                      >
+                        <Gauge className="h-3.5 w-3.5" aria-hidden="true" />
+                        {Math.round(forecast.confidence.score)}% ·{" "}
+                        {
+                          CONFIDENCE_LEVEL_CONTENT[
+                            forecast.confidence.level
+                          ].label
+                        }
+                      </span>
+
                       <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
                         <ForecastMetric
                           label="Liquid balance"
@@ -283,6 +345,110 @@ export default function ForecastPage() {
                     icon="down"
                     warning={forecast.low_balance_risk}
                   />
+                </section>
+              </Reveal>
+
+              <Reveal>
+                <section className="mt-6">
+                  <article className="rounded-[30px] border border-[#14241e]/10 bg-white p-6 shadow-[0_18px_50px_rgba(20,36,30,0.08)] sm:p-8">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+                          Forecast confidence
+                        </p>
+                        <p className="mt-3 max-w-xl text-sm leading-6 text-[#66746e]">
+                          How reliable this forecast is, based on your
+                          connected accounts and transaction history.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setConfidenceExpanded((value) => !value)
+                        }
+                        aria-expanded={confidenceExpanded}
+                        className="flex shrink-0 items-center gap-2 rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 py-2.5 text-sm font-semibold text-[#167c5a] transition hover:bg-[#f1eee7]"
+                      >
+                        {confidenceExpanded
+                          ? "Hide details ↑"
+                          : "Why this confidence ↓"}
+                      </button>
+                    </div>
+
+                    {confidenceExpanded && (
+                      <div className="mt-6 border-t border-[#14241e]/10 pt-6">
+                        <div className="divide-y divide-[#14241e]/8 overflow-hidden rounded-2xl border border-[#14241e]/8">
+                          {forecast.confidence.factors.map((factor) => (
+                            <ConfidenceFactorRow
+                              key={factor.key}
+                              factor={factor}
+                            />
+                          ))}
+                        </div>
+
+                        {forecast.confidence.recommendations.length >
+                          0 && (
+                          <div className="mt-6 rounded-2xl border border-[#f5d66f]/30 bg-[#fbf6df] p-5">
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8b6518]">
+                              Recommendations
+                            </p>
+                            <ul className="mt-3 space-y-2 text-sm leading-6 text-[#66746e]">
+                              {forecast.confidence.recommendations.map(
+                                (recommendation) => (
+                                  <li
+                                    key={recommendation}
+                                    className="flex gap-2"
+                                  >
+                                    <span aria-hidden="true">•</span>
+                                    <span>{recommendation}</span>
+                                  </li>
+                                )
+                              )}
+                            </ul>
+                          </div>
+                        )}
+
+                        {forecast.confidence.monthly_confidence.length >
+                          0 && (
+                          <div className="mt-6">
+                            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#167c5a]">
+                              Monthly confidence
+                            </p>
+                            <p className="mt-1 text-xs text-[#7b8781]">
+                              Data quality for each recent month with
+                              enough transaction history to measure.
+                            </p>
+
+                            <div className="mt-3 divide-y divide-[#14241e]/8 rounded-2xl border border-[#14241e]/8">
+                              {forecast.confidence.monthly_confidence.map(
+                                (entry) => (
+                                  <div
+                                    key={entry.month}
+                                    className="flex items-center justify-between gap-3 px-4 py-3"
+                                  >
+                                    <span className="text-sm font-medium text-[#14241e]">
+                                      {formatMonth(entry.month)}
+                                    </span>
+                                    <span className="text-xs text-[#7b8781]">
+                                      {entry.transaction_count}{" "}
+                                      transaction
+                                      {entry.transaction_count === 1
+                                        ? ""
+                                        : "s"}
+                                    </span>
+                                    <span className="text-sm font-semibold text-[#14241e]">
+                                      {Math.round(entry.score)}%
+                                    </span>
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </article>
                 </section>
               </Reveal>
 
@@ -454,6 +620,33 @@ function ScenarioCard({
 
       <p className="mt-3 text-sm text-[#66746e]">{description}</p>
     </article>
+  );
+}
+
+function ConfidenceFactorRow({
+  factor,
+}: {
+  factor: ForecastConfidenceFactor;
+}) {
+  const impact = FACTOR_IMPACT_CONTENT[factor.impact];
+
+  return (
+    <div className="grid gap-2 px-4 py-4 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-4">
+      <div>
+        <p className="text-sm font-semibold text-[#14241e]">
+          {factor.label}
+        </p>
+        <p className="mt-1 text-xs leading-5 text-[#7b8781]">
+          {factor.detail}
+        </p>
+      </div>
+
+      <span
+        className={`w-fit rounded-full px-3 py-1 text-xs font-semibold sm:justify-self-end ${impact.className}`}
+      >
+        {impact.label}
+      </span>
+    </div>
   );
 }
 

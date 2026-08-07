@@ -721,6 +721,29 @@ class UpcomingCashFlowOut(BaseModel):
     confidence_score: float
 
 
+class ForecastConfidenceFactorOut(BaseModel):
+    key: str
+    label: str
+    weight: float
+    score: float
+    impact: Literal["positive", "neutral", "negative"]
+    detail: str
+
+
+class MonthlyForecastConfidenceOut(BaseModel):
+    month: str
+    score: float
+    transaction_count: int
+
+
+class ForecastConfidenceOut(BaseModel):
+    score: float
+    level: Literal["high", "medium", "low"]
+    factors: list[ForecastConfidenceFactorOut]
+    recommendations: list[str]
+    monthly_confidence: list[MonthlyForecastConfidenceOut]
+
+
 class CashFlowForecastOut(BaseModel):
     as_of: date
     month_end: date
@@ -732,6 +755,7 @@ class CashFlowForecastOut(BaseModel):
     projected_end_balance_cents: int
     low_balance_risk: bool
     upcoming_cash_flows: list[UpcomingCashFlowOut]
+    confidence: ForecastConfidenceOut
 
 class SafeToSpendRequest(BaseModel):
     safety_reserve_cents: int = Field(

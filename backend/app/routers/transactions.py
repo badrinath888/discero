@@ -32,6 +32,9 @@ from app.schemas import (
     TransactionUpdate,
     UploadSummary,
 )
+from app.services.forecast_confidence_service import (
+    calculate_forecast_confidence,
+)
 
 router = APIRouter(
     prefix="/users/{user_id}",
@@ -985,19 +988,21 @@ def cash_flow_forecast(
         else 0
     )
 
-    account_rows = db.execute(
-        select(FinancialAccount)
-        .join(
-            PlaidItem,
-            FinancialAccount.plaid_item_id
-            == PlaidItem.id,
-        )
-        .where(
-            PlaidItem.user_id == user_id,
-            FinancialAccount.account_type
-            == "depository",
-        )
-    ).scalars()
+    account_rows = list(
+        db.execute(
+            select(FinancialAccount)
+            .join(
+                PlaidItem,
+                FinancialAccount.plaid_item_id
+                == PlaidItem.id,
+            )
+            .where(
+                PlaidItem.user_id == user_id,
+                FinancialAccount.account_type
+                == "depository",
+            )
+        ).scalars()
+    )
 
     liquid_balance = sum(
         (
@@ -1050,6 +1055,17 @@ def cash_flow_forecast(
         - upcoming_bills
     )
 
+    confidence = calculate_forecast_confidence(
+        db,
+        user_id,
+        as_of=as_of,
+        days_remaining=days_remaining,
+        days_in_month=monthrange(as_of.year, as_of.month)[1],
+        transactions=transactions,
+        liquid_accounts=account_rows,
+        recurring_items=recurring,
+    )
+
     return CashFlowForecastOut(
         as_of=as_of,
         month_end=month_end,
@@ -1064,4 +1080,5 @@ def cash_flow_forecast(
             upcoming_cash_flows,
             key=lambda item: item.expected_date,
         ),
+        confidence=confidence,
     )

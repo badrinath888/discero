@@ -325,6 +325,29 @@ export type UpcomingCashFlow = {
   confidence_score: number;
 };
 
+export type ForecastConfidenceFactor = {
+  key: string;
+  label: string;
+  weight: number;
+  score: number;
+  impact: "positive" | "neutral" | "negative";
+  detail: string;
+};
+
+export type MonthlyForecastConfidence = {
+  month: string;
+  score: number;
+  transaction_count: number;
+};
+
+export type ForecastConfidence = {
+  score: number;
+  level: "high" | "medium" | "low";
+  factors: ForecastConfidenceFactor[];
+  recommendations: string[];
+  monthly_confidence: MonthlyForecastConfidence[];
+};
+
 export type CashFlowForecast = {
   as_of: string;
   month_end: string;
@@ -336,6 +359,7 @@ export type CashFlowForecast = {
   projected_end_balance_cents: number;
   low_balance_risk: boolean;
   upcoming_cash_flows: UpcomingCashFlow[];
+  confidence: ForecastConfidence;
 };
 
 export type SafeToSpendRequest = {

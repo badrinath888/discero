@@ -256,7 +256,7 @@ export default function RecurringPage() {
     setError("");
 
     try {
-      await api.createRecurringItem(userId, {
+      const created = await api.createRecurringItem(userId, {
         merchant: payment.merchant,
         normalized_merchant: normalizeMerchant(payment.merchant),
         category: "Subscriptions",
@@ -273,8 +273,8 @@ export default function RecurringPage() {
         price_change_warning: payment.price_change_warning,
       });
 
+      setItems((current) => [...current, created]);
       setSelection(null);
-      await loadData(userId);
     } catch (err) {
       setError(
         err instanceof Error

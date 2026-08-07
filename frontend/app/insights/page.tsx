@@ -135,7 +135,6 @@ export default function InsightsPage() {
         }
 
         setUserId(id);
-        await loadInsights(id, month);
       } catch {
         session.clear();
         router.replace("/");
@@ -143,7 +142,13 @@ export default function InsightsPage() {
     }
 
     void initialize();
-  }, [router, loadInsights, month]);
+  }, [router]);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    void Promise.resolve().then(() => loadInsights(userId, month));
+  }, [userId, month, loadInsights]);
 
   const filteredInsights = useMemo(() => {
     const query = search.trim().toLowerCase();

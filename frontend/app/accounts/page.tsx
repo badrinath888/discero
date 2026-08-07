@@ -751,12 +751,17 @@ function AccountSection({
                 key={account.id}
                 account={account}
                 expanded={expandedId === account.id}
-                recentTransactions={transactions
-                  .filter(
-                    (transaction) =>
-                      transaction.financial_account_id === account.id
-                  )
-                  .slice(0, 4)}
+                recentTransactions={
+                  expandedId === account.id
+                    ? transactions
+                        .filter(
+                          (transaction) =>
+                            transaction.financial_account_id ===
+                            account.id
+                        )
+                        .slice(0, 4)
+                    : []
+                }
                 onToggle={() => onToggle(account.id)}
                 onOpenDetails={() => onOpenDetails(account.id)}
                 onDisconnect={() =>

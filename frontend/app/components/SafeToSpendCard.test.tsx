@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -246,5 +247,33 @@ describe("SafeToSpendCard obligations", () => {
         horizon_days: 45,
       })
     );
+  });
+
+  it("debounces automatic recalculation while typing instead of firing a request per keystroke", async () => {
+    render(<SafeToSpendCard userId={1} />);
+    await screen.findByRole("button", { name: /view details/i });
+
+    const initialCalls = mocks.getSafeToSpend.mock.calls.length;
+    const reserveInput = screen.getByLabelText(/safety reserve/i);
+
+    fireEvent.change(reserveInput, { target: { value: "1" } });
+    fireEvent.change(reserveInput, { target: { value: "12" } });
+    fireEvent.change(reserveInput, { target: { value: "123" } });
+
+    // No new request should have fired yet from the keystrokes alone.
+    expect(mocks.getSafeToSpend.mock.calls.length).toBe(initialCalls);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(mocks.getSafeToSpend.mock.calls.length).toBe(
+      initialCalls + 1
+    );
+    expect(mocks.getSafeToSpend).toHaveBeenLastCalledWith(1, {
+      safety_reserve_cents: 12_300,
+      essential_spending_cents: 0,
+      horizon_days: 30,
+    });
   });
 });

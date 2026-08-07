@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   formatCents,
@@ -17,6 +17,11 @@ type SafeToSpendCardProps = {
 const DEFAULT_RESERVE_CENTS = 0;
 const DEFAULT_ESSENTIAL_SPENDING_CENTS = 0;
 const DEFAULT_HORIZON_DAYS = 30;
+// Debounces recalculation while the user is typing in the reserve/
+// essential/horizon inputs, so each keystroke doesn't fire its own
+// request. The initial load (and refreshKey-triggered reloads) stay
+// immediate via the `hasLoadedOnce` check below.
+const INPUT_DEBOUNCE_MS = 400;
 
 export default function SafeToSpendCard({
   userId,
@@ -66,12 +71,17 @@ export default function SafeToSpendCard({
     }
   }, [essentialAmount, horizonDays, reserveAmount, userId]);
 
+const hasLoadedOnce = useRef(false);
+
 useEffect(() => {
   if (userId === null) return;
 
+  const delay = hasLoadedOnce.current ? INPUT_DEBOUNCE_MS : 0;
+
   const timeoutId = window.setTimeout(() => {
+    hasLoadedOnce.current = true;
     void loadSafeToSpend();
-  }, 0);
+  }, delay);
 
   return () => {
     window.clearTimeout(timeoutId);

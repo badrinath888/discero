@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import SafeToSpendCard from "../components/SafeToSpendCard";
+import { PageError } from "../components/PageFeedback";
 import {
   api,
   Budget,
@@ -336,6 +337,12 @@ export default function Dashboard() {
     [budgets, currentMonthCategories]
   );
 
+  // True while there is no successfully loaded data to show yet,
+  // whether that's because the initial load is still in flight or
+  // because it failed before ever succeeding once. Prevents showing
+  // misleading zero/empty values in place of real data.
+  const showSkeleton = loading || (Boolean(error) && !overview);
+
   return (
     <main className="min-h-screen bg-[#f4efe5] text-[#173128]">
       <AppSidebar />
@@ -373,15 +380,22 @@ export default function Dashboard() {
             </label>
           </header>
 
-          {(message || error) && (
-            <div
-              className={`mt-6 rounded-2xl border px-4 py-3 text-sm ${
-                error
-                  ? "border-[#b65743]/20 bg-[#f0b8a8]/30 text-[#843d2f]"
-                  : "border-[#187a59]/20 bg-[#dff6c7] text-[#285d42]"
-              }`}
-            >
-              {error || message}
+          {message && !error && (
+            <div className="mt-6 rounded-2xl border border-[#187a59]/20 bg-[#dff6c7] px-4 py-3 text-sm text-[#285d42]">
+              {message}
+            </div>
+          )}
+
+          {error && (
+            <div className="mt-6">
+              <PageError
+                message={error}
+                onRetry={
+                  !overview && userId !== null
+                    ? () => loadDashboard(userId)
+                    : undefined
+                }
+              />
             </div>
           )}
 
@@ -401,7 +415,7 @@ export default function Dashboard() {
                       Net financial position
                     </p>
 
-                    {loading ? (
+                    {showSkeleton ? (
                       <div className="mt-5 h-14 w-56 animate-pulse rounded-xl bg-white/10" />
                     ) : (
                       <AnimatedNumber
@@ -416,22 +430,25 @@ export default function Dashboard() {
                     </p>
                   </div>
 
-                  <span
-                    className={`inline-flex w-fit rounded-full px-3 py-1.5 text-xs font-semibold ${
-                      (overview?.net_cents ?? 0) >= 0
-                        ? "bg-[#dff6c7] text-[#315d31]"
-                        : "bg-[#f0b8a8] text-[#7b3528]"
-                    }`}
-                  >
-                    {(overview?.net_cents ?? 0) >= 0
-                      ? "Positive balance"
-                      : "Needs attention"}
-                  </span>
+                  {!showSkeleton && (
+                    <span
+                      className={`inline-flex w-fit rounded-full px-3 py-1.5 text-xs font-semibold ${
+                        (overview?.net_cents ?? 0) >= 0
+                          ? "bg-[#dff6c7] text-[#315d31]"
+                          : "bg-[#f0b8a8] text-[#7b3528]"
+                      }`}
+                    >
+                      {(overview?.net_cents ?? 0) >= 0
+                        ? "Positive balance"
+                        : "Needs attention"}
+                    </span>
+                  )}
                 </div>
 
                 <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
                   <DarkMetric
                     label="Income"
+                    loading={showSkeleton}
                     value={formatCents(
                       overview?.total_income_cents ?? 0
                     )}
@@ -440,6 +457,7 @@ export default function Dashboard() {
 
                   <DarkMetric
                     label="Spending"
+                    loading={showSkeleton}
                     value={formatCents(
                       -(overview?.total_spending_cents ?? 0)
                     )}
@@ -448,6 +466,7 @@ export default function Dashboard() {
 
                   <DarkMetric
                     label="Transactions"
+                    loading={showSkeleton}
                     value={String(
                       overview?.transaction_count ?? 0
                     )}
@@ -464,7 +483,7 @@ export default function Dashboard() {
                     Month-end forecast
                   </p>
 
-                  {loading ? (
+                  {showSkeleton ? (
                     <div className="mt-5 h-11 w-40 animate-pulse rounded-lg bg-[#173128]/10" />
                   ) : (
                     <AnimatedNumber
@@ -481,7 +500,9 @@ export default function Dashboard() {
               </div>
 
               <p className="mt-4 text-sm leading-6 text-[#56705d]">
-                {cashFlow?.low_balance_risk
+                {showSkeleton
+                  ? "Calculating your forecast..."
+                  : cashFlow?.low_balance_risk
                   ? "Your projected balance may fall below a safe level."
                   : "Your current balance and expected activity remain on track."}
               </p>
@@ -489,6 +510,7 @@ export default function Dashboard() {
               <div className="mt-8 space-y-4 border-t border-[#173128]/10 pt-6">
                 <LightStat
                   label="Expected income"
+                  loading={showSkeleton}
                   value={formatCents(
                     cashFlow?.expected_income_cents ?? 0
                   )}
@@ -496,6 +518,7 @@ export default function Dashboard() {
 
                 <LightStat
                   label="Upcoming bills"
+                  loading={showSkeleton}
                   value={formatCents(
                     -(cashFlow?.upcoming_bills_cents ?? 0)
                   )}
@@ -503,6 +526,7 @@ export default function Dashboard() {
 
                 <LightStat
                   label="Days remaining"
+                  loading={showSkeleton}
                   value={String(
                     cashFlow?.days_remaining ?? 0
                   )}
@@ -522,6 +546,7 @@ export default function Dashboard() {
           <section className="mt-8 grid gap-5 sm:grid-cols-3">
             <SoftMetric
               label="Income this month"
+              loading={showSkeleton}
               value={formatCents(
                 overview?.total_income_cents ?? 0
               )}
@@ -531,6 +556,7 @@ export default function Dashboard() {
 
             <SoftMetric
               label="Spending this month"
+              loading={showSkeleton}
               value={formatCents(
                 -(overview?.total_spending_cents ?? 0)
               )}
@@ -540,9 +566,12 @@ export default function Dashboard() {
 
             <SoftMetric
               label="Goal progress"
+              loading={showSkeleton}
               value={`${goalProgress}%`}
               description={
-                goals.length > 0
+                showSkeleton
+                  ? "Loading..."
+                  : goals.length > 0
                   ? `${goals.length} active goal${
                       goals.length === 1 ? "" : "s"
                     }`
@@ -570,7 +599,9 @@ export default function Dashboard() {
                 </div>
 
                 <p className="text-xs text-[#8b958f]">
-                  {overview?.transaction_count ?? 0} transactions
+                  {showSkeleton
+                    ? ""
+                    : `${overview?.transaction_count ?? 0} transactions`}
                 </p>
               </div>
 
@@ -654,32 +685,45 @@ export default function Dashboard() {
                 FinSight observation
               </p>
 
-              <h2 className="mt-5 text-3xl font-semibold leading-tight tracking-[-0.045em] text-[#2f2912]">
-                {highestCategory
-                  ? `${highestCategory.category} is your largest category.`
-                  : "Add transaction data to unlock spending insights."}
-              </h2>
+              {showSkeleton ? (
+                <div className="mt-5 space-y-3">
+                  <div className="h-8 w-full animate-pulse rounded-lg bg-[#2f2912]/[0.08]" />
+                  <div className="h-5 w-2/3 animate-pulse rounded-lg bg-[#2f2912]/[0.08]" />
+                </div>
+              ) : (
+                <>
+                  <h2 className="mt-5 text-3xl font-semibold leading-tight tracking-[-0.045em] text-[#2f2912]">
+                    {highestCategory
+                      ? `${highestCategory.category} is your largest category.`
+                      : "Add transaction data to unlock spending insights."}
+                  </h2>
 
-              <p className="mt-5 text-sm leading-7 text-[#695d2d]">
-                {highestCategory
-                  ? `${highestCategory.category} represents your highest recorded spending at ${highestCategory.amount.toLocaleString(
-                      "en-US",
-                      {
-                        style: "currency",
-                        currency: "USD",
-                      }
-                    )}. Review uncategorized items to improve the accuracy of your insights.`
-                  : "Upload a CSV or synchronize a connected account to generate personalized observations."}
-              </p>
+                  <p className="mt-5 text-sm leading-7 text-[#695d2d]">
+                    {highestCategory
+                      ? `${highestCategory.category} represents your highest recorded spending at ${highestCategory.amount.toLocaleString(
+                          "en-US",
+                          {
+                            style: "currency",
+                            currency: "USD",
+                          }
+                        )}. Review uncategorized items to improve the accuracy of your insights.`
+                      : "Upload a CSV or synchronize a connected account to generate personalized observations."}
+                  </p>
+                </>
+              )}
 
               <div className="mt-8 border-t border-[#2f2912]/10 pt-6">
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#735d15]">
                   Current-month spending
                 </p>
 
-                <p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[#2f2912]">
-                  {formatCents(-currentMonthSpending)}
-                </p>
+                {showSkeleton ? (
+                  <div className="mt-2 h-9 w-32 animate-pulse rounded-lg bg-[#2f2912]/[0.08]" />
+                ) : (
+                  <p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[#2f2912]">
+                    {formatCents(-currentMonthSpending)}
+                  </p>
+                )}
               </div>
 
               <button
@@ -699,7 +743,9 @@ export default function Dashboard() {
               action="Manage budgets →"
               onAction={() => router.push("/budgets")}
             >
-              {budgetPreview.length > 0 ? (
+              {showSkeleton ? (
+                <PreviewSkeleton />
+              ) : budgetPreview.length > 0 ? (
                 <div className="space-y-5">
                   {budgetPreview.map((budget) => (
                     <div key={budget.id}>
@@ -757,7 +803,9 @@ export default function Dashboard() {
               action="Manage goals →"
               onAction={() => router.push("/goals")}
             >
-              {goals.length > 0 ? (
+              {showSkeleton ? (
+                <PreviewSkeleton />
+              ) : goals.length > 0 ? (
                 <div>
                   <div className="grid grid-cols-3 gap-4">
                     <MiniStat
@@ -849,7 +897,9 @@ export default function Dashboard() {
             </div>
 
             <div className="mt-6 divide-y divide-[#173128]/10">
-              {recentTransactions.length > 0 ? (
+              {showSkeleton ? (
+                <PreviewSkeleton />
+              ) : recentTransactions.length > 0 ? (
                 recentTransactions.map((transaction) => (
                   <div
                     key={transaction.id}
@@ -906,10 +956,12 @@ function DarkMetric({
   label,
   value,
   tone,
+  loading = false,
 }: {
   label: string;
   value: string;
   tone: "positive" | "negative" | "neutral";
+  loading?: boolean;
 }) {
   const toneClass = {
     positive: "text-[#83dcb9]",
@@ -923,9 +975,13 @@ function DarkMetric({
         {label}
       </p>
 
-      <p className={`mt-2 text-lg font-semibold ${toneClass[tone]}`}>
-        {value}
-      </p>
+      {loading ? (
+        <div className="mt-2 h-[22px] w-16 animate-pulse rounded bg-white/10" />
+      ) : (
+        <p className={`mt-2 text-lg font-semibold ${toneClass[tone]}`}>
+          {value}
+        </p>
+      )}
     </div>
   );
 }
@@ -933,9 +989,11 @@ function DarkMetric({
 function LightStat({
   label,
   value,
+  loading = false,
 }: {
   label: string;
   value: string;
+  loading?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
@@ -943,9 +1001,13 @@ function LightStat({
         {label}
       </span>
 
-      <span className="text-sm font-semibold text-[#173128]">
-        {value}
-      </span>
+      {loading ? (
+        <span className="h-[18px] w-14 animate-pulse rounded bg-[#173128]/10" />
+      ) : (
+        <span className="text-sm font-semibold text-[#173128]">
+          {value}
+        </span>
+      )}
     </div>
   );
 }
@@ -955,11 +1017,13 @@ function SoftMetric({
   value,
   description,
   background,
+  loading = false,
 }: {
   label: string;
   value: string;
   description: string;
   background: string;
+  loading?: boolean;
 }) {
   return (
     <article className={`premium-hover rounded-[26px] p-6 ${background}`}>
@@ -967,14 +1031,32 @@ function SoftMetric({
         {label}
       </p>
 
-      <p className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-[#173128]">
-        {value}
-      </p>
+      {loading ? (
+        <div className="mt-4 h-8 w-20 animate-pulse rounded bg-[#173128]/10" />
+      ) : (
+        <p className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-[#173128]">
+          {value}
+        </p>
+      )}
 
       <p className="mt-2 text-sm text-[#65746d]">
         {description}
       </p>
     </article>
+  );
+}
+
+function PreviewSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading"
+      className="space-y-3"
+    >
+      <div className="h-5 w-full animate-pulse rounded-lg bg-[#173128]/[0.06]" />
+      <div className="h-5 w-3/4 animate-pulse rounded-lg bg-[#173128]/[0.06]" />
+      <div className="h-5 w-5/6 animate-pulse rounded-lg bg-[#173128]/[0.06]" />
+    </div>
   );
 }
 

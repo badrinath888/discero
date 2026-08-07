@@ -508,7 +508,7 @@ export default function ForecastPage() {
                 expected income, and recurring-payment patterns.
               </p>
             </>
-          ) : (
+          ) : error ? null : (
             <div className="mt-8">
               <EmptyState
                 title="Forecast unavailable"

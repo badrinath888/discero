@@ -7,6 +7,7 @@ import AppSidebar from "../components/AppSidebar";
 import ConfirmationModal from "../components/ConfirmationModal";
 import Toast from "../components/Toast";
 import {
+  CardSkeleton,
   EmptyState,
   PageError,
   PageLoading,
@@ -1060,6 +1061,11 @@ export default function TransactionsPage() {
           </Reveal>
 
           <Reveal delay={0.06}>
+          {loading ? (
+            <section className="mt-5">
+              <CardSkeleton count={4} />
+            </section>
+          ) : (
           <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryItem
               label="Transactions"
@@ -1083,11 +1089,17 @@ export default function TransactionsPage() {
               }
             />
           </section>
+          )}
           </Reveal>
 
           {error && (
             <div className="mt-4">
-              <PageError message={error} />
+              <PageError
+                message={error}
+                onRetry={
+                  userId ? () => void refreshCurrentSearch(page) : undefined
+                }
+              />
             </div>
           )}
 
@@ -1361,6 +1373,7 @@ export default function TransactionsPage() {
                 <PageLoading message="Loading transactions..." />
               </div>
             ) : visibleTransactions.length === 0 ? (
+              error ? null : (
               <div className="p-5">
                 <EmptyState
                   title={
@@ -1397,6 +1410,7 @@ export default function TransactionsPage() {
                   }
                 />
               </div>
+              )
             ) : (
               groupedTransactions.map(([date, items]) => (
                 <TransactionGroup

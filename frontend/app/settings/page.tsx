@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   Eye,
   EyeOff,
@@ -14,7 +14,7 @@ import {
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
 import Toast from "../components/Toast";
-import { PageLoading } from "../components/PageFeedback";
+import { PageError, PageLoading } from "../components/PageFeedback";
 import {
   api,
   session,
@@ -44,26 +44,34 @@ export default function SettingsPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    async function loadProfile() {
-      const id = session.getUserId();
-      const token = session.getToken();
+  const loadProfile = useCallback(async () => {
+    const id = session.getUserId();
+    const token = session.getToken();
 
-      if (!id || !token) {
+    if (!id || !token) {
+      session.clear();
+      router.replace("/");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const currentUser = await api.getMe();
+
+      if (currentUser.id !== id) {
         session.clear();
         router.replace("/");
         return;
       }
 
+      setUser(currentUser);
+      setNewEmail(currentUser.email);
+
+      // Stats are a secondary, independent fetch: a failure here
+      // shouldn't hide the profile info that already loaded fine.
       try {
-        const currentUser = await api.getMe();
-
-        if (currentUser.id !== id) {
-          session.clear();
-          router.replace("/");
-          return;
-        }
-
         const [accounts, transactionPage] = await Promise.all([
           api.getAccounts(currentUser.id),
           api.searchTransactions(currentUser.id, {
@@ -72,30 +80,32 @@ export default function SettingsPage() {
           }),
         ]);
 
-        setUser(currentUser);
-        setNewEmail(currentUser.email);
         setStats({
           connectedAccounts: accounts.length,
           transactions: transactionPage.total,
         });
-      } catch (err) {
-        if (!session.getToken()) {
-          router.replace("/");
-          return;
-        }
-
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load profile"
-        );
-      } finally {
-        setLoading(false);
+      } catch {
+        setStats(null);
       }
-    }
+    } catch (err) {
+      if (!session.getToken()) {
+        router.replace("/");
+        return;
+      }
 
-    void loadProfile();
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load profile"
+      );
+    } finally {
+      setLoading(false);
+    }
   }, [router]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadProfile);
+  }, [loadProfile]);
 
   useEffect(() => {
     if (!message) return;
@@ -117,16 +127,19 @@ export default function SettingsPage() {
 
     if (!email) {
       setError("Enter a valid email address.");
+      setMessage("");
       return;
     }
 
     if (email === user.email.toLowerCase()) {
       setError("New email must be different.");
+      setMessage("");
       return;
     }
 
     if (!emailPassword) {
       setError("Enter your current password to change your email.");
+      setMessage("");
       return;
     }
 
@@ -165,21 +178,25 @@ export default function SettingsPage() {
 
     if (!currentPassword) {
       setError("Enter your current password.");
+      setMessage("");
       return;
     }
 
     if (newPassword.length < 8) {
       setError("New password must contain at least 8 characters.");
+      setMessage("");
       return;
     }
 
     if (newPassword !== confirmPassword) {
       setError("New password and confirmation do not match.");
+      setMessage("");
       return;
     }
 
     if (currentPassword === newPassword) {
       setError("New password must be different.");
+      setMessage("");
       return;
     }
 
@@ -273,7 +290,7 @@ export default function SettingsPage() {
           <div className="mt-8">
             <PageLoading message="Loading account settings..." />
           </div>
-        ) : user && stats ? (
+        ) : user ? (
           <div className="mt-8 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
             <section className="rounded-[28px] border border-[#183028]/10 bg-white p-6 shadow-sm sm:p-7">
               <div className="flex items-start justify-between gap-4">
@@ -300,11 +317,15 @@ export default function SettingsPage() {
                 <StatCard label="User ID" value={String(user.id)} />
                 <StatCard
                   label="Connected accounts"
-                  value={String(stats.connectedAccounts)}
+                  value={
+                    stats ? String(stats.connectedAccounts) : "Unavailable"
+                  }
                 />
                 <StatCard
                   label="Transactions"
-                  value={stats.transactions.toLocaleString()}
+                  value={
+                    stats ? stats.transactions.toLocaleString() : "Unavailable"
+                  }
                 />
               </div>
 
@@ -487,7 +508,14 @@ export default function SettingsPage() {
               </div>
             </section>
           </div>
-        ) : null}
+        ) : (
+          <div className="mt-8">
+            <PageError
+              message={error || "Unable to load your profile."}
+              onRetry={() => void loadProfile()}
+            />
+          </div>
+        )}
       </div>
 
       <Toast

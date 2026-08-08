@@ -501,3 +501,229 @@ def test_extract_percent_handles_common_formats() -> None:
     assert copilot_free_mode.extract_percent("20 percent") == 20.0
     assert copilot_free_mode.extract_percent("no percent here") is None
     assert copilot_free_mode.extract_percent("150%") is None
+
+
+# --- Explicit goal-savings capacity (regression) ------------------------
+
+
+def _goal_conflict_setup(db: Session, user: User) -> None:
+    create_account(db, user, available_balance_cents=500_000)
+    # remaining $150, target date == as_of -> required_monthly == $150
+    # exactly, matching the production repro numbers.
+    create_goal(
+        db,
+        user,
+        name="Production Test Goal",
+        target_cents=15_000,
+        saved_cents=0,
+        target_date=TEST_DATE,
+    )
+
+
+def test_explicit_monthly_capacity_reaches_goal_conflict_service() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _goal_conflict_setup(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages(
+                "I can save $100 per month. Are my goals at risk?"
+            ),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Goal Conflict Check"
+
+        capacity = next(
+            c for c in result.key_numbers if c.label == "Monthly capacity"
+        )
+        required = next(
+            c for c in result.key_numbers if c.label == "Required monthly"
+        )
+        shortfall = next(
+            c for c in result.key_numbers if c.label == "Monthly shortfall"
+        )
+        status = next(c for c in result.key_numbers if c.label == "Status")
+
+        assert capacity.value_display == "$100.00"
+        assert required.value_display == "$150.00"
+        assert shortfall.value_display == "$50.00"
+        assert status.value_display == "Conflict"
+
+
+def test_alternate_capacity_phrasing_is_extracted() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _goal_conflict_setup(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages(
+                "My monthly savings capacity is $100, are my goals "
+                "at risk?"
+            ),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        capacity = next(
+            c for c in result.key_numbers if c.label == "Monthly capacity"
+        )
+        assert capacity.value_display == "$100.00"
+
+
+def test_explicit_capacity_not_overridden_by_auto_derived_default() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _goal_conflict_setup(db, user)
+        # Real income history would auto-derive a $3,000/mo capacity --
+        # the explicitly stated $100/mo must win instead.
+        seed_income(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages(
+                "I have $100/month available for goals -- are they "
+                "at risk?"
+            ),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        capacity = next(
+            c for c in result.key_numbers if c.label == "Monthly capacity"
+        )
+        assert capacity.value_display == "$100.00"
+
+
+def test_ambiguous_capacity_statement_asks_for_clarification() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _goal_conflict_setup(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages(
+                "I can save some money each month, are my goals at "
+                "risk?"
+            ),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "clarifying_question"
+        assert result.provenance == "deterministic"
+
+
+def test_capacity_stated_earlier_carries_into_later_goal_question() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _goal_conflict_setup(db, user)
+
+        messages = _messages(
+            "I can save $100 per month.", "Are my goals at risk?"
+        )
+
+        result = run_copilot_turn(
+            db, user.id, user, messages, _free_client(), as_of=TEST_DATE
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Goal Conflict Check"
+        capacity = next(
+            c for c in result.key_numbers if c.label == "Monthly capacity"
+        )
+        assert capacity.value_display == "$100.00"
+
+
+# --- Safe-to-Spend explanation grounding (regression) --------------------
+
+
+def test_safe_to_spend_why_does_not_blame_zero_obligations() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=6_256_900)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What is my safe-to-spend?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        why = (result.why or "").lower()
+        assert "upcoming bills and obligations" not in why
+        assert "liquid balance" in why
+
+
+def test_safe_to_spend_why_mentions_obligations_when_meaningful() -> (
+    None
+):
+    from app.services import copilot_free_mode as free_mode
+
+    breakdown = SimpleNamespace(
+        upcoming_obligations_cents=150_000,
+        essential_spending_cents=20_000,
+        safety_reserve_cents=10_000,
+        liquid_balance_cents=200_000,
+    )
+    result = SimpleNamespace(breakdown=breakdown)
+
+    why = free_mode._safe_to_spend_why(result)
+
+    assert "upcoming bills and obligations" in why
+
+
+def test_safe_to_spend_why_liquidity_dominates() -> None:
+    from app.services import copilot_free_mode as free_mode
+
+    breakdown = SimpleNamespace(
+        upcoming_obligations_cents=100,
+        essential_spending_cents=0,
+        safety_reserve_cents=0,
+        liquid_balance_cents=6_000_000,
+    )
+    result = SimpleNamespace(breakdown=breakdown)
+
+    why = free_mode._safe_to_spend_why(result)
+
+    assert "liquid balance" in why.lower()
+
+
+def test_existing_intents_still_work_after_capacity_fix() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=5_000_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Can I afford a $1,500 laptop?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Major Purchase Simulator"

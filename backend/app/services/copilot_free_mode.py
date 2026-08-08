@@ -115,6 +115,33 @@ def extract_percent(text: str) -> float | None:
     return value
 
 
+_MONTHLY_CADENCE_RE = re.compile(
+    r"\b(per month|/\s*month|a month|each month|monthly)\b",
+    re.IGNORECASE,
+)
+_CAPACITY_VERB_RE = re.compile(
+    r"\b(save|capacity|available|put aside|set aside|contribute|spare)\b",
+    re.IGNORECASE,
+)
+
+
+def extract_monthly_capacity_cents(text: str) -> tuple[bool, int | None]:
+    """Detects an explicit monthly savings-capacity statement.
+
+    Returns (stated, cents). `stated` is True whenever the text reads
+    as a capacity statement (cadence + capacity wording present) even
+    if no parseable amount was found -- callers must ask for
+    clarification in that case rather than silently falling back to an
+    auto-derived capacity, which would ignore what the user said.
+    """
+    stated = bool(
+        _MONTHLY_CADENCE_RE.search(text) and _CAPACITY_VERB_RE.search(text)
+    )
+    if not stated:
+        return False, None
+    return True, extract_amount_cents(text)
+
+
 # --- Intent classification --------------------------------------------
 
 _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
@@ -184,8 +211,18 @@ def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
         "get_safe_to_spend",
         "get_cash_flow_forecast",
         "get_monthly_insights",
-        "check_goal_conflicts",
     ):
+        return {}
+
+    if name == "check_goal_conflicts":
+        stated, amount = extract_monthly_capacity_cents(text)
+        if stated and amount is None:
+            return Clarify(
+                "What's your monthly savings capacity available for "
+                'goals? (e.g. "$100 per month")'
+            )
+        if stated:
+            return {"monthly_savings_capacity_cents": amount}
         return {}
 
     if name == "simulate_major_purchase":
@@ -246,6 +283,20 @@ def _find_prior_tool(
     return None
 
 
+def _find_prior_monthly_capacity(
+    history: list[CopilotMessageIn],
+) -> int | None:
+    for message in reversed(history):
+        if message.role != "user":
+            continue
+
+        stated, amount = extract_monthly_capacity_cents(message.content)
+        if stated and amount is not None:
+            return amount
+
+    return None
+
+
 def resolve_intent(
     messages: list[CopilotMessageIn], as_of: date
 ) -> Resolution | Clarify | None:
@@ -259,6 +310,22 @@ def resolve_intent(
         built = build_tool_input(name, current, as_of)
         if isinstance(built, Clarify):
             return built
+
+        if (
+            name == "check_goal_conflicts"
+            and "monthly_savings_capacity_cents" not in built
+        ):
+            # The current message didn't restate a capacity -- carry
+            # forward an unambiguous one from earlier in this chat
+            # rather than silently letting an auto-derived default
+            # override what the user already told us.
+            prior_capacity = _find_prior_monthly_capacity(history)
+            if prior_capacity is not None:
+                built = {
+                    **built,
+                    "monthly_savings_capacity_cents": prior_capacity,
+                }
+
         return Resolution(name, built)
 
     stripped = current.strip()
@@ -292,9 +359,9 @@ def resolve_intent(
 # --- Deterministic explanation templates -------------------------------
 
 
-def _strongest_safe_to_spend_factor(result) -> str:
+def _safe_to_spend_why(result) -> str:
     breakdown = result.breakdown
-    parts = {
+    deductions = {
         "upcoming bills and obligations": (
             breakdown.upcoming_obligations_cents
         ),
@@ -303,16 +370,38 @@ def _strongest_safe_to_spend_factor(result) -> str:
         ),
         "your safety reserve": breakdown.safety_reserve_cents,
     }
-    return max(parts, key=lambda key: parts[key])
+    nonzero = {label: cents for label, cents in deductions.items() if cents > 0}
+
+    if not nonzero:
+        # Never claim a zero-value component is "the driver" -- with
+        # nothing being deducted, the liquid balance is what's left.
+        return (
+            "This is driven mainly by your available liquid balance "
+            "-- you have no active recurring obligations, essential-"
+            "spending budget, or safety reserve currently reducing it."
+        )
+
+    total_deductions = sum(deductions.values())
+
+    if (
+        breakdown.liquid_balance_cents > 0
+        and total_deductions <= breakdown.liquid_balance_cents * 0.1
+    ):
+        return (
+            "This is driven mainly by your liquid balance, which "
+            "comfortably covers your current obligations and reserve."
+        )
+
+    largest_label = max(nonzero, key=lambda label: nonzero[label])
+    return f"This is driven mainly by {largest_label}."
 
 
 def _render_safe_to_spend(result, emphasize):
-    factor = _strongest_safe_to_spend_factor(result)
     answer = (
         f"You have {_currency(result.safe_to_spend_cents)} safe to "
         f"spend through {result.through_date.isoformat()}."
     )
-    why = f"This is driven mainly by {factor}."
+    why = _safe_to_spend_why(result)
     what_this_means = {
         "safe": (
             "You're in a comfortable position to spend within this "

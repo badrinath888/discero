@@ -260,6 +260,10 @@ def _confidence_score(
     return max(score, 0.0)
 
 
+def _format_currency(cents: int) -> str:
+    return f"${cents / 100:,.2f}"
+
+
 def _build_explanation(
     conflict_status: str,
     monthly_capacity: int,
@@ -269,9 +273,10 @@ def _build_explanation(
     if conflict_status == "conflict":
         return (
             "Your goals require "
-            f"{total_required} cents per month, but only "
-            f"{monthly_capacity} cents is available, leaving a "
-            f"{monthly_shortfall} cent monthly shortfall."
+            f"{_format_currency(total_required)} per month, but only "
+            f"{_format_currency(monthly_capacity)} is available, "
+            f"leaving a {_format_currency(monthly_shortfall)} "
+            "monthly shortfall."
         )
 
     if conflict_status == "strained":

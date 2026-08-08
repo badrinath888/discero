@@ -83,6 +83,49 @@ def test_detects_conflict_when_capacity_is_insufficient() -> None:
         assert result.goals[1].status == "at_risk"
 
 
+def test_conflict_explanation_uses_formatted_dollars_not_cents() -> (
+    None
+):
+    # Regression test for a production report: the explanation
+    # sentence was interpolating raw integer cents ("15000 cents")
+    # instead of formatted dollars, while the calculation cards
+    # (fed by the same numbers) already displayed dollars correctly.
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+
+        create_goal(
+            db,
+            user,
+            name="Emergency fund",
+            target_cents=15_000,
+            target_date=TEST_DATE,
+        )
+
+        result = detect_goal_conflicts(
+            db,
+            user.id,
+            GoalConflictDetectionRequest(
+                monthly_savings_capacity_cents=10_000,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.conflict_status == "conflict"
+        assert result.total_required_monthly_cents == 15_000
+        assert result.monthly_savings_capacity_cents == 10_000
+        assert result.monthly_shortfall_cents == 5_000
+
+        assert result.explanation == (
+            "Your goals require $150.00 per month, but only $100.00 "
+            "is available, leaving a $50.00 monthly shortfall."
+        )
+        assert "15000 cents" not in result.explanation
+        assert "10000 cents" not in result.explanation
+        assert "5000 cent" not in result.explanation
+        assert "cents" not in result.explanation
+        assert "cent " not in result.explanation
+
+
 def test_returns_no_conflict_when_capacity_is_sufficient() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db)

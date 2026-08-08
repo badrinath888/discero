@@ -263,6 +263,28 @@ Recommended architecture:
 
 Production setup requires secure secrets, production CORS, `NEXT_PUBLIC_API_URL`, Alembic migrations, and end-to-end testing of authentication and Plaid.
 
+### Backend startup
+
+`backend/start.sh` (used by `backend/Dockerfile`) is the production entry point. It applies pending Alembic migrations and then starts the ASGI server, binding the host's `PORT` if set:
+
+```bash
+alembic upgrade head
+uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
+```
+
+Migrations always run before the server starts accepting traffic; the app never creates tables itself.
+
+### Health checks
+
+- `GET /health` — process liveness only, no database access.
+- `GET /health/ready` — confirms the app can reach the database (`SELECT 1`); returns `503` if it cannot.
+
+Point a hosting platform's health check at `/health`; use `/health/ready` where a separate readiness probe is supported.
+
+### Required environment variables
+
+At minimum, production needs `DATABASE_URL` (PostgreSQL), `JWT_SECRET`, and `CORS_ORIGINS` set to the deployed frontend origin(s). `TOKEN_ENCRYPTION_KEY` is required before connecting real Plaid accounts. Plaid, Anthropic/LLM, and email-provider (`RESEND_API_KEY`/SMTP) variables remain optional and only gate their respective features — see [Environment variables](#environment-variables). Never commit real values; `.env.example` documents names/placeholders only.
+
 ## Roadmap
 
 ### Completed

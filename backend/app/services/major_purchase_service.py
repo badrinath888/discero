@@ -280,6 +280,12 @@ def _goal_impact_months(
     purchase_amount_cents: int,
     goal_monthly_required_cents: int,
 ) -> float:
+    # A relative sizing ratio for scenario ranking: how many months of
+    # required goal-savings pace this purchase amount is equivalent
+    # to. It does not model actual funding consumed -- an affordable
+    # purchase fully covered by liquid safe-to-spend funds can still
+    # have a large value here while leaving every goal's actual
+    # funding (see calculate_goal_impacts) completely unaffected.
     if goal_monthly_required_cents <= 0:
         return 0.0
 

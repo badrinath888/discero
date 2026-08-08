@@ -4,7 +4,13 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import FinancialAccount, PlaidItem, SavingsGoal, User
+from app.models import (
+    FinancialAccount,
+    PlaidItem,
+    SavingsGoal,
+    Transaction,
+    User,
+)
 from app.schemas import (
     MajorPurchaseSimulationOut,
     MajorPurchaseSimulationRequest,
@@ -844,6 +850,109 @@ def test_goal_impacts_included_on_both_comparison_options() -> None:
             "tie",
         )
         assert result.scorecard.max_score > 0
+
+
+def test_scenario_comparison_goal_impact_matches_individual_result() -> (
+    None
+):
+    # Regression test for a production report (2026-08-08): the
+    # scorecard's "goal savings pace" ratio (purchase amount vs. the
+    # goal's required monthly savings pace) legitimately differs
+    # between a $1,500 and a $3,000 option -- that's a valid size
+    # comparison, not a bug. The old wording ("uses less of your
+    # monthly savings-goal capacity") falsely implied the purchases
+    # actually consumed goal funding. Both options here are fully
+    # covered by liquid safe-to-spend funds, so the authoritative
+    # per-goal signal must show the goal unaffected for both,
+    # consistent with the already-fixed individual Major Purchase
+    # Simulator result.
+    with TestingSessionLocal() as db:
+        user = create_user(db, "scenario-goal-impact-regression")
+
+        create_account(db, user, available_balance_cents=6_500_000)
+
+        for month in (5, 6, 7):
+            db.add(
+                Transaction(
+                    user_id=user.id,
+                    posted_on=date(2026, month, 1),
+                    description="Paycheck",
+                    amount_cents=70_000,
+                    category="Income",
+                )
+            )
+        db.commit()
+
+        goal = SavingsGoal(
+            user_id=user.id,
+            name="Production Test Goal",
+            target_cents=100_000,
+            saved_cents=25_000,
+            target_date=date(2026, 12, 31),
+        )
+        db.add(goal)
+        db.commit()
+
+        result = compare_major_purchase_scenarios(
+            db,
+            user.id,
+            _comparison_request(
+                option_a_name="Laptop Test",
+                option_a_amount=150_000,
+                option_b_name="More expensive option",
+                option_b_amount=300_000,
+                purchase_date=date(2026, 8, 8),
+                safety_reserve_cents=500_000,
+                essential_spending_cents=200_000,
+                horizon_days=30,
+            ),
+            as_of=date(2026, 8, 8),
+        )
+
+        assert result.recommended_option == "option_a"
+        assert (
+            result.option_a.simulation.shortfall_after_purchase_cents
+            == 0
+        )
+        assert (
+            result.option_b.simulation.shortfall_after_purchase_cents
+            == 0
+        )
+
+        # The ratio legitimately differs -- it's a purchase-size
+        # comparison, not a claim about actual funding impact.
+        assert result.option_a.simulation.goal_impact_months == 10.0
+        assert result.option_b.simulation.goal_impact_months == 20.0
+
+        # The authoritative per-goal signal must agree with the
+        # already-fixed individual Major Purchase result: an
+        # affordable purchase fully covered by liquid funds leaves
+        # the goal unaffected, for both options.
+        for option in (result.option_a, result.option_b):
+            impact = option.simulation.goal_impacts[0]
+            assert impact.status != "impossible"
+            assert (
+                impact.adjusted_monthly_allocation_cents
+                == impact.baseline_monthly_allocation_cents
+            )
+            assert impact.funding_shortfall_cents == 0
+
+        goal_criterion = next(
+            criterion
+            for criterion in result.scorecard.criteria
+            if criterion.key == "goal_impact"
+        )
+        assert goal_criterion.label == "Goal savings pace"
+
+        reasons = _build_reasons(
+            result.recommended_option,
+            result.scorecard,
+            result.option_a.simulation,
+            result.option_b.simulation,
+        )
+        assert not any(
+            "capacity" in reason.lower() for reason in reasons
+        )
 
 
 def test_reasons_match_actual_metrics() -> None:

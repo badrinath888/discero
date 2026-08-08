@@ -376,11 +376,14 @@ function AssistantCard({
   return (
     <Reveal>
       <article className="rounded-[26px] border border-[#14241e]/10 bg-white p-5 shadow-[0_14px_40px_rgba(20,36,30,0.07)] sm:p-6">
-        {response.tool_used && (
-          <p className="inline-flex items-center gap-1.5 rounded-full bg-[#dff6c7] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#167c5a]">
-            {response.tool_used}
-          </p>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {response.tool_used && (
+            <p className="inline-flex items-center gap-1.5 rounded-full bg-[#dff6c7] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#167c5a]">
+              {response.tool_used}
+            </p>
+          )}
+          <ProvenanceBadge provenance={response.provenance} />
+        </div>
 
         <p className="mt-3 text-[15px] font-medium leading-7 text-[#182b23]">
           {response.answer}
@@ -426,6 +429,24 @@ function AssistantCard({
         )}
       </article>
     </Reveal>
+  );
+}
+
+function ProvenanceBadge({
+  provenance,
+}: {
+  provenance: CopilotResponse["provenance"];
+}) {
+  const label =
+    provenance === "ai_enhanced"
+      ? "AI-enhanced FinSight analysis"
+      : "FinSight analysis";
+
+  return (
+    <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[#8a978f]">
+      <span className="h-1.5 w-1.5 rounded-full bg-[#a9b8b0]" />
+      {label}
+    </p>
   );
 }
 

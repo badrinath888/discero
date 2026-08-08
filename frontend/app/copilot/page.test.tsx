@@ -123,6 +123,12 @@ const answerResponse: CopilotResponse = {
   tool_used: "Safe-to-Spend",
   confidence: { score: 88, level: "high" },
   low_data_warning: null,
+  provenance: "ai_enhanced",
+};
+
+const freeModeAnswerResponse: CopilotResponse = {
+  ...answerResponse,
+  provenance: "deterministic",
 };
 
 const clarifyingResponse: CopilotResponse = {
@@ -137,6 +143,7 @@ const clarifyingResponse: CopilotResponse = {
   tool_used: null,
   confidence: null,
   low_data_warning: null,
+  provenance: "deterministic",
 };
 
 const outOfScopeResponse: CopilotResponse = {
@@ -151,6 +158,7 @@ const outOfScopeResponse: CopilotResponse = {
   tool_used: null,
   confidence: null,
   low_data_warning: null,
+  provenance: "deterministic",
 };
 
 beforeEach(() => {
@@ -211,6 +219,34 @@ describe("Copilot page", () => {
     expect(
       screen.queryByLabelText("Copilot is thinking")
     ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("AI-enhanced FinSight analysis")
+    ).toBeInTheDocument();
+  });
+
+  it("renders free-mode (deterministic) responses normally, without a degraded look", async () => {
+    mocks.sendCopilotChat.mockResolvedValue(freeModeAnswerResponse);
+
+    render(<CopilotPage />);
+
+    const prompt = await screen.findByText(
+      "What's my safe to spend right now?"
+    );
+    fireEvent.click(prompt);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("You have $5,000.00 safe to spend.")
+      ).toBeInTheDocument()
+    );
+
+    expect(screen.getByText("FinSight analysis")).toBeInTheDocument();
+    expect(
+      screen.queryByText("AI-enhanced FinSight analysis")
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("$5,000.00")).toBeInTheDocument();
+    expect(screen.queryByText(/provider key/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/API key/i)).not.toBeInTheDocument();
   });
 
   it("renders clarifying questions with working quick-reply buttons", async () => {

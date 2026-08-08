@@ -726,6 +726,7 @@ export type CopilotResponse = {
   tool_used: string | null;
   confidence: CopilotConfidence | null;
   low_data_warning: string | null;
+  provenance: "deterministic" | "ai_enhanced";
 };
 
 export type RecurringPayment = {

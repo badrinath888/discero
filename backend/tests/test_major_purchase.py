@@ -409,6 +409,73 @@ def test_goal_impacts_empty_when_no_active_goals_in_purchase() -> None:
         assert result.goal_impacts == []
 
 
+def test_affordable_one_time_purchase_does_not_zero_goal_funding() -> None:
+    # Regression test for a production report (2026-08-08): a $1,500
+    # one-time purchase, fully covered by liquid safe-to-spend funds,
+    # was zeroing out monthly goal-funding capacity for a $750
+    # remaining goal because the purchase amount was being subtracted
+    # directly from monthly income-flow capacity instead of only the
+    # portion (if any) not absorbed by liquid funds.
+    with TestingSessionLocal() as db:
+        user = create_user(db, "purchase-goal-regression")
+
+        create_account(db, user, available_balance_cents=6_500_000)
+        # Modest trailing income keeps baseline monthly capacity
+        # ($700) below the goal's remaining amount ($750), so the
+        # allocation is capacity-constrained rather than capped by
+        # the goal's remaining amount -- matching the production
+        # report where the capacity itself was the binding factor.
+        for month in (5, 6, 7):
+            db.add(
+                Transaction(
+                    user_id=user.id,
+                    posted_on=date(2026, month, 1),
+                    description="Paycheck",
+                    amount_cents=70_000,
+                    category="Income",
+                )
+            )
+        db.commit()
+        create_goal(
+            db,
+            user,
+            name="Production Test Goal",
+            target_cents=100_000,
+            saved_cents=25_000,
+            target_date=date(2026, 12, 31),
+        )
+
+        result = simulate_major_purchase(
+            db,
+            user.id,
+            MajorPurchaseSimulationRequest(
+                purchase_name="Laptop Test",
+                purchase_amount_cents=150_000,
+                purchase_date=date(2026, 8, 8),
+                safety_reserve_cents=500_000,
+                essential_spending_cents=200_000,
+                horizon_days=30,
+            ),
+            as_of=date(2026, 8, 8),
+        )
+
+        assert result.affordability_status == "affordable"
+        assert result.shortfall_after_purchase_cents == 0
+
+        assert len(result.goal_impacts) == 1
+        impact = result.goal_impacts[0]
+
+        # The purchase is fully absorbed by liquid safe-to-spend
+        # funds, so it should not reduce monthly goal-funding
+        # capacity at all.
+        assert (
+            impact.adjusted_monthly_allocation_cents
+            == impact.baseline_monthly_allocation_cents
+        )
+        assert impact.status != "impossible"
+        assert impact.funding_shortfall_cents == 0
+
+
 def test_major_purchase_endpoint_blocks_other_user(
     client: TestClient,
 ) -> None:

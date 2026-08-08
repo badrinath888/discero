@@ -88,12 +88,13 @@ def simulate_major_purchase(
         - safe_to_spend.breakdown.upcoming_obligations_cents,
         0,
     )
-    # A major purchase is modeled as a one-time draw against this
-    # month's available savings capacity, since it comes from the
-    # same liquid funds that would otherwise fund goal contributions.
+    # A major purchase is a one-time draw against liquid safe-to-spend
+    # funds (a stock), not against monthly income capacity (a flow).
+    # It only competes with monthly goal funding for the portion that
+    # liquid funds can't absorb -- i.e. the shortfall left after the
+    # purchase, same as shown in safe_to_spend_after_purchase_cents.
     adjusted_monthly_capacity_cents = max(
-        baseline_monthly_capacity_cents
-        - payload.purchase_amount_cents,
+        baseline_monthly_capacity_cents - shortfall_after,
         0,
     )
     goal_impacts = calculate_goal_impacts(

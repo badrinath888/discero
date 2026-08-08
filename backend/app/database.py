@@ -12,7 +12,13 @@ connect_args = (
     else {}
 )
 
-engine = create_engine(settings.database_url, connect_args=connect_args)
+engine = create_engine(
+    settings.database_url,
+    connect_args=connect_args,
+    # Detects and discards stale connections (e.g. dropped by a hosted
+    # Postgres provider's idle timeout) instead of surfacing them as errors.
+    pool_pre_ping=True,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

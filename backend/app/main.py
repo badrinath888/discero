@@ -11,6 +11,7 @@ from app.database import get_db
 from app.routers import (
     accounts,
     budgets,
+    copilot,
     financial_stress_test,
     goal_conflict_detection,
     goals,
@@ -69,6 +70,7 @@ app.include_router(financial_stress_test.router)
 app.include_router(goal_conflict_detection.router)
 app.include_router(plaid.router)
 app.include_router(accounts.router)
+app.include_router(copilot.router)
 
 
 @app.get("/health", tags=["meta"])

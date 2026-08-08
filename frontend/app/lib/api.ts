@@ -697,6 +697,37 @@ export type GoalConflictDetection = {
   warnings: string[];
 };
 
+export type CopilotMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type CopilotMetric = {
+  label: string;
+  value_display: string;
+  kind: "currency" | "percent" | "score" | "text";
+  tone: "positive" | "neutral" | "warning" | "danger";
+};
+
+export type CopilotConfidence = {
+  score: number;
+  level: "high" | "medium" | "low";
+};
+
+export type CopilotResponse = {
+  kind: "answer" | "clarifying_question" | "out_of_scope" | "unavailable";
+  answer: string | null;
+  why: string | null;
+  what_this_means: string | null;
+  key_numbers: CopilotMetric[];
+  suggested_actions: string[];
+  clarifying_question: string | null;
+  clarifying_options: string[] | null;
+  tool_used: string | null;
+  confidence: CopilotConfidence | null;
+  low_data_warning: string | null;
+};
+
 export type RecurringPayment = {
   merchant: string;
   amount_cents: number;
@@ -1311,6 +1342,16 @@ runFinancialStressTest: (
         body: JSON.stringify(payload),
       }
     ).then((res) => handle<GoalConflictDetection>(res)),
+
+  sendCopilotChat: (
+    userId: number,
+    messages: CopilotMessage[]
+  ): Promise<CopilotResponse> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/copilot/chat`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ messages }),
+    }).then((res) => handle<CopilotResponse>(res)),
 
   createSavingsGoal: (
     userId: number,

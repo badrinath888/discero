@@ -1,0 +1,968 @@
+"""FinSight AI Copilot orchestration.
+
+Design principle: the LLM never invents a financial number. Each user turn
+runs at most two Anthropic calls, both via tool-use (structured JSON, not
+free text):
+
+1. DECIDE -- Claude picks exactly one of: a real deterministic financial
+   tool (mirroring an existing service, e.g. `simulate_major_purchase`),
+   `request_clarification` (missing/ambiguous required parameter), or
+   `decline_out_of_scope` (non-financial or unsupported question).
+2. NARRATE -- only if a financial tool was used. Claude is shown that
+   tool's REAL result JSON and must call `present_financial_answer` to
+   produce prose. The numeric "key numbers" chips shown to the user are
+   built directly from the real result by plain Python in this module,
+   never parsed out of Claude's prose -- so a hallucinated number in the
+   narration step can never reach a metric chip.
+
+Conversation memory is just the full message history resent each turn
+(Claude's native multi-turn context), so follow-ups like "what about
+$3,000?" resolve for free with no bespoke intent/slot-filling code.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+
+from pydantic import BaseModel, ValidationError
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.models import PlaidItem, SavingsGoal, User
+from app.schemas import (
+    CopilotConfidenceOut,
+    CopilotMessageIn,
+    CopilotMetricOut,
+    CopilotResponseOut,
+    FinancialStressTestRequest,
+    GoalConflictDetectionRequest,
+    MajorPurchaseSimulationRequest,
+    SafeToSpendRequest,
+    ScenarioComparisonRequest,
+)
+from app.services.financial_stress_test_service import (
+    run_financial_stress_test,
+)
+from app.services.goal_conflict_detection_service import (
+    detect_goal_conflicts,
+)
+from app.services.major_purchase_service import (
+    _average_monthly_income_cents,
+    simulate_major_purchase,
+)
+from app.services.safe_to_spend_service import calculate_safe_to_spend
+from app.services.scenario_comparison_service import (
+    compare_major_purchase_scenarios,
+)
+
+_MAX_HISTORY_MESSAGES = 20
+_UNAVAILABLE_ANSWER = (
+    "The Copilot needs an AI provider key configured "
+    "(ANTHROPIC_API_KEY) before it can answer questions."
+)
+_FALLBACK_ANSWER = (
+    "I couldn't complete that just now. Please try rephrasing your "
+    "question."
+)
+_SCOPE_FALLBACK = (
+    "I can only help with questions about your FinSight finances."
+)
+
+_STATUS_TONE = {
+    "safe": "positive",
+    "limited": "warning",
+    "negative": "danger",
+    "affordable": "positive",
+    "caution": "warning",
+    "not_affordable": "danger",
+    "resilient": "positive",
+    "strained": "warning",
+    "critical": "danger",
+    "no_conflict": "positive",
+    "conflict": "danger",
+    "unaffected": "positive",
+    "on_track": "positive",
+    "reduced": "warning",
+    "delayed": "warning",
+    "at_risk": "warning",
+    "unfunded": "danger",
+    "impossible": "danger",
+    "completed": "positive",
+    "high": "positive",
+    "medium": "warning",
+    "low": "danger",
+}
+
+
+def _tone(status: str) -> str:
+    return _STATUS_TONE.get(status, "neutral")
+
+
+def _currency(cents: int) -> str:
+    sign = "-" if cents < 0 else ""
+    return f"{sign}${abs(cents) / 100:,.2f}"
+
+
+def _percent(value: float) -> str:
+    return f"{value:.1f}%"
+
+
+def _chip(
+    label: str,
+    value_display: str,
+    *,
+    kind: str = "currency",
+    tone: str = "neutral",
+) -> CopilotMetricOut:
+    return CopilotMetricOut(
+        label=label,
+        value_display=value_display,
+        kind=kind,
+        tone=tone,
+    )
+
+
+def _confidence_level(score: float) -> str:
+    if score >= 75:
+        return "high"
+    if score >= 45:
+        return "medium"
+    return "low"
+
+
+def _confidence(score: float) -> CopilotConfidenceOut:
+    return CopilotConfidenceOut(
+        score=score, level=_confidence_level(score)
+    )
+
+
+def _low_data_warning(
+    score: float, warnings: list[str] | None = None
+) -> str | None:
+    if score < 45:
+        return (
+            "This is based on limited transaction/account history, "
+            "so treat it as a rough estimate."
+        )
+    if warnings:
+        return warnings[0]
+    return None
+
+
+class CopilotClient:
+    """Thin Anthropic wrapper. Network call isolated for testability."""
+
+    def __init__(
+        self, api_key: str | None, model: str = "claude-sonnet-4-6"
+    ) -> None:
+        self.api_key = api_key
+        self.model = model
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.api_key)
+
+    def call(
+        self,
+        *,
+        system: str,
+        messages: list[dict],
+        tools: list[dict],
+        tool_choice: dict | None = None,
+    ):
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=self.api_key)
+
+        return client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            system=system,
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice or {"type": "auto"},
+        )
+
+
+def _tool_schema(model: type[BaseModel]) -> dict:
+    return model.model_json_schema()
+
+
+_TOOLS = [
+    {
+        "name": "get_safe_to_spend",
+        "description": (
+            "Calculate how much the user can safely spend right now "
+            "without endangering upcoming obligations, essential "
+            "spending, and their safety reserve. Use for questions "
+            "about current spending room or discretionary spending."
+        ),
+        "input_schema": _tool_schema(SafeToSpendRequest),
+    },
+    {
+        "name": "simulate_major_purchase",
+        "description": (
+            "Simulate the effect of ONE specific one-time purchase "
+            "(amount, date) on safe-to-spend and savings-goal "
+            "funding. Use whenever the user asks whether they can "
+            "afford something, or 'what if I buy X'. All *_cents "
+            "fields must be in CENTS (dollars x 100)."
+        ),
+        "input_schema": _tool_schema(MajorPurchaseSimulationRequest),
+    },
+    {
+        "name": "compare_purchase_scenarios",
+        "description": (
+            "Compare TWO alternative one-time purchases side by "
+            "side and recommend the better option. Use when the "
+            "user is deciding between two specific purchase "
+            "options. All *_cents fields must be in CENTS."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "option_a": _tool_schema(
+                    MajorPurchaseSimulationRequest
+                ),
+                "option_b": _tool_schema(
+                    MajorPurchaseSimulationRequest
+                ),
+            },
+            "required": ["option_a", "option_b"],
+        },
+    },
+    {
+        "name": "run_stress_test",
+        "description": (
+            "Model a downside financial scenario (job loss, "
+            "emergency expense, bill increase, delayed paycheck, "
+            "etc.) and return a resilience score plus affected "
+            "goals. Use for risk questions about income loss, "
+            "emergencies, or financial shocks. All *_cents fields "
+            "must be in CENTS."
+        ),
+        "input_schema": _tool_schema(FinancialStressTestRequest),
+    },
+    {
+        "name": "check_goal_conflicts",
+        "description": (
+            "Check whether the user's current savings goals "
+            "collectively conflict given their monthly savings "
+            "capacity -- which goals are on track, at risk, or "
+            "unfunded. Use for 'which goal is at risk' or 'can I "
+            "fund all my goals' questions. Omit "
+            "monthly_savings_capacity_cents if not stated by the "
+            "user; it will be estimated from real income history."
+        ),
+        "input_schema": _tool_schema(GoalConflictDetectionRequest),
+    },
+    {
+        "name": "get_cash_flow_forecast",
+        "description": (
+            "Get the projected month-end balance, expected income, "
+            "upcoming bills, and forecast confidence for the "
+            "current month. Use for 'monthly cash flow' or 'forecast "
+            "confidence' questions."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "as_of": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Defaults to today if omitted.",
+                }
+            },
+        },
+    },
+    {
+        "name": "get_monthly_insights",
+        "description": (
+            "Get income, spending, net cash flow, and savings rate "
+            "for a specific month compared to the prior month. Use "
+            "for 'how much did I save this month' or spending-trend "
+            "questions."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "month": {
+                    "type": "string",
+                    "description": (
+                        "YYYY-MM. Defaults to the current month if "
+                        "omitted."
+                    ),
+                }
+            },
+        },
+    },
+    {
+        "name": "request_clarification",
+        "description": (
+            "Use when a required financial parameter (amount, "
+            "date, which goal, etc.) is missing from the "
+            "conversation and cannot be safely inferred. Never "
+            "guess a dollar amount or date -- ask instead."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string"},
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional short quick-reply choices, at "
+                        "most 4."
+                    ),
+                },
+            },
+            "required": ["question"],
+        },
+    },
+    {
+        "name": "decline_out_of_scope",
+        "description": (
+            "Use for questions unrelated to the user's FinSight "
+            "finances (non-financial), or financial questions "
+            "FinSight has no data/capability to analyze. Never "
+            "fabricate an answer instead."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reason": {"type": "string"},
+                "category": {
+                    "type": "string",
+                    "enum": [
+                        "non_financial",
+                        "unsupported_financial",
+                    ],
+                },
+            },
+            "required": ["reason", "category"],
+        },
+    },
+]
+
+_NARRATION_TOOL = {
+    "name": "present_financial_answer",
+    "description": (
+        "Present the final answer to the user using ONLY the real "
+        "numbers you were just shown in the tool result. Never "
+        "invent or alter a number. Prefer grounding `why` in the "
+        "tool result's own `explanation`/`recommendation` field "
+        "when present, rather than inventing new reasoning."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "answer": {
+                "type": "string",
+                "description": "1-3 sentence direct answer.",
+            },
+            "why": {
+                "type": "string",
+                "description": (
+                    "The strongest factor driving this result, if "
+                    "relevant. Omit if not useful."
+                ),
+            },
+            "what_this_means": {
+                "type": "string",
+                "description": (
+                    "Practical implication for the user. Omit if "
+                    "not useful."
+                ),
+            },
+            "suggested_actions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 2,
+                "description": (
+                    "0-2 short, concrete next steps phrased as "
+                    "things the user could ask next."
+                ),
+            },
+        },
+        "required": ["answer"],
+    },
+}
+
+_TOOL_LABELS = {
+    "get_safe_to_spend": "Safe-to-Spend",
+    "simulate_major_purchase": "Major Purchase Simulator",
+    "compare_purchase_scenarios": "Scenario Comparison",
+    "run_stress_test": "Financial Stress Test",
+    "check_goal_conflicts": "Goal Conflict Check",
+    "get_cash_flow_forecast": "Cash-Flow Forecast",
+    "get_monthly_insights": "Monthly Insights",
+}
+
+
+def _handle_safe_to_spend(db, user_id, tool_input, as_of, current_user):
+    payload = SafeToSpendRequest(**tool_input)
+    result = calculate_safe_to_spend(db, user_id, payload, as_of=as_of)
+
+    chips = [
+        _chip(
+            "Safe to spend",
+            _currency(result.safe_to_spend_cents),
+            tone=_tone(result.status),
+        ),
+        _chip(
+            "Shortfall",
+            _currency(result.shortfall_cents),
+            tone="danger" if result.shortfall_cents else "positive",
+        ),
+        _chip(
+            "Confidence",
+            f"{round(result.confidence_score)}%",
+            kind="score",
+            tone=_tone(_confidence_level(result.confidence_score)),
+        ),
+    ]
+
+    return (
+        result,
+        chips,
+        _confidence(result.confidence_score),
+        _low_data_warning(result.confidence_score, result.warnings),
+    )
+
+
+def _handle_major_purchase(db, user_id, tool_input, as_of, current_user):
+    payload = MajorPurchaseSimulationRequest(**tool_input)
+    result = simulate_major_purchase(db, user_id, payload, as_of=as_of)
+
+    chips = [
+        _chip(
+            "Affordability",
+            result.affordability_status.replace("_", " ").title(),
+            kind="text",
+            tone=_tone(result.affordability_status),
+        ),
+        _chip(
+            "Safe to spend after",
+            _currency(result.safe_to_spend_after_purchase_cents),
+            tone=(
+                "danger"
+                if result.shortfall_after_purchase_cents
+                else "positive"
+            ),
+        ),
+        _chip(
+            "Purchase impact",
+            _percent(result.purchase_impact_percent),
+            kind="percent",
+            tone="neutral",
+        ),
+        _chip(
+            "Shortfall",
+            _currency(result.shortfall_after_purchase_cents),
+            tone=(
+                "danger"
+                if result.shortfall_after_purchase_cents
+                else "positive"
+            ),
+        ),
+    ]
+
+    if result.goal_impacts:
+        worst = min(
+            result.goal_impacts,
+            key=lambda g: _GOAL_STATUS_RANK.get(g.status, 0),
+        )
+        chips.append(
+            _chip(
+                "Goal impact",
+                f"{worst.goal_name}: {worst.status.replace('_', ' ')}",
+                kind="text",
+                tone=_tone(worst.status),
+            )
+        )
+
+    chips.append(
+        _chip(
+            "Confidence",
+            f"{round(result.confidence_score)}%",
+            kind="score",
+            tone=_tone(_confidence_level(result.confidence_score)),
+        )
+    )
+
+    return (
+        result,
+        chips,
+        _confidence(result.confidence_score),
+        _low_data_warning(result.confidence_score),
+    )
+
+
+_GOAL_STATUS_RANK = {
+    "unaffected": 4,
+    "reduced": 3,
+    "delayed": 2,
+    "at_risk": 1,
+    "impossible": 0,
+}
+
+
+def _handle_compare_scenarios(
+    db, user_id, tool_input, as_of, current_user
+):
+    payload = ScenarioComparisonRequest(**tool_input)
+    result = compare_major_purchase_scenarios(
+        db, user_id, payload, as_of=as_of
+    )
+
+    recommended_label = {
+        "option_a": "Option A",
+        "option_b": "Option B",
+        "tie": "Tie",
+    }[result.recommended_option]
+
+    chips = [
+        _chip("Recommended", recommended_label, kind="text", tone="positive"),
+        _chip(
+            "Option A safe-to-spend after",
+            _currency(
+                result.option_a.simulation
+                .safe_to_spend_after_purchase_cents
+            ),
+        ),
+        _chip(
+            "Option B safe-to-spend after",
+            _currency(
+                result.option_b.simulation
+                .safe_to_spend_after_purchase_cents
+            ),
+        ),
+        _chip(
+            "Impact difference",
+            _percent(abs(result.impact_difference_percent)),
+            kind="percent",
+        ),
+    ]
+
+    confidence_score = min(
+        result.option_a.simulation.confidence_score,
+        result.option_b.simulation.confidence_score,
+    )
+
+    return (
+        result,
+        chips,
+        _confidence(confidence_score),
+        _low_data_warning(confidence_score),
+    )
+
+
+def _handle_stress_test(db, user_id, tool_input, as_of, current_user):
+    payload = FinancialStressTestRequest(**tool_input)
+    result = run_financial_stress_test(db, user_id, payload, as_of=as_of)
+
+    chips = [
+        _chip(
+            "Risk level",
+            result.risk_level.title(),
+            kind="text",
+            tone=_tone(result.risk_level),
+        ),
+        _chip(
+            "Resilience score",
+            f"{round(result.resilience_score)}",
+            kind="score",
+            tone=_tone(result.risk_level),
+        ),
+        _chip(
+            "Safe to spend after",
+            _currency(result.safe_to_spend_after_stress_cents),
+        ),
+        _chip(
+            "Shortfall",
+            _currency(result.shortfall_cents),
+            tone="danger" if result.shortfall_cents else "positive",
+        ),
+        _chip(
+            "Confidence",
+            f"{round(result.confidence_score)}%",
+            kind="score",
+            tone=_tone(_confidence_level(result.confidence_score)),
+        ),
+    ]
+
+    return (
+        result,
+        chips,
+        _confidence(result.confidence_score),
+        _low_data_warning(result.confidence_score),
+    )
+
+
+def _handle_goal_conflicts(db, user_id, tool_input, as_of, current_user):
+    tool_input = dict(tool_input)
+
+    if not tool_input.get("monthly_savings_capacity_cents"):
+        tool_input["monthly_savings_capacity_cents"] = (
+            _average_monthly_income_cents(db, user_id, as_of)
+        )
+
+    payload = GoalConflictDetectionRequest(**tool_input)
+    result = detect_goal_conflicts(db, user_id, payload, as_of=as_of)
+
+    chips = [
+        _chip(
+            "Status",
+            result.conflict_status.replace("_", " ").title(),
+            kind="text",
+            tone=_tone(result.conflict_status),
+        ),
+        _chip(
+            "Monthly shortfall",
+            _currency(result.monthly_shortfall_cents),
+            tone="danger" if result.monthly_shortfall_cents else "positive",
+        ),
+        _chip(
+            "Confidence",
+            f"{round(result.confidence_score)}%",
+            kind="score",
+            tone=_tone(_confidence_level(result.confidence_score)),
+        ),
+    ]
+
+    return (
+        result,
+        chips,
+        _confidence(result.confidence_score),
+        _low_data_warning(result.confidence_score, result.warnings),
+    )
+
+
+def _handle_cash_flow_forecast(
+    db, user_id, tool_input, as_of, current_user
+):
+    # Imported lazily: app.routers.transactions imports app.deps, and
+    # app.deps imports CopilotClient from this module -- a module-level
+    # import here would be circular.
+    from app.routers.transactions import cash_flow_forecast
+
+    as_of_param = tool_input.get("as_of")
+    parsed_as_of = date.fromisoformat(as_of_param) if as_of_param else as_of
+
+    result = cash_flow_forecast(
+        user_id=user_id,
+        as_of=parsed_as_of,
+        db=db,
+        current_user=current_user,
+    )
+
+    monthly_flow_cents = (
+        result.expected_income_cents - result.upcoming_bills_cents
+    )
+
+    chips = [
+        _chip(
+            "Projected month-end balance",
+            _currency(result.projected_end_balance_cents),
+            tone="danger" if result.low_balance_risk else "positive",
+        ),
+        _chip(
+            "Monthly cash flow",
+            _currency(monthly_flow_cents),
+            tone="positive" if monthly_flow_cents >= 0 else "danger",
+        ),
+        _chip(
+            "Forecast confidence",
+            f"{round(result.confidence.score)}%",
+            kind="score",
+            tone=_tone(result.confidence.level),
+        ),
+    ]
+
+    return (
+        result,
+        chips,
+        _confidence(result.confidence.score),
+        _low_data_warning(result.confidence.score),
+    )
+
+
+def _handle_monthly_insights(
+    db, user_id, tool_input, as_of, current_user
+):
+    from app.routers.transactions import monthly_insights
+
+    month = tool_input.get("month") or as_of.strftime("%Y-%m")
+
+    result = monthly_insights(
+        user_id=user_id,
+        month=month,
+        db=db,
+        current_user=current_user,
+    )
+
+    chips = [
+        _chip(
+            "Monthly cash flow",
+            _currency(result.net_cents),
+            tone="positive" if result.net_cents >= 0 else "danger",
+        ),
+        _chip(
+            "Savings rate",
+            _percent(result.savings_rate_percent),
+            kind="percent",
+            tone=(
+                "positive"
+                if result.savings_rate_percent >= 0
+                else "danger"
+            ),
+        ),
+    ]
+
+    if result.spending_change_percent is not None:
+        chips.append(
+            _chip(
+                "Spending change",
+                _percent(result.spending_change_percent),
+                kind="percent",
+                tone=(
+                    "warning"
+                    if result.spending_change_percent > 0
+                    else "positive"
+                ),
+            )
+        )
+
+    return (result, chips, None, None)
+
+
+_TOOL_HANDLERS = {
+    "get_safe_to_spend": _handle_safe_to_spend,
+    "simulate_major_purchase": _handle_major_purchase,
+    "compare_purchase_scenarios": _handle_compare_scenarios,
+    "run_stress_test": _handle_stress_test,
+    "check_goal_conflicts": _handle_goal_conflicts,
+    "get_cash_flow_forecast": _handle_cash_flow_forecast,
+    "get_monthly_insights": _handle_monthly_insights,
+}
+
+
+def _build_system_prompt(db: Session, user_id: int, as_of: date) -> str:
+    goals = list(
+        db.scalars(
+            select(SavingsGoal).where(SavingsGoal.user_id == user_id)
+        ).all()
+    )
+
+    goal_lines = [
+        (
+            f"- {g.name}: saved {_currency(g.saved_cents)} of "
+            f"{_currency(g.target_cents)}"
+            + (
+                f", target date {g.target_date.isoformat()}"
+                if g.target_date
+                else ", no target date"
+            )
+        )
+        for g in goals
+    ] or ["- (no savings goals yet)"]
+
+    plaid_connected = (
+        db.scalar(
+            select(func.count())
+            .select_from(PlaidItem)
+            .where(
+                PlaidItem.user_id == user_id,
+                PlaidItem.status == "active",
+            )
+        )
+        or 0
+    )
+
+    return (
+        "You are FinSight's financial copilot. You answer questions "
+        "about the CURRENT user's real FinSight data using the "
+        "provided tools.\n\n"
+        "Rules:\n"
+        "- NEVER invent a dollar amount, date, percentage, or any "
+        "financial figure. Every number in your final answer must "
+        "come from a tool result you were shown, or from the facts "
+        "below.\n"
+        "- All request fields ending in _cents must be integer "
+        "CENTS (multiply a dollar amount by 100).\n"
+        "- If a required amount, date, or goal is missing and can't "
+        "be inferred from the conversation, call "
+        "request_clarification instead of guessing.\n"
+        "- For questions unrelated to the user's finances, or "
+        "financial questions FinSight has no capability to "
+        "analyze, call decline_out_of_scope.\n"
+        "- Resolve follow-up questions (e.g. \"what about $3,000?\", "
+        "\"why?\", \"which goal?\") against the immediately "
+        "preceding tool call in this conversation when unambiguous.\n"
+        "- When a result involves risk or a tradeoff, name the "
+        "single strongest factor driving it.\n"
+        "- If a tool's confidence score is low, or the facts below "
+        "show little transaction/account history, say so "
+        "explicitly.\n"
+        "- Keep prose short: a few sentences per section, no "
+        "filler.\n\n"
+        f"Today's date: {as_of.isoformat()}\n"
+        f"Bank accounts connected via Plaid: {plaid_connected}\n"
+        "Active savings goals:\n" + "\n".join(goal_lines)
+    )
+
+
+def _first_tool_use(response):
+    for block in response.content:
+        if getattr(block, "type", None) == "tool_use":
+            return block
+    return None
+
+
+def _extract_text(response) -> str:
+    parts = [
+        block.text
+        for block in response.content
+        if getattr(block, "type", None) == "text" and block.text
+    ]
+    return " ".join(p.strip() for p in parts).strip()
+
+
+def _narrate(
+    client: CopilotClient,
+    system: str,
+    history: list[dict],
+    decision,
+    tool_use,
+    result: BaseModel,
+) -> dict:
+    followup_messages = history + [
+        {"role": "assistant", "content": decision.content},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_use.id,
+                    "content": result.model_dump_json(),
+                }
+            ],
+        },
+    ]
+
+    try:
+        response = client.call(
+            system=system,
+            messages=followup_messages,
+            tools=[_NARRATION_TOOL],
+            tool_choice={
+                "type": "tool",
+                "name": "present_financial_answer",
+            },
+        )
+    except Exception:
+        return {}
+
+    narrate_use = _first_tool_use(response)
+
+    if narrate_use is None or narrate_use.name != "present_financial_answer":
+        return {}
+
+    return narrate_use.input or {}
+
+
+def run_copilot_turn(
+    db: Session,
+    user_id: int,
+    current_user: User,
+    messages: list[CopilotMessageIn],
+    client: CopilotClient,
+    *,
+    as_of: date | None = None,
+) -> CopilotResponseOut:
+    calculation_date = as_of or date.today()
+
+    if not client.enabled:
+        return CopilotResponseOut(
+            kind="unavailable", answer=_UNAVAILABLE_ANSWER
+        )
+
+    history = [
+        {"role": m.role, "content": m.content}
+        for m in messages[-_MAX_HISTORY_MESSAGES:]
+    ]
+
+    system = _build_system_prompt(db, user_id, calculation_date)
+
+    try:
+        decision = client.call(
+            system=system, messages=history, tools=_TOOLS
+        )
+    except Exception:
+        return CopilotResponseOut(kind="answer", answer=_FALLBACK_ANSWER)
+
+    tool_use = _first_tool_use(decision)
+
+    if tool_use is None:
+        text = _extract_text(decision)
+        return CopilotResponseOut(
+            kind="answer", answer=text or _FALLBACK_ANSWER
+        )
+
+    name = tool_use.name
+    tool_input = tool_use.input or {}
+
+    if name == "request_clarification":
+        question = str(tool_input.get("question", "")).strip()
+        raw_options = tool_input.get("options") or []
+        options = [str(o) for o in raw_options][:4] or None
+
+        return CopilotResponseOut(
+            kind="clarifying_question",
+            clarifying_question=question or "Could you clarify that?",
+            clarifying_options=options,
+        )
+
+    if name == "decline_out_of_scope":
+        reason = str(tool_input.get("reason", "")).strip()
+
+        return CopilotResponseOut(
+            kind="out_of_scope", answer=reason or _SCOPE_FALLBACK
+        )
+
+    handler = _TOOL_HANDLERS.get(name)
+
+    if handler is None:
+        return CopilotResponseOut(kind="answer", answer=_FALLBACK_ANSWER)
+
+    try:
+        result, chips, confidence, low_data_warning = handler(
+            db, user_id, tool_input, calculation_date, current_user
+        )
+    except (ValidationError, ValueError) as exc:
+        return CopilotResponseOut(
+            kind="clarifying_question",
+            clarifying_question=(
+                "I need a bit more detail to run that precisely "
+                f"({exc}). Could you clarify the amount or date?"
+            ),
+        )
+
+    narration = _narrate(
+        client, system, history, decision, tool_use, result
+    )
+
+    return CopilotResponseOut(
+        kind="answer",
+        answer=narration.get("answer") or _FALLBACK_ANSWER,
+        why=narration.get("why"),
+        what_this_means=narration.get("what_this_means"),
+        key_numbers=chips,
+        suggested_actions=list(narration.get("suggested_actions") or [])[
+            :2
+        ],
+        tool_used=_TOOL_LABELS.get(name, name),
+        confidence=confidence,
+        low_data_warning=low_data_warning,
+    )

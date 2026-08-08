@@ -16,6 +16,7 @@ type IconName =
   | "decisions"
   | "forecast"
   | "recurring"
+  | "copilot"
   | "settings"
   | "logout"
   | "menu"
@@ -37,6 +38,7 @@ const primaryNavigation: NavigationItem[] = [
 ];
 
 const intelligenceNavigation: NavigationItem[] = [
+  { label: "Copilot", href: "/copilot", icon: "copilot" },
   { label: "Insights", href: "/insights", icon: "insights" },
   { label: "Decisions", href: "/decisions", icon: "decisions" },
   { label: "Forecast", href: "/forecast", icon: "forecast" },
@@ -281,6 +283,14 @@ function Icon({ name }: { name: IconName }) {
         <path d="M4 17h5v5" />
         <path d="M5.5 9a8 8 0 0 1 13-3L20 7" />
         <path d="M18.5 15a8 8 0 0 1-13 3L4 17" />
+      </>
+    ),
+    copilot: (
+      <>
+        <path d="M12 3a8 8 0 0 0-8 8c0 2.4 1.05 4.55 2.72 6.03L6 21l4.3-1.7A8 8 0 1 0 12 3Z" />
+        <path d="M9 11h.01" />
+        <path d="M12 11h.01" />
+        <path d="M15 11h.01" />
       </>
     ),
     settings: (

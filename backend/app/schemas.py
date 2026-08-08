@@ -1096,3 +1096,46 @@ class GoalConflictDetectionOut(BaseModel):
     explanation: str
     recommendations: list[str]
     warnings: list[str] = Field(default_factory=list)
+
+
+class CopilotMessageIn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class CopilotChatRequest(BaseModel):
+    messages: list[CopilotMessageIn] = Field(
+        min_length=1,
+        max_length=40,
+    )
+
+
+class CopilotMetricOut(BaseModel):
+    label: str
+    value_display: str
+    kind: Literal["currency", "percent", "score", "text"]
+    tone: Literal["positive", "neutral", "warning", "danger"]
+
+
+class CopilotConfidenceOut(BaseModel):
+    score: float
+    level: Literal["high", "medium", "low"]
+
+
+class CopilotResponseOut(BaseModel):
+    kind: Literal[
+        "answer",
+        "clarifying_question",
+        "out_of_scope",
+        "unavailable",
+    ]
+    answer: str | None = None
+    why: str | None = None
+    what_this_means: str | None = None
+    key_numbers: list[CopilotMetricOut] = Field(default_factory=list)
+    suggested_actions: list[str] = Field(default_factory=list)
+    clarifying_question: str | None = None
+    clarifying_options: list[str] | None = None
+    tool_used: str | None = None
+    confidence: CopilotConfidenceOut | None = None
+    low_data_warning: str | None = None

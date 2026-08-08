@@ -64,6 +64,21 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> Self:
+        # Only the literal shipped-in-source default is rejected here;
+        # this is not a general secret-strength check.
+        if (
+            self.app_env == "production"
+            and self.jwt_secret == "development-only-change-this-secret"
+        ):
+            raise ValueError(
+                "JWT_SECRET must be set to a real secret when "
+                "APP_ENV=production; the default development value "
+                "is not safe to use in production"
+            )
+        return self
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [

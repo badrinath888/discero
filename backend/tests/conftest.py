@@ -1,3 +1,15 @@
+import os
+
+# Must run before any `app.*` import triggers `app.config`'s
+# module-level `settings = Settings()`. APP_ENV has historically
+# defaulted to "production" when unset (including in this test
+# environment), which is a deliberately fail-safe default for real
+# deployments but is not what a test run actually is -- forcing it
+# here keeps tests independent of whatever a developer's local .env
+# happens to set, and lets production-only validation (e.g. rejecting
+# the default JWT secret) be tested without also firing here.
+os.environ.setdefault("APP_ENV", "test")
+
 from collections.abc import Generator
 
 import pytest
@@ -8,6 +20,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
+from app.rate_limit import reset_rate_limits
 
 
 TEST_EMAIL = "test-user@example.com"
@@ -42,6 +55,7 @@ def isolated_database() -> Generator[None, None, None]:
     Base.metadata.create_all(bind=test_engine)
 
     app.dependency_overrides[get_db] = override_get_db
+    reset_rate_limits()
 
     yield
 

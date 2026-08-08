@@ -332,6 +332,32 @@ def test_upload_rejects_non_csv(
     assert response.status_code == 400
 
 
+def test_upload_rejects_oversized_file(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    oversized = b"date,description,amount\n" + (
+        b"2026-01-05,x,-1.00\n" * 300_000
+    )  # comfortably over the 5 MB cap
+
+    files = {
+        "file": (
+            "huge.csv",
+            io.BytesIO(oversized),
+            "text/csv",
+        )
+    }
+
+    response = client.post(
+        f"/users/{user_id}/transactions/upload",
+        files=files,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 413
+
+
 def test_upload_requires_authentication(
     client: TestClient,
 ) -> None:

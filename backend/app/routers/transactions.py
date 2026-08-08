@@ -41,6 +41,8 @@ router = APIRouter(
     tags=["transactions"],
 )
 
+_MAX_CSV_UPLOAD_BYTES = 5 * 1024 * 1024
+
 
 def _authorize_user(
     user_id: int,
@@ -139,7 +141,18 @@ async def upload_transactions(
             detail="please upload a .csv file",
         )
 
-    result = parse_csv(await file.read())
+    raw = await file.read(_MAX_CSV_UPLOAD_BYTES + 1)
+
+    if len(raw) > _MAX_CSV_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "csv file is too large (max "
+                f"{_MAX_CSV_UPLOAD_BYTES // (1024 * 1024)} MB)"
+            ),
+        )
+
+    result = parse_csv(raw)
 
     existing = {
         (

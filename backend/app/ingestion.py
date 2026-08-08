@@ -74,11 +74,21 @@ def _parse_date(raw: str) -> date:
     raise ValueError(f"unrecognized date: {raw!r}")
 
 
+_MAX_DESCRIPTION_LENGTH = 512
+
+
 def parse_csv(raw_bytes: bytes) -> IngestResult:
     """Parse CSV bytes into an IngestResult (good rows + per-row errors)."""
     result = IngestResult()
 
-    text = raw_bytes.decode("utf-8-sig")  # tolerate Excel BOM
+    try:
+        text = raw_bytes.decode("utf-8-sig")  # tolerate Excel BOM
+    except UnicodeDecodeError:
+        result.errors.append(
+            RowError(0, "file is not valid UTF-8 text")
+        )
+        return result
+
     reader = csv.DictReader(io.StringIO(text))
 
     if reader.fieldnames is None:
@@ -97,6 +107,7 @@ def parse_csv(raw_bytes: bytes) -> IngestResult:
                 raise ValueError("missing an amount column")
 
             description = (raw_desc or "").strip() or "(no description)"
+            description = description[:_MAX_DESCRIPTION_LENGTH]
             posted_on = _parse_date(raw_date)
             amount_cents = parse_to_cents(raw_amount)
 

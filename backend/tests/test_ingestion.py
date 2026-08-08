@@ -63,3 +63,21 @@ def test_missing_amount_column():
     result = parse_csv(data)
     assert result.error_count == 1
     assert "amount" in result.errors[0].message
+
+
+def test_non_utf8_file_reports_error_instead_of_crashing():
+    # Invalid UTF-8 byte sequence (a lone continuation byte).
+    result = parse_csv(b"date,description,amount\n\xff\xfe,Bad,-1.00\n")
+    assert result.ok_count == 0
+    assert result.error_count == 1
+    assert "utf-8" in result.errors[0].message.lower()
+
+
+def test_oversized_description_is_truncated():
+    long_description = "A" * 1000
+    data = _csv(
+        f"date,description,amount\n2026-01-05,{long_description},-1.00\n"
+    )
+    result = parse_csv(data)
+    assert result.ok_count == 1
+    assert len(result.transactions[0].description) == 512

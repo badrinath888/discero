@@ -9,6 +9,7 @@ from app.auth import get_current_user
 from app.config import settings
 from app.database import get_db
 from app.models import User
+from app.rate_limit import rate_limiter
 from app.schemas import (
     EmailChangeRequest,
     EmailRequest,
@@ -69,6 +70,7 @@ def create_user(
     payload: UserCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    _rate_limit: None = Depends(rate_limiter(max_attempts=10)),
 ) -> User:
     email = payload.email.lower().strip()
 
@@ -108,6 +110,7 @@ def create_user(
 def login(
     payload: UserLogin,
     db: Session = Depends(get_db),
+    _rate_limit: None = Depends(rate_limiter(max_attempts=10)),
 ) -> TokenOut:
     email = payload.email.lower().strip()
 
@@ -141,6 +144,7 @@ def login(
 def refresh_access_token(
     payload: RefreshTokenRequest,
     db: Session = Depends(get_db),
+    _rate_limit: None = Depends(rate_limiter(max_attempts=20)),
 ) -> TokenOut:
     token_data = decode_refresh_token(payload.refresh_token)
 
@@ -176,6 +180,7 @@ def forgot_password(
     payload: EmailRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    _rate_limit: None = Depends(rate_limiter(max_attempts=10)),
 ) -> PublicMessage:
     email = payload.email.lower().strip()
     user = db.scalar(
@@ -259,6 +264,7 @@ def resend_verification(
     payload: EmailRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    _rate_limit: None = Depends(rate_limiter(max_attempts=10)),
 ) -> PublicMessage:
     email = payload.email.lower().strip()
     user = db.scalar(

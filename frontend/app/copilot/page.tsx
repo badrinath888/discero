@@ -65,6 +65,22 @@ function assistantHistoryText(response: CopilotResponse): string {
   );
 }
 
+const NEAR_BOTTOM_THRESHOLD_PX = 120;
+
+function isNearBottom(threadEl: HTMLDivElement | null): boolean {
+  if (threadEl && threadEl.scrollHeight > threadEl.clientHeight + 1) {
+    const distance =
+      threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight;
+    return distance < NEAR_BOTTOM_THRESHOLD_PX;
+  }
+
+  if (typeof window === "undefined") return true;
+
+  const doc = document.documentElement;
+  const distance = doc.scrollHeight - window.scrollY - window.innerHeight;
+  return distance < NEAR_BOTTOM_THRESHOLD_PX;
+}
+
 export default function CopilotPage() {
   const router = useRouter();
   const [userId, setUserId] = useState<number | null>(null);
@@ -76,6 +92,8 @@ export default function CopilotPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
 
   useEffect(() => {
     async function initialize() {
@@ -115,12 +133,45 @@ export default function CopilotPage() {
     void initialize();
   }, [router]);
 
+  // The thread may or may not be the actual scrolling element -- it
+  // depends on viewport height vs. content height. Rather than assume
+  // one or the other, track "near bottom" against whichever container
+  // is actually scrollable, and always scroll a sentinel at the end of
+  // the thread into view (works correctly regardless of which ancestor
+  // ends up owning the scroll).
   useEffect(() => {
-    threadRef.current?.scrollTo?.({
-      top: threadRef.current.scrollHeight,
-      behavior: "smooth",
+    // threadRef isn't attached to the real thread element until the
+    // auth-guard's `initializing` spinner clears and the chat layout
+    // mounts, so this must re-run once that happens rather than only
+    // on initial mount (when threadRef.current would still be null).
+    if (initializing) return;
+
+    function updateAutoScrollIntent() {
+      shouldAutoScrollRef.current = isNearBottom(threadRef.current);
+    }
+
+    const el = threadRef.current;
+    el?.addEventListener("scroll", updateAutoScrollIntent, {
+      passive: true,
     });
-  }, [turns, sending]);
+    window.addEventListener("scroll", updateAutoScrollIntent, {
+      passive: true,
+    });
+
+    return () => {
+      el?.removeEventListener("scroll", updateAutoScrollIntent);
+      window.removeEventListener("scroll", updateAutoScrollIntent);
+    };
+  }, [initializing]);
+
+  useEffect(() => {
+    if (!shouldAutoScrollRef.current) return;
+
+    bottomRef.current?.scrollIntoView?.({
+      behavior: "smooth",
+      block: "end",
+    });
+  }, [turns, sending, error]);
 
   async function sendMessage(rawText: string) {
     const text = rawText.trim();
@@ -131,6 +182,11 @@ export default function CopilotPage() {
       ...history,
       { role: "user", content: text },
     ];
+
+    // Sending a message always brings the conversation back to the
+    // newest content, even if the user had scrolled up to read
+    // earlier turns.
+    shouldAutoScrollRef.current = true;
 
     setTurns((prev) => [
       ...prev,
@@ -225,6 +281,8 @@ export default function CopilotPage() {
             )}
 
             {sending && <ThinkingIndicator />}
+
+            <div ref={bottomRef} data-testid="copilot-thread-bottom" />
           </div>
 
           {error && (

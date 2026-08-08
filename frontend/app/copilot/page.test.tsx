@@ -161,6 +161,25 @@ const outOfScopeResponse: CopilotResponse = {
   provenance: "deterministic",
 };
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Simulates the thread container being scrolled away from the bottom. */
+function scrollThreadAwayFromBottom() {
+  const thread = screen.getByTestId("copilot-thread");
+  Object.defineProperty(thread, "scrollHeight", { value: 2000, configurable: true });
+  Object.defineProperty(thread, "clientHeight", { value: 400, configurable: true });
+  Object.defineProperty(thread, "scrollTop", { value: 0, configurable: true });
+  fireEvent.scroll(thread);
+}
+
 beforeEach(() => {
   mocks.getUserId.mockReturnValue(1);
   mocks.getToken.mockReturnValue("test-token");
@@ -171,6 +190,7 @@ beforeEach(() => {
   });
   mocks.getSavingsGoals.mockResolvedValue([activeGoal]);
   mocks.sendCopilotChat.mockReset();
+  HTMLElement.prototype.scrollIntoView = vi.fn();
 });
 
 describe("Copilot page", () => {
@@ -320,5 +340,158 @@ describe("Copilot page", () => {
 
     expect(screen.getByText("First question")).toBeInTheDocument();
     expect(screen.getByText("Second question")).toBeInTheDocument();
+  });
+});
+
+describe("Copilot auto-scroll", () => {
+  it("scrolls to the newest content when a message is submitted", async () => {
+    const deferred = createDeferred<CopilotResponse>();
+    mocks.sendCopilotChat.mockReturnValue(deferred.promise);
+
+    render(<CopilotPage />);
+
+    const input = await screen.findByLabelText("Message");
+    fireEvent.change(input, { target: { value: "Hello" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    // Submitting appends the user turn and the thinking indicator --
+    // both should trigger a scroll immediately, before the response
+    // arrives.
+    await waitFor(() =>
+      expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()
+    );
+
+    deferred.resolve(answerResponse);
+    await waitFor(() =>
+      expect(
+        screen.getByText("You have $5,000.00 safe to spend.")
+      ).toBeInTheDocument()
+    );
+  });
+
+  it("scrolls again when the assistant response arrives while near the bottom", async () => {
+    const deferred = createDeferred<CopilotResponse>();
+    mocks.sendCopilotChat.mockReturnValue(deferred.promise);
+
+    render(<CopilotPage />);
+
+    const input = await screen.findByLabelText("Message");
+    fireEvent.change(input, { target: { value: "Hello" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()
+    );
+    const callsBeforeResponse = (
+      HTMLElement.prototype.scrollIntoView as ReturnType<typeof vi.fn>
+    ).mock.calls.length;
+
+    deferred.resolve(answerResponse);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("You have $5,000.00 safe to spend.")
+      ).toBeInTheDocument()
+    );
+    await waitFor(() =>
+      expect(
+        (HTMLElement.prototype.scrollIntoView as ReturnType<typeof vi.fn>)
+          .mock.calls.length
+      ).toBeGreaterThan(callsBeforeResponse)
+    );
+  });
+
+  it("scrolls when a clarification card is appended", async () => {
+    mocks.sendCopilotChat.mockResolvedValue(clarifyingResponse);
+
+    render(<CopilotPage />);
+
+    const input = await screen.findByLabelText("Message");
+    fireEvent.change(input, { target: { value: "Can I afford it?" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("What amount are you considering?")
+      ).toBeInTheDocument()
+    );
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("scrolls when an error response is appended", async () => {
+    mocks.sendCopilotChat.mockRejectedValue(new Error("network error"));
+
+    render(<CopilotPage />);
+
+    const input = await screen.findByLabelText("Message");
+    fireEvent.change(input, { target: { value: "Hello" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "The Copilot couldn't respond just now. Please try again."
+        )
+      ).toBeInTheDocument()
+    );
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("does not yank the view down when the user has scrolled up to read history", async () => {
+    const deferred = createDeferred<CopilotResponse>();
+    mocks.sendCopilotChat.mockReturnValue(deferred.promise);
+
+    render(<CopilotPage />);
+
+    const input = await screen.findByLabelText("Message");
+    fireEvent.change(input, { target: { value: "Hello" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()
+    );
+
+    // The user scrolls up to read earlier messages while the
+    // response is still in flight.
+    scrollThreadAwayFromBottom();
+    (
+      HTMLElement.prototype.scrollIntoView as ReturnType<typeof vi.fn>
+    ).mockClear();
+
+    deferred.resolve(answerResponse);
+    await waitFor(() =>
+      expect(
+        screen.getByText("You have $5,000.00 safe to spend.")
+      ).toBeInTheDocument()
+    );
+
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("brings the view back to the newest content on the next submitted message even after scrolling up", async () => {
+    mocks.sendCopilotChat.mockResolvedValue(answerResponse);
+
+    render(<CopilotPage />);
+
+    const input = await screen.findByLabelText("Message");
+    fireEvent.change(input, { target: { value: "First question" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+    await waitFor(() =>
+      expect(
+        screen.getByText("You have $5,000.00 safe to spend.")
+      ).toBeInTheDocument()
+    );
+
+    scrollThreadAwayFromBottom();
+    (
+      HTMLElement.prototype.scrollIntoView as ReturnType<typeof vi.fn>
+    ).mockClear();
+
+    fireEvent.change(input, { target: { value: "Second question" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()
+    );
   });
 });

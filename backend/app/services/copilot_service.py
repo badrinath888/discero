@@ -604,7 +604,10 @@ def _handle_stress_test(db, user_id, tool_input, as_of, current_user):
 def _handle_goal_conflicts(db, user_id, tool_input, as_of, current_user):
     tool_input = dict(tool_input)
 
-    if not tool_input.get("monthly_savings_capacity_cents"):
+    # Only fall back to an auto-derived capacity when the caller
+    # genuinely didn't supply one -- an explicit value (including a
+    # legitimate $0) must never be silently overridden.
+    if tool_input.get("monthly_savings_capacity_cents") is None:
         tool_input["monthly_savings_capacity_cents"] = (
             _average_monthly_income_cents(db, user_id, as_of)
         )
@@ -618,6 +621,16 @@ def _handle_goal_conflicts(db, user_id, tool_input, as_of, current_user):
             result.conflict_status.replace("_", " ").title(),
             kind="text",
             tone=_tone(result.conflict_status),
+        ),
+        _chip(
+            "Monthly capacity",
+            _currency(result.monthly_savings_capacity_cents),
+            tone="neutral",
+        ),
+        _chip(
+            "Required monthly",
+            _currency(result.total_required_monthly_cents),
+            tone="neutral",
         ),
         _chip(
             "Monthly shortfall",

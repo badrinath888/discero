@@ -44,7 +44,7 @@ _SCORECARD_LABELS: dict[str, str] = {
     "shortfall": "Shortfall risk",
     "safe_to_spend_after": "Remaining safe-to-spend",
     "impact_percent": "Safe-to-spend impact",
-    "goal_impact": "Goal impact",
+    "goal_impact": "Goal savings pace",
     "confidence": "Confidence",
     "purchase_cost": "Purchase cost",
 }
@@ -382,8 +382,14 @@ def _criterion_reason_sentence(
         )
 
     if key == "goal_impact":
+        # goal_impact_months is a size comparison (purchase amount
+        # expressed as a multiple of the goal's required monthly
+        # savings pace), not a measure of actual funding consumed --
+        # see calculate_goal_impacts for whether a goal is actually
+        # affected by a purchase.
         return (
-            "It uses less of your monthly savings-goal capacity "
+            "It is a smaller purchase relative to your goals' "
+            "required savings pace "
             f"({winner.goal_impact_months} months vs "
             f"{loser.goal_impact_months} months of required goal "
             "savings)."

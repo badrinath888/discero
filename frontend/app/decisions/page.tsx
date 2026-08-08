@@ -1288,7 +1288,7 @@ function ComparisonOptionCard({
             highlighted={recommended && !isTie}
           />
           <ComparisonMetric
-            label="Goal impact"
+            label="Goal savings pace"
             value={formatGoalImpact(simulation.goal_impact_months)}
             highlighted={recommended && !isTie}
           />
@@ -1307,6 +1307,10 @@ function formatGoalImpact(months: number): string {
   if (months <= 0) {
     return "No active goals";
   }
+
+  // This is a size comparison (purchase amount vs. required goal
+  // savings pace), not a claim that the purchase actually delays or
+  // consumes goal funding -- see the per-goal impact list for that.
 
   return `${months} mo of goal savings`;
 }

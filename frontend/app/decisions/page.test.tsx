@@ -130,7 +130,7 @@ const comparisonResult: ScenarioComparisonResult = {
       },
       {
         key: "goal_impact",
-        label: "Goal impact",
+        label: "Goal savings pace",
         weight: 4.0,
         winner: "tie",
       },
@@ -562,7 +562,7 @@ describe("decisions comparison mode", () => {
     expect(withinA.getByText("Safe to spend after")).toBeInTheDocument();
     expect(withinA.getByText("Shortfall")).toBeInTheDocument();
     expect(withinA.getByText("Impact")).toBeInTheDocument();
-    expect(withinA.getByText("Goal impact")).toBeInTheDocument();
+    expect(withinA.getByText("Goal savings pace")).toBeInTheDocument();
     expect(withinA.getByText("Confidence")).toBeInTheDocument();
     expect(withinA.getByText("No active goals")).toBeInTheDocument();
     expect(withinB.getByText("No active goals")).toBeInTheDocument();

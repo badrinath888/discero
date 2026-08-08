@@ -93,9 +93,12 @@ def _user_message(content: str) -> list[CopilotMessageIn]:
     return [CopilotMessageIn(role="user", content=content)]
 
 
-def test_unavailable_when_no_api_key() -> None:
+def test_free_mode_answers_without_api_key() -> None:
+    # Free mode is the default fallback with no key configured -- a
+    # supported question must never come back as "unavailable".
     with TestingSessionLocal() as db:
         user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
         client = CopilotClient(api_key=None)
 
         result = run_copilot_turn(
@@ -107,8 +110,13 @@ def test_unavailable_when_no_api_key() -> None:
             as_of=TEST_DATE,
         )
 
-        assert result.kind == "unavailable"
-        assert result.answer is not None
+        assert result.kind == "answer"
+        assert result.provenance == "deterministic"
+        assert result.tool_used == "Safe-to-Spend"
+        safe_chip = next(
+            c for c in result.key_numbers if c.label == "Safe to spend"
+        )
+        assert safe_chip.value_display == "$5,000.00"
 
 
 def test_safe_to_spend_tool_grounds_chips_in_real_calculation() -> None:

@@ -1139,3 +1139,4 @@ class CopilotResponseOut(BaseModel):
     tool_used: str | None = None
     confidence: CopilotConfidenceOut | None = None
     low_data_warning: str | None = None
+    provenance: Literal["deterministic", "ai_enhanced"] = "deterministic"

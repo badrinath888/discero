@@ -50,6 +50,7 @@ from app.services.major_purchase_service import (
     _average_monthly_income_cents,
     simulate_major_purchase,
 )
+from app.services import copilot_free_mode
 from app.services.safe_to_spend_service import calculate_safe_to_spend
 from app.services.scenario_comparison_service import (
     compare_major_purchase_scenarios,
@@ -872,6 +873,74 @@ def _narrate(
     return narrate_use.input or {}
 
 
+def _run_free_mode(
+    db: Session,
+    user_id: int,
+    current_user: User,
+    messages: list[CopilotMessageIn],
+    as_of: date,
+) -> CopilotResponseOut:
+    """Deterministic, zero-cost fallback -- see copilot_free_mode."""
+    resolution = copilot_free_mode.resolve_intent(messages, as_of)
+
+    if resolution is None:
+        return CopilotResponseOut(
+            kind="out_of_scope",
+            answer=copilot_free_mode.CAPABILITY_EXPLANATION,
+            provenance="deterministic",
+        )
+
+    if isinstance(resolution, copilot_free_mode.Clarify):
+        return CopilotResponseOut(
+            kind="clarifying_question",
+            clarifying_question=resolution.question,
+            clarifying_options=resolution.options,
+            provenance="deterministic",
+        )
+
+    handler = _TOOL_HANDLERS.get(resolution.tool_name)
+
+    if handler is None:
+        return CopilotResponseOut(
+            kind="answer",
+            answer=_FALLBACK_ANSWER,
+            provenance="deterministic",
+        )
+
+    try:
+        result, chips, confidence, low_data_warning = handler(
+            db, user_id, resolution.tool_input, as_of, current_user
+        )
+    except (ValidationError, ValueError) as exc:
+        return CopilotResponseOut(
+            kind="clarifying_question",
+            clarifying_question=(
+                "I need a bit more detail to run that precisely "
+                f"({exc}). Could you clarify the amount or date?"
+            ),
+            provenance="deterministic",
+        )
+
+    answer, why, what_this_means, actions = (
+        copilot_free_mode.deterministic_narration(
+            resolution.tool_name, result, resolution.emphasize
+        )
+    )
+
+    return CopilotResponseOut(
+        kind="answer",
+        answer=answer,
+        why=why,
+        what_this_means=what_this_means,
+        key_numbers=chips,
+        suggested_actions=actions[:2],
+        tool_used=_TOOL_LABELS.get(resolution.tool_name, resolution.tool_name),
+        confidence=confidence,
+        low_data_warning=low_data_warning,
+        provenance="deterministic",
+    )
+
+
 def run_copilot_turn(
     db: Session,
     user_id: int,
@@ -884,8 +953,8 @@ def run_copilot_turn(
     calculation_date = as_of or date.today()
 
     if not client.enabled:
-        return CopilotResponseOut(
-            kind="unavailable", answer=_UNAVAILABLE_ANSWER
+        return _run_free_mode(
+            db, user_id, current_user, messages, calculation_date
         )
 
     history = [
@@ -900,14 +969,21 @@ def run_copilot_turn(
             system=system, messages=history, tools=_TOOLS
         )
     except Exception:
-        return CopilotResponseOut(kind="answer", answer=_FALLBACK_ANSWER)
+        # Anthropic unreachable/timed out/rate-limited -- fall back to
+        # the free deterministic pipeline instead of failing the
+        # request.
+        return _run_free_mode(
+            db, user_id, current_user, messages, calculation_date
+        )
 
     tool_use = _first_tool_use(decision)
 
     if tool_use is None:
         text = _extract_text(decision)
         return CopilotResponseOut(
-            kind="answer", answer=text or _FALLBACK_ANSWER
+            kind="answer",
+            answer=text or _FALLBACK_ANSWER,
+            provenance="ai_enhanced",
         )
 
     name = tool_use.name
@@ -922,19 +998,26 @@ def run_copilot_turn(
             kind="clarifying_question",
             clarifying_question=question or "Could you clarify that?",
             clarifying_options=options,
+            provenance="ai_enhanced",
         )
 
     if name == "decline_out_of_scope":
         reason = str(tool_input.get("reason", "")).strip()
 
         return CopilotResponseOut(
-            kind="out_of_scope", answer=reason or _SCOPE_FALLBACK
+            kind="out_of_scope",
+            answer=reason or _SCOPE_FALLBACK,
+            provenance="ai_enhanced",
         )
 
     handler = _TOOL_HANDLERS.get(name)
 
     if handler is None:
-        return CopilotResponseOut(kind="answer", answer=_FALLBACK_ANSWER)
+        return CopilotResponseOut(
+            kind="answer",
+            answer=_FALLBACK_ANSWER,
+            provenance="ai_enhanced",
+        )
 
     try:
         result, chips, confidence, low_data_warning = handler(
@@ -947,22 +1030,37 @@ def run_copilot_turn(
                 "I need a bit more detail to run that precisely "
                 f"({exc}). Could you clarify the amount or date?"
             ),
+            provenance="ai_enhanced",
         )
 
     narration = _narrate(
         client, system, history, decision, tool_use, result
     )
 
+    if narration:
+        answer = narration.get("answer") or _FALLBACK_ANSWER
+        why = narration.get("why")
+        what_this_means = narration.get("what_this_means")
+        actions = list(narration.get("suggested_actions") or [])[:2]
+        provenance = "ai_enhanced"
+    else:
+        # Narration call failed -- we already have the REAL tool
+        # result, so fall back to the same deterministic templates
+        # free mode uses rather than failing the request.
+        answer, why, what_this_means, actions = (
+            copilot_free_mode.deterministic_narration(name, result)
+        )
+        provenance = "deterministic"
+
     return CopilotResponseOut(
         kind="answer",
-        answer=narration.get("answer") or _FALLBACK_ANSWER,
-        why=narration.get("why"),
-        what_this_means=narration.get("what_this_means"),
+        answer=answer,
+        why=why,
+        what_this_means=what_this_means,
         key_numbers=chips,
-        suggested_actions=list(narration.get("suggested_actions") or [])[
-            :2
-        ],
+        suggested_actions=actions,
         tool_used=_TOOL_LABELS.get(name, name),
         confidence=confidence,
         low_data_warning=low_data_warning,
+        provenance=provenance,
     )

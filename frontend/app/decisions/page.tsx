@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowRight,
@@ -282,6 +282,14 @@ export default function DecisionsPage() {
   const [initializing, setInitializing] = useState(true);
   const [simulating, setSimulating] = useState(false);
   const [error, setError] = useState("");
+  const topControlsRef = useRef<HTMLDivElement>(null);
+
+  function scrollToTopControls() {
+    topControlsRef.current?.scrollIntoView?.({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
 
   const durationRequired = DURATION_REQUIRED_SCENARIOS.has(scenarioType);
   const showIncomePercent = INCOME_PERCENT_SCENARIOS.has(scenarioType);
@@ -478,31 +486,36 @@ export default function DecisionsPage() {
                   : "Test a purchase before making it. FinSight compares the cost with your liquid balance, active obligations, safety reserve, and essential spending."}
               </p>
 
-              <div className="mt-6 inline-flex flex-wrap gap-1 rounded-2xl border border-[#14241e]/10 bg-white p-1 shadow-[0_8px_24px_rgba(20,36,30,0.06)]">
-                <ModeButton
-                  active={mode === "single"}
-                  onClick={() => handleModeChange("single")}
-                  label="Single purchase"
-                />
-                <ModeButton
-                  active={mode === "compare"}
-                  onClick={() => handleModeChange("compare")}
-                  label="Compare options"
-                />
-                <ModeButton
-                  active={mode === "stress"}
-                  onClick={() => handleModeChange("stress")}
-                  label="Financial stress test"
-                />
-              </div>
-
-              <Link
-                href="/decisions/history"
-                className="focus-ring mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#167c5a]"
+              <div
+                ref={topControlsRef}
+                className="mt-6 flex flex-wrap items-center gap-3 scroll-mt-24"
               >
-                View saved decisions
-                <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
+                <div className="inline-flex flex-wrap gap-1 rounded-2xl border border-[#14241e]/10 bg-white p-1 shadow-[0_8px_24px_rgba(20,36,30,0.06)]">
+                  <ModeButton
+                    active={mode === "single"}
+                    onClick={() => handleModeChange("single")}
+                    label="Single purchase"
+                  />
+                  <ModeButton
+                    active={mode === "compare"}
+                    onClick={() => handleModeChange("compare")}
+                    label="Compare options"
+                  />
+                  <ModeButton
+                    active={mode === "stress"}
+                    onClick={() => handleModeChange("stress")}
+                    label="Financial stress test"
+                  />
+                </div>
+
+                <Link
+                  href="/decisions/history"
+                  className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#167c5a]/25 bg-[#f7fbf5] px-4 py-2.5 text-sm font-semibold text-[#167c5a] transition hover:bg-[#dff6c7]"
+                >
+                  View saved decisions
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
             </header>
           </Reveal>
 
@@ -804,6 +817,7 @@ export default function DecisionsPage() {
                         decisionType="major_purchase"
                         defaultTitle={result.purchase_name}
                         input={lastPurchaseInput}
+                        onSaved={scrollToTopControls}
                       />
                     )}
                   </div>
@@ -823,6 +837,7 @@ export default function DecisionsPage() {
                         decisionType="scenario_comparison"
                         defaultTitle={`${compareResult.option_a.simulation.purchase_name} vs ${compareResult.option_b.simulation.purchase_name}`}
                         input={lastComparisonInput}
+                        onSaved={scrollToTopControls}
                       />
                     )}
                   </div>
@@ -845,6 +860,7 @@ export default function DecisionsPage() {
                       decisionType="stress_test"
                       defaultTitle={stressResult.scenario_name}
                       input={lastStressInput}
+                      onSaved={scrollToTopControls}
                     />
                   )}
                 </div>
@@ -891,11 +907,13 @@ function SaveDecisionButton({
   decisionType,
   defaultTitle,
   input,
+  onSaved,
 }: {
   userId: number;
   decisionType: DecisionType;
   defaultTitle: string;
   input: Record<string, unknown>;
+  onSaved?: () => void;
 }) {
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
     "idle"
@@ -912,7 +930,12 @@ function SaveDecisionButton({
       setStatus("saved");
     } catch {
       setStatus("error");
+      return;
     }
+
+    // Scrolling is a UX nicety; it must never affect save status even
+    // if it throws (e.g. an environment without scrollIntoView).
+    onSaved?.();
   }
 
   if (status === "saved") {

@@ -773,6 +773,33 @@ export type RecommendationsResult = {
   recommendations: Recommendation[];
 };
 
+export type DecisionType =
+  | "major_purchase"
+  | "scenario_comparison"
+  | "stress_test";
+
+export type SaveDecisionRequest = {
+  decision_type: DecisionType;
+  title: string;
+  input: Record<string, unknown>;
+};
+
+export type SavedDecision = {
+  id: number;
+  decision_type: DecisionType;
+  title: string;
+  input_snapshot: Record<string, unknown>;
+  result_snapshot: Record<string, unknown>;
+  created_at: string;
+};
+
+export type DecisionRerunResult = {
+  decision_id: number;
+  decision_type: DecisionType;
+  evaluated_at: string;
+  result_snapshot: Record<string, unknown>;
+};
+
 export type RecurringPayment = {
   merchant: string;
   amount_cents: number;
@@ -1404,6 +1431,48 @@ runFinancialStressTest: (
     fetchWithTimeout(`${API_URL}/users/${userId}/recommendations`, {
       headers: authHeaders(),
     }).then((res) => handle<RecommendationsResult>(res)),
+
+  saveDecision: (
+    userId: number,
+    payload: SaveDecisionRequest
+  ): Promise<SavedDecision> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/decisions`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }).then((res) => handle<SavedDecision>(res)),
+
+  getSavedDecisions: (userId: number): Promise<SavedDecision[]> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/decisions`, {
+      headers: authHeaders(),
+    }).then((res) => handle<SavedDecision[]>(res)),
+
+  getSavedDecision: (
+    userId: number,
+    decisionId: number
+  ): Promise<SavedDecision> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/decisions/${decisionId}`,
+      { headers: authHeaders() }
+    ).then((res) => handle<SavedDecision>(res)),
+
+  deleteSavedDecision: (
+    userId: number,
+    decisionId: number
+  ): Promise<void> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/decisions/${decisionId}`,
+      { method: "DELETE", headers: authHeaders() }
+    ).then(handleEmpty),
+
+  rerunSavedDecision: (
+    userId: number,
+    decisionId: number
+  ): Promise<DecisionRerunResult> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/decisions/${decisionId}/rerun`,
+      { method: "POST", headers: authHeaders() }
+    ).then((res) => handle<DecisionRerunResult>(res)),
 
   createSavingsGoal: (
     userId: number,

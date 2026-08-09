@@ -7,6 +7,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    JSON,
     String,
     UniqueConstraint,
 )
@@ -573,4 +574,32 @@ class FinancialAccount(Base):
 
     transactions: Mapped[list["Transaction"]] = relationship(
         back_populates="financial_account",
+    )
+
+
+class SavedDecision(Base):
+    __tablename__ = "saved_decisions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+
+    decision_type: Mapped[str] = mapped_column(
+        String(32),
+        index=True,
+    )
+
+    title: Mapped[str] = mapped_column(String(120))
+
+    input_snapshot: Mapped[dict] = mapped_column(JSON)
+
+    result_snapshot: Mapped[dict] = mapped_column(JSON)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utcnow,
+        index=True,
     )

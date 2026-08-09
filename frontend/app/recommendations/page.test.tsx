@@ -15,8 +15,10 @@ const mocks = vi.hoisted(() => ({
   clearSession: vi.fn(),
 }));
 
+const routerMock = { replace: mocks.replace, push: mocks.push };
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mocks.replace, push: mocks.push }),
+  useRouter: () => routerMock,
 }));
 
 vi.mock("framer-motion", async () => {

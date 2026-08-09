@@ -1184,3 +1184,47 @@ class RecommendationOut(BaseModel):
 class RecommendationsOut(BaseModel):
     as_of: date
     recommendations: list[RecommendationOut]
+
+
+DecisionType = Literal[
+    "major_purchase", "scenario_comparison", "stress_test"
+]
+
+
+class SaveDecisionRequest(BaseModel):
+    decision_type: DecisionType
+    title: str = Field(min_length=1, max_length=120)
+    # Raw dict matching the request schema for `decision_type` (the
+    # same payload already sent to the individual simulate/compare/
+    # stress-test endpoints). Re-validated and re-run server-side --
+    # never trusted as-is -- so the persisted result is always a real
+    # deterministic calculation, never client-supplied data.
+    input: dict
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        title = value.strip()
+
+        if not title:
+            raise ValueError("title cannot be blank")
+
+        return title
+
+
+class SavedDecisionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    decision_type: DecisionType
+    title: str
+    input_snapshot: dict
+    result_snapshot: dict
+    created_at: datetime
+
+
+class DecisionRerunOut(BaseModel):
+    decision_id: int
+    decision_type: DecisionType
+    evaluated_at: date
+    result_snapshot: dict

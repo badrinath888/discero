@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     FinancialAccount,
     PlaidItem,
+    RecurringItem,
     SavingsGoal,
     Transaction,
     User,
@@ -71,6 +72,38 @@ def create_account(
     db.refresh(account)
 
     return account
+
+
+def create_recurring_item(
+    db: Session,
+    user: User,
+    *,
+    merchant: str,
+    amount_cents: int,
+    next_payment: date,
+    frequency: str = "Monthly",
+    status: str = "active",
+    confidence_score: float = 90.0,
+    category: str = "Bills",
+) -> RecurringItem:
+    item = RecurringItem(
+        user_id=user.id,
+        merchant=merchant,
+        normalized_merchant=f"{merchant.upper()}-{uuid4().hex}",
+        category=category,
+        amount_cents=amount_cents,
+        frequency=frequency,
+        last_payment=next_payment - timedelta(days=30),
+        next_payment=next_payment,
+        status=status,
+        confidence_score=confidence_score,
+    )
+
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    return item
 
 
 def register_and_login(
@@ -505,3 +538,48 @@ def test_major_purchase_endpoint_blocks_other_user(
     assert response.json()["detail"] == (
         "you cannot access another user's data"
     )
+
+
+def test_purchase_reflects_corrected_multi_occurrence_obligations() -> None:
+    # Regression test for the Safe-to-Spend recurrence-horizon fix: a
+    # monthly bill recurs 3 times within a 90-day horizon (Aug 15,
+    # Sep 15, Oct 15), not once. Under the old single-occurrence
+    # obligation logic this purchase would have been merely "caution"
+    # (only $150,000 counted as an obligation, leaving $850,000 safe
+    # to spend). With obligations correctly totaling $450,000 across
+    # all three occurrences, the same purchase becomes not_affordable.
+    with TestingSessionLocal() as db:
+        user = create_user(db, "purchase-multi-occurrence")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=1_000_000,
+        )
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=date(2026, 8, 15),
+        )
+
+        result = simulate_major_purchase(
+            db,
+            user.id,
+            MajorPurchaseSimulationRequest(
+                purchase_name="Motorcycle",
+                purchase_amount_cents=700_000,
+                purchase_date=date(2026, 10, 1),
+                horizon_days=90,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert (
+            result.safe_to_spend.breakdown.upcoming_obligations_cents
+            == 450_000
+        )
+        assert result.safe_to_spend_before_purchase_cents == 550_000
+        assert result.affordability_status == "not_affordable"
+        assert result.shortfall_after_purchase_cents == 150_000

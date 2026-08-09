@@ -88,6 +88,7 @@ def create_recurring_item(
     status: str = "active",
     confidence_score: float = 90.0,
     category: str = "Bills",
+    frequency: str = "Monthly",
 ) -> RecurringItem:
     item = RecurringItem(
         user_id=user.id,
@@ -95,7 +96,7 @@ def create_recurring_item(
         normalized_merchant=f"{merchant.upper()}-{uuid4().hex}",
         category=category,
         amount_cents=amount_cents,
-        frequency="Monthly",
+        frequency=frequency,
         last_payment=next_payment - timedelta(days=30),
         next_payment=next_payment,
         status=status,
@@ -1195,3 +1196,319 @@ def test_safe_to_spend_endpoint_blocks_other_user(
     assert response.json()["detail"] == (
         "you cannot access another user's data"
     )
+
+# --- Multi-occurrence recurring obligations (recurrence-horizon fix) -----
+
+
+def test_monthly_bill_counted_once_in_thirty_day_horizon() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "monthly-30")
+        create_account(db, user)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=date(2026, 8, 15),
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=30),
+            as_of=TEST_DATE,
+        )
+
+        assert result.breakdown.upcoming_obligations_cents == 150_000
+        recurring = [o for o in result.obligations if o.source == "recurring"]
+        assert [o.expected_date for o in recurring] == [date(2026, 8, 15)]
+
+
+def test_monthly_bill_counted_twice_in_sixty_day_horizon() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "monthly-60")
+        create_account(db, user)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=date(2026, 8, 15),
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=60),
+            as_of=TEST_DATE,
+        )
+
+        assert result.breakdown.upcoming_obligations_cents == 300_000
+        recurring = [o for o in result.obligations if o.source == "recurring"]
+        assert [o.expected_date for o in recurring] == [
+            date(2026, 8, 15),
+            date(2026, 9, 15),
+        ]
+
+
+def test_monthly_bill_counted_three_times_in_ninety_day_horizon() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "monthly-90")
+        create_account(db, user)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=date(2026, 8, 15),
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=90),
+            as_of=TEST_DATE,
+        )
+
+        assert result.breakdown.upcoming_obligations_cents == 450_000
+        recurring = [o for o in result.obligations if o.source == "recurring"]
+        assert [o.expected_date for o in recurring] == [
+            date(2026, 8, 15),
+            date(2026, 9, 15),
+            date(2026, 10, 15),
+        ]
+
+
+def test_weekly_bill_counts_every_occurrence_in_horizon() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "weekly")
+        create_account(db, user)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Groceries",
+            amount_cents=8_000,
+            next_payment=date(2026, 8, 6),
+            frequency="Weekly",
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=30),
+            as_of=TEST_DATE,
+        )
+
+        # Aug 6, 13, 20, 27, Sep 3 -- 5 occurrences.
+        assert result.breakdown.upcoming_obligations_cents == 40_000
+        recurring = [o for o in result.obligations if o.source == "recurring"]
+        assert len(recurring) == 5
+
+
+def test_biweekly_bill_counts_every_occurrence_in_horizon() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "biweekly")
+        create_account(db, user)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Cleaning",
+            amount_cents=12_000,
+            next_payment=date(2026, 8, 5),
+            frequency="Biweekly",
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=60),
+            as_of=TEST_DATE,
+        )
+
+        # Aug 5, 19, Sep 2, 16, 30 -- 5 occurrences.
+        assert result.breakdown.upcoming_obligations_cents == 60_000
+        recurring = [o for o in result.obligations if o.source == "recurring"]
+        assert len(recurring) == 5
+
+
+def test_stale_next_payment_still_counts_future_occurrence() -> None:
+    """next_payment before as_of (sync lag) must not hide a real
+    future occurrence once projected forward -- and must never count
+    anything before as_of either."""
+    with TestingSessionLocal() as db:
+        user = create_user(db, "stale-next-payment")
+        create_account(db, user)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=date(2026, 7, 15),  # before TEST_DATE
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=30),
+            as_of=TEST_DATE,
+        )
+
+        recurring = [o for o in result.obligations if o.source == "recurring"]
+        assert [o.expected_date for o in recurring] == [date(2026, 8, 15)]
+        assert all(o.expected_date >= TEST_DATE for o in recurring)
+
+
+def test_next_payment_exactly_on_through_date_is_included() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "boundary-through")
+        create_account(db, user)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=date(2026, 9, 3),  # exactly as_of + 30 days
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=30),
+            as_of=TEST_DATE,
+        )
+
+        assert result.through_date == date(2026, 9, 3)
+        assert result.breakdown.upcoming_obligations_cents == 150_000
+
+
+def test_next_payment_just_after_through_date_is_excluded() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "boundary-after")
+        create_account(db, user)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=date(2026, 9, 4),  # one day past horizon
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=30),
+            as_of=TEST_DATE,
+        )
+
+        assert result.breakdown.upcoming_obligations_cents == 0
+
+
+def test_inactive_recurring_item_never_counted() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "inactive")
+        create_account(db, user)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Cancelled Gym",
+            amount_cents=150_000,
+            next_payment=date(2026, 8, 15),
+            status="dismissed",
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=90),
+            as_of=TEST_DATE,
+        )
+
+        assert result.breakdown.upcoming_obligations_cents == 0
+
+
+def test_zero_amount_recurring_item_contributes_nothing() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "zero-amount")
+        create_account(db, user)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Free Trial",
+            amount_cents=0,
+            next_payment=date(2026, 8, 15),
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=90),
+            as_of=TEST_DATE,
+        )
+
+        assert result.breakdown.upcoming_obligations_cents == 0
+        recurring = [o for o in result.obligations if o.source == "recurring"]
+        # Still projected/listed (three $0 occurrences) -- just
+        # financially inert, not silently dropped from the breakdown.
+        assert len(recurring) == 3
+
+
+def test_multiple_distinct_recurring_items_each_count_independently() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db, "multiple-items")
+        create_account(db, user)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=date(2026, 8, 15),
+        )
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=date(2026, 8, 15),
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=30),
+            as_of=TEST_DATE,
+        )
+
+        # Two separate records with identical merchant/amount/date
+        # still both count -- not deduplicated.
+        assert result.breakdown.upcoming_obligations_cents == 300_000
+        recurring = [o for o in result.obligations if o.source == "recurring"]
+        assert len(recurring) == 2
+
+
+def test_unsupported_frequency_falls_back_to_single_occurrence() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "unsupported-frequency")
+        create_account(db, user)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Insurance",
+            amount_cents=150_000,
+            next_payment=date(2026, 8, 15),
+            frequency="Quarterly",
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(horizon_days=90),
+            as_of=TEST_DATE,
+        )
+
+        # Never fabricates a quarterly cadence -- only the one known
+        # date is counted, even across a 90-day horizon.
+        assert result.breakdown.upcoming_obligations_cents == 150_000
+        recurring = [o for o in result.obligations if o.source == "recurring"]
+        assert len(recurring) == 1

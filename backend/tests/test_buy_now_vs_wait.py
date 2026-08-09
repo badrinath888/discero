@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.models import (
+    Budget,
     FinancialAccount,
     PlaidItem,
     RecurringItem,
@@ -78,7 +79,7 @@ def create_recurring_item(
         merchant=f"Bill-{uuid4().hex[:8]}",
         normalized_merchant=f"bill-{uuid4().hex}",
         amount_cents=amount_cents,
-        frequency="monthly",
+        frequency="Monthly",
         last_payment=next_payment,
         next_payment=next_payment,
         status="active",
@@ -88,6 +89,26 @@ def create_recurring_item(
     db.commit()
     db.refresh(item)
     return item
+
+
+def create_budget(
+    db: Session,
+    user: User,
+    *,
+    month: str,
+    limit_cents: int,
+    category: str = "Shopping",
+) -> Budget:
+    budget = Budget(
+        user_id=user.id,
+        category=category,
+        month=month,
+        limit_cents=limit_cents,
+    )
+    db.add(budget)
+    db.commit()
+    db.refresh(budget)
+    return budget
 
 
 def seed_income(
@@ -182,9 +203,89 @@ def test_both_affordable_wait_better() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db, "wait-better")
         create_account(db, user, available_balance_cents=500_000)
-        # Falls inside NOW's [Aug9, Sep8] window but outside WAIT's
-        # [Aug29, Sep28] window -- buying now means paying this bill
-        # too.
+        # A RECURRING bill can no longer be "avoided" by waiting a few
+        # weeks -- it just recurs at its next cadence step instead (see
+        # test_recurring_monthly_bill_recurs_in_both_now_and_wait
+        # below), so this scenario now uses a calendar-month-scoped
+        # BUDGET obligation instead: August's budget genuinely does
+        # not apply once WAIT's evaluation date has rolled into
+        # September.
+        create_budget(db, user, month="2026-08", limit_cents=100_000)
+
+        result = evaluate_buy_now_vs_wait(
+            db,
+            user.id,
+            BuyNowVsWaitRequest(
+                purchase_name="TV",
+                purchase_amount_cents=100_000,
+                buy_now_date=date(2026, 8, 11),
+                wait_until_date=date(2026, 9, 5),
+                horizon_days=30,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.now.simulation.affordability_status == "affordable"
+        assert result.wait.simulation.affordability_status == "affordable"
+        assert result.buffer_difference_cents == 100_000
+        assert result.recommended_timing == "wait"
+        assert result.key_driver == "buffer"
+        assert "$1,000.00" in result.reason
+        assert result.caveat is None
+        # Short horizon and no confidence drop -- the base methodology
+        # disclosure must still be present and unembellished.
+        assert (
+            "does not predict the income or spending" in result.assumption
+        )
+        assert "directional rather than a precise forecast" not in (
+            result.assumption
+        )
+
+
+def test_now_unaffordable_wait_affordable() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "now-unaffordable")
+        create_account(db, user, available_balance_cents=300_000)
+        # See test_both_affordable_wait_better -- a budget obligation
+        # is used here for the same reason (a recurring bill would now
+        # correctly recur in both windows instead of disappearing).
+        create_budget(db, user, month="2026-08", limit_cents=250_000)
+
+        result = evaluate_buy_now_vs_wait(
+            db,
+            user.id,
+            BuyNowVsWaitRequest(
+                purchase_name="Appliance",
+                purchase_amount_cents=60_000,
+                buy_now_date=date(2026, 8, 11),
+                wait_until_date=date(2026, 9, 5),
+                horizon_days=30,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.now.simulation.affordability_status == "not_affordable"
+        assert result.wait.simulation.affordability_status != "not_affordable"
+        assert result.recommended_timing == "wait"
+        assert result.key_driver == "affordability"
+
+
+def test_recurring_monthly_bill_recurs_in_both_now_and_wait() -> None:
+    """Regression test for the recurrence-counting fix.
+
+    Before the fix, a recurring bill due before WAIT's evaluation
+    date was silently dropped from WAIT's obligations entirely
+    (single stored `next_payment`, not projected forward), making
+    WAIT look artificially better than it really is. A real monthly
+    bill can't be dodged by waiting a few weeks -- it recurs at its
+    next due date instead -- so both NOW and WAIT must now see it.
+    """
+    with TestingSessionLocal() as db:
+        user = create_user(db, "recurs-both")
+        create_account(db, user, available_balance_cents=500_000)
+        # Due Aug 14 -- inside NOW's [Aug9, Sep8] window. Its next
+        # monthly occurrence, Sep 14, falls inside WAIT's
+        # [Aug29, Sep28] window too.
         create_recurring_item(
             db, user, next_payment=date(2026, 8, 14), amount_cents=100_000
         )
@@ -202,48 +303,24 @@ def test_both_affordable_wait_better() -> None:
             as_of=TEST_DATE,
         )
 
-        assert result.now.simulation.affordability_status == "affordable"
-        assert result.wait.simulation.affordability_status == "affordable"
-        assert result.buffer_difference_cents == 100_000
-        assert result.recommended_timing == "wait"
-        assert result.key_driver == "buffer"
-        assert "$1,000.00" in result.reason
-        assert result.caveat is None
-        # Short horizon (20 days) and no confidence drop -- the base
-        # methodology disclosure must still be present and unembellished.
-        assert (
-            "does not predict the income or spending" in result.assumption
+        now_obligation = next(
+            o
+            for o in result.now.simulation.safe_to_spend.obligations
+            if o.source == "recurring"
         )
-        assert "directional rather than a precise forecast" not in (
-            result.assumption
+        wait_obligation = next(
+            o
+            for o in result.wait.simulation.safe_to_spend.obligations
+            if o.source == "recurring"
         )
+        assert now_obligation.expected_date == date(2026, 8, 14)
+        assert wait_obligation.expected_date == date(2026, 9, 14)
+        assert now_obligation.amount_cents == wait_obligation.amount_cents
 
-
-def test_now_unaffordable_wait_affordable() -> None:
-    with TestingSessionLocal() as db:
-        user = create_user(db, "now-unaffordable")
-        create_account(db, user, available_balance_cents=300_000)
-        create_recurring_item(
-            db, user, next_payment=date(2026, 8, 14), amount_cents=250_000
-        )
-
-        result = evaluate_buy_now_vs_wait(
-            db,
-            user.id,
-            BuyNowVsWaitRequest(
-                purchase_name="Appliance",
-                purchase_amount_cents=60_000,
-                buy_now_date=date(2026, 8, 11),
-                wait_until_date=date(2026, 8, 29),
-                horizon_days=30,
-            ),
-            as_of=TEST_DATE,
-        )
-
-        assert result.now.simulation.affordability_status == "not_affordable"
-        assert result.wait.simulation.affordability_status != "not_affordable"
-        assert result.recommended_timing == "wait"
-        assert result.key_driver == "affordability"
+        # Same recurring cost hits both timings -- neither is
+        # artificially favored by a dropped obligation.
+        assert result.recommended_timing == "either"
+        assert result.key_driver == "equivalent"
 
 
 def test_both_unaffordable() -> None:

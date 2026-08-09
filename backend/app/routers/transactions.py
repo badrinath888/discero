@@ -1,6 +1,6 @@
 from calendar import monthrange
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, or_, select
@@ -14,11 +14,10 @@ from app.llm_categorization import LLMCategorizer
 from app.models import (
     FinancialAccount,
     PlaidItem,
-    RecurringItem,
     Transaction,
     User,
 )
-from app.recurring import detect_recurring, project_occurrences
+from app.recurring import detect_recurring
 from app.schemas import (
     BulkTransactionCategoriesUpdate,
     BulkTransactionCategoryUpdate,
@@ -964,48 +963,6 @@ def _shift_month(month: str, offset: int) -> str:
 _HORIZON_OUTLOOK_DAYS = (30, 60, 90)
 
 
-def _known_obligations_cents(
-    db: Session,
-    user_id: int,
-    as_of: date,
-    through_date: date,
-) -> int:
-    """Sum of every KNOWN recurring occurrence within the window.
-
-    Deliberately NOT `calculate_safe_to_spend`'s obligation total --
-    that counts only each active item's single stored `next_payment`,
-    which is correct for its own use but silently understates a
-    60/90-day horizon (a monthly bill recurs 2-3 times in 90 days, a
-    weekly one 8-13 times). This uses the shared
-    `app.recurring.project_occurrences` helper instead, kept separate
-    from `safe_to_spend_service` so its existing, widely-depended-on
-    single-occurrence semantics are not changed underneath its other
-    callers.
-    """
-    items = list(
-        db.scalars(
-            select(RecurringItem).where(
-                RecurringItem.user_id == user_id,
-                RecurringItem.status == "active",
-                RecurringItem.next_payment <= through_date,
-            )
-        ).all()
-    )
-
-    return sum(
-        item.amount_cents
-        * len(
-            project_occurrences(
-                item.next_payment,
-                item.frequency,
-                as_of=as_of,
-                through_date=through_date,
-            )
-        )
-        for item in items
-    )
-
-
 def _build_horizon_outlook(
     db: Session,
     user_id: int,
@@ -1016,11 +973,15 @@ def _build_horizon_outlook(
 ) -> list[CashFlowHorizonOut]:
     """30/60/90-day outlook.
 
-    Liquid balance per horizon still reuses `calculate_safe_to_spend`
-    (no duplicate balance-aggregation formula). Known obligations use
-    `_known_obligations_cents` above instead, since counting only one
-    occurrence per recurring item would materially understate bills
-    over a 60/90-day window.
+    Liquid balance AND known obligations per horizon both reuse
+    `calculate_safe_to_spend` directly -- `safe_to_spend_service` now
+    projects every occurrence of each active recurring item within
+    the horizon (via `app.recurring.project_occurrences`) instead of
+    just the first one, so its `breakdown.upcoming_obligations_cents`
+    is already correct here without a second recurrence formula. This
+    also means budget obligations are now included in
+    `known_obligations_cents`, not just recurring items, since that's
+    what `calculate_safe_to_spend` has always aggregated.
 
     Expected income generalizes this endpoint's own within-month
     income-extrapolation rate (income received so far / days elapsed)
@@ -1043,15 +1004,14 @@ def _build_horizon_outlook(
     outlook = []
 
     for horizon_days in _HORIZON_OUTLOOK_DAYS:
-        through_date = as_of + timedelta(days=horizon_days)
         safe_result = calculate_safe_to_spend(
             db,
             user_id,
             SafeToSpendRequest(horizon_days=horizon_days),
             as_of=as_of,
         )
-        known_obligations_cents = _known_obligations_cents(
-            db, user_id, as_of, through_date
+        known_obligations_cents = (
+            safe_result.breakdown.upcoming_obligations_cents
         )
         expected_income_cents = round(daily_income_rate * horizon_days)
         projected_balance_cents = (

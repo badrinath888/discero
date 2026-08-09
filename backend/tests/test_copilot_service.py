@@ -393,3 +393,111 @@ def test_goal_conflict_defaults_capacity_from_real_income() -> None:
         assert result.kind == "answer"
         assert result.tool_used == "Goal Conflict Check"
         assert any(c.label == "Status" for c in result.key_numbers)
+
+
+def test_goal_intelligence_ai_enhanced_labels_auto_derived_capacity() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_goal(
+            db,
+            user,
+            name="Emergency fund",
+            target_cents=1_000_000,
+            saved_cents=0,
+            target_date=date(2026, 12, 31),
+        )
+
+        client = CopilotClient(api_key="fake-key")
+
+        def fake_call(**kwargs):
+            tools = kwargs.get("tools") or []
+            if any(t.get("name") == "present_financial_answer" for t in tools):
+                return _response(
+                    _tool_use_block(
+                        "tool_2",
+                        "present_financial_answer",
+                        {"answer": "Emergency fund is your most urgent goal."},
+                    )
+                )
+            # Claude omits monthly_capacity_cents -- it was not stated.
+            return _response(
+                _tool_use_block("tool_1", "get_goal_intelligence", {})
+            )
+
+        client.call = fake_call  # type: ignore[method-assign]
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message("Which goal is most urgent?"),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Goal Intelligence"
+        source_chip = next(
+            c for c in result.key_numbers if c.label == "Capacity source"
+        )
+        assert source_chip.value_display == "Estimated"
+        assert result.low_data_warning is not None
+        assert "estimated from your recent financial data" in (
+            result.low_data_warning
+        )
+
+
+def test_goal_intelligence_ai_enhanced_labels_explicit_capacity() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_goal(
+            db,
+            user,
+            name="Emergency fund",
+            target_cents=1_000_000,
+            saved_cents=0,
+            target_date=date(2026, 12, 31),
+        )
+
+        client = CopilotClient(api_key="fake-key")
+
+        def fake_call(**kwargs):
+            tools = kwargs.get("tools") or []
+            if any(t.get("name") == "present_financial_answer" for t in tools):
+                return _response(
+                    _tool_use_block(
+                        "tool_2",
+                        "present_financial_answer",
+                        {"answer": "Emergency fund is your most urgent goal."},
+                    )
+                )
+            # Claude passes through the user's stated $500/month.
+            return _response(
+                _tool_use_block(
+                    "tool_1",
+                    "get_goal_intelligence",
+                    {"monthly_capacity_cents": 50_000},
+                )
+            )
+
+        client.call = fake_call  # type: ignore[method-assign]
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message("I can save $500/month. Which goal is most urgent?"),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        source_chip = next(
+            c for c in result.key_numbers if c.label == "Capacity source"
+        )
+        assert source_chip.value_display == "Your stated amount"
+        assert "estimated" not in (result.low_data_warning or "").lower()

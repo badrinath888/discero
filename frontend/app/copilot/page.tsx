@@ -93,7 +93,17 @@ export default function CopilotPage() {
   const [error, setError] = useState<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Passive tracking: is the user currently near the bottom (used only
+  // when no request is actively being followed).
   const shouldAutoScrollRef = useRef(true);
+  // Active tracking: "follow this request until its terminal response
+  // has rendered." Set on submit, released once the response (or
+  // error) for that request has been scrolled into view. While true,
+  // scrolling is unconditional -- this is what stops the passive
+  // near-bottom tracker (which is itself perturbed by scrollIntoView's
+  // own scroll events) from ever cancelling a request already in
+  // flight.
+  const forceFollowRef = useRef(false);
 
   useEffect(() => {
     async function initialize() {
@@ -165,12 +175,21 @@ export default function CopilotPage() {
   }, [initializing]);
 
   useEffect(() => {
-    if (!shouldAutoScrollRef.current) return;
+    if (forceFollowRef.current || shouldAutoScrollRef.current) {
+      bottomRef.current?.scrollIntoView?.({
+        behavior: "smooth",
+        block: "end",
+      });
+    }
 
-    bottomRef.current?.scrollIntoView?.({
-      behavior: "smooth",
-      block: "end",
-    });
+    // `sending` only transitions back to false once the request's
+    // terminal turn (success or error) has already been appended in
+    // this same batched update, so this is exactly the render where
+    // that turn's scroll (above) has just been issued -- safe to
+    // release force-follow so a manual scroll afterward is respected.
+    if (!sending) {
+      forceFollowRef.current = false;
+    }
   }, [turns, sending, error]);
 
   async function sendMessage(rawText: string) {
@@ -184,9 +203,10 @@ export default function CopilotPage() {
     ];
 
     // Sending a message always brings the conversation back to the
-    // newest content, even if the user had scrolled up to read
-    // earlier turns.
-    shouldAutoScrollRef.current = true;
+    // newest content and follows it through the whole request
+    // lifecycle, even if the user had scrolled up to read earlier
+    // turns or scrolls during the request.
+    forceFollowRef.current = true;
 
     setTurns((prev) => [
       ...prev,
@@ -259,7 +279,7 @@ export default function CopilotPage() {
           <div
             ref={threadRef}
             data-testid="copilot-thread"
-            className="mt-6 flex-1 space-y-5 overflow-y-auto pb-4"
+            className="mt-6 flex-1 space-y-5 overflow-y-auto pb-24"
           >
             {turns.length === 0 && (
               <EmptyPrompts
@@ -282,7 +302,15 @@ export default function CopilotPage() {
 
             {sending && <ThinkingIndicator />}
 
-            <div ref={bottomRef} data-testid="copilot-thread-bottom" />
+            {/* scroll-mb reserves clearance above the floating sticky
+                composer so the last card and its action buttons land
+                fully visible when scrolled into view. */}
+            <div
+              ref={bottomRef}
+              data-testid="copilot-thread-bottom"
+              className="h-px scroll-mb-24"
+              aria-hidden="true"
+            />
           </div>
 
           {error && (

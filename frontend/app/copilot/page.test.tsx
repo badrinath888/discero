@@ -437,7 +437,12 @@ describe("Copilot auto-scroll", () => {
     expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
   });
 
-  it("does not yank the view down when the user has scrolled up to read history", async () => {
+  it("a programmatic/scroll event mid-flight does not cancel follow for the active request", async () => {
+    // This is the actual production bug: scrollIntoView's own smooth
+    // scroll fires "scroll" events, which previously flipped the
+    // near-bottom flag to false mid-animation and silently cancelled
+    // the pending response's scroll. Force-follow must be immune to
+    // this for the whole lifecycle of a request the user just sent.
     const deferred = createDeferred<CopilotResponse>();
     mocks.sendCopilotChat.mockReturnValue(deferred.promise);
 
@@ -451,8 +456,9 @@ describe("Copilot auto-scroll", () => {
       expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()
     );
 
-    // The user scrolls up to read earlier messages while the
-    // response is still in flight.
+    // Simulate a scroll event firing away-from-bottom while the
+    // request is still in flight (e.g. from the smooth-scroll
+    // animation itself, or the user nudging the trackpad).
     scrollThreadAwayFromBottom();
     (
       HTMLElement.prototype.scrollIntoView as ReturnType<typeof vi.fn>
@@ -465,7 +471,64 @@ describe("Copilot auto-scroll", () => {
       ).toBeInTheDocument()
     );
 
-    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+    // The response must still be scrolled into view -- force-follow
+    // is not cancelled by a scroll event during an active request.
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("reproduces the repeated-message bug: the second response scrolls into view", async () => {
+    // Exact production reproduction: send the same message twice in a
+    // row and confirm the SECOND response also triggers a scroll, not
+    // just the first.
+    const first = createDeferred<CopilotResponse>();
+    const second = createDeferred<CopilotResponse>();
+    mocks.sendCopilotChat
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+
+    render(<CopilotPage />);
+
+    const input = await screen.findByLabelText("Message");
+    const prompt = "Can I afford a $2,000 laptop?";
+
+    fireEvent.change(input, { target: { value: prompt } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+    await waitFor(() =>
+      expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()
+    );
+
+    first.resolve(answerResponse);
+    await waitFor(() =>
+      expect(mocks.sendCopilotChat).toHaveBeenCalledTimes(1)
+    );
+    await screen.findAllByText("You have $5,000.00 safe to spend.");
+
+    (
+      HTMLElement.prototype.scrollIntoView as ReturnType<typeof vi.fn>
+    ).mockClear();
+
+    fireEvent.change(input, { target: { value: prompt } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+    await waitFor(() =>
+      expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()
+    );
+
+    (
+      HTMLElement.prototype.scrollIntoView as ReturnType<typeof vi.fn>
+    ).mockClear();
+
+    second.resolve(answerResponse);
+    await waitFor(() =>
+      expect(mocks.sendCopilotChat).toHaveBeenCalledTimes(2)
+    );
+    await waitFor(() =>
+      expect(
+        screen.getAllByText("You have $5,000.00 safe to spend.")
+      ).toHaveLength(2)
+    );
+
+    // The SECOND response must also have triggered a scroll.
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
   });
 
   it("brings the view back to the newest content on the next submitted message even after scrolling up", async () => {
@@ -493,5 +556,18 @@ describe("Copilot auto-scroll", () => {
     await waitFor(() =>
       expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()
     );
+  });
+
+  it("reserves scroll clearance so the last card isn't hidden behind the composer", async () => {
+    render(<CopilotPage />);
+
+    const thread = await screen.findByTestId("copilot-thread");
+    const sentinel = screen.getByTestId("copilot-thread-bottom");
+
+    // Trailing padding gives the last card room to scroll above the
+    // sticky composer; scroll-margin on the sentinel itself is what
+    // scrollIntoView uses to land above the composer's footprint.
+    expect(thread.className).toMatch(/pb-\d+/);
+    expect(sentinel.className).toMatch(/scroll-mb-\d+/);
   });
 });

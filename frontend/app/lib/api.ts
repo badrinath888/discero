@@ -729,6 +729,50 @@ export type CopilotResponse = {
   provenance: "deterministic" | "ai_enhanced";
 };
 
+export type RecommendationCategory =
+  | "liquidity"
+  | "budget"
+  | "goals"
+  | "spending"
+  | "recurring"
+  | "forecast"
+  | "savings"
+  | "data_quality"
+  | "positive_progress";
+
+export type RecommendationSeverity =
+  | "critical"
+  | "warning"
+  | "opportunity"
+  | "positive"
+  | "informational";
+
+export type RecommendationSourceSignal = {
+  label: string;
+  value_display: string;
+};
+
+export type Recommendation = {
+  id: string;
+  category: RecommendationCategory;
+  severity: RecommendationSeverity;
+  priority: number;
+  title: string;
+  summary: string;
+  why: string;
+  recommended_action: string;
+  impact: string | null;
+  confidence: number | null;
+  source_signals: RecommendationSourceSignal[];
+  deep_link: string | null;
+  evaluated_at: string;
+};
+
+export type RecommendationsResult = {
+  as_of: string;
+  recommendations: Recommendation[];
+};
+
 export type RecurringPayment = {
   merchant: string;
   amount_cents: number;
@@ -1353,6 +1397,13 @@ runFinancialStressTest: (
       headers: jsonHeaders(),
       body: JSON.stringify({ messages }),
     }).then((res) => handle<CopilotResponse>(res)),
+
+  getRecommendations: (
+    userId: number
+  ): Promise<RecommendationsResult> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/recommendations`, {
+      headers: authHeaders(),
+    }).then((res) => handle<RecommendationsResult>(res)),
 
   createSavingsGoal: (
     userId: number,

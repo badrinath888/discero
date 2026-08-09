@@ -727,3 +727,101 @@ def test_existing_intents_still_work_after_capacity_fix() -> None:
 
         assert result.kind == "answer"
         assert result.tool_used == "Major Purchase Simulator"
+
+
+# --- Recommendation Engine integration -----------------------------------
+
+
+def _setup_goal_conflict_scenario(db: Session, user: User) -> None:
+    create_account(db, user, available_balance_cents=500_000)
+    for month in (5, 6, 7):
+        db.add(
+            Transaction(
+                user_id=user.id,
+                posted_on=date(2026, month, 15),
+                description="Paycheck",
+                amount_cents=10_000,
+                category="Income",
+            )
+        )
+    db.commit()
+    create_goal(
+        db,
+        user,
+        name="Vacation",
+        target_cents=15_000,
+        saved_cents=0,
+        target_date=TEST_DATE,
+    )
+
+
+def test_recommendations_intent_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _setup_goal_conflict_scenario(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What should I focus on?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Recommendations"
+        assert result.provenance == "deterministic"
+        assert len(result.key_numbers) >= 1
+
+
+def test_recommendations_alternate_phrasing() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _setup_goal_conflict_scenario(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What needs my attention?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Recommendations"
+
+
+def test_recommendations_why_reuses_top_recommendation_reasoning() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _setup_goal_conflict_scenario(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What's my top priority?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.why is not None
+        assert "$150.00" in result.why or "$100.00" in result.why
+
+
+def test_render_recommendations_all_caught_up_when_empty() -> None:
+    empty_result = SimpleNamespace(recommendations=[])
+
+    answer, why, what_this_means, actions = (
+        copilot_free_mode.deterministic_narration(
+            "get_recommendations", empty_result
+        )
+    )
+
+    assert "caught up" in answer.lower()
+    assert why is None
+    assert what_this_means is None
+    assert actions == []

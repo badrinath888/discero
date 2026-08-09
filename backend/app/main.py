@@ -17,6 +17,7 @@ from app.routers import (
     goals,
     major_purchase,
     plaid,
+    recommendations,
     recurring,
     safe_to_spend,
     transactions,
@@ -71,6 +72,7 @@ app.include_router(goal_conflict_detection.router)
 app.include_router(plaid.router)
 app.include_router(accounts.router)
 app.include_router(copilot.router)
+app.include_router(recommendations.router)
 
 
 @app.get("/health", tags=["meta"])

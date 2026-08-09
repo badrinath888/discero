@@ -1140,3 +1140,47 @@ class CopilotResponseOut(BaseModel):
     confidence: CopilotConfidenceOut | None = None
     low_data_warning: str | None = None
     provenance: Literal["deterministic", "ai_enhanced"] = "deterministic"
+
+
+class RecommendationSourceSignalOut(BaseModel):
+    label: str
+    value_display: str
+
+
+class RecommendationOut(BaseModel):
+    id: str
+    category: Literal[
+        "liquidity",
+        "budget",
+        "goals",
+        "spending",
+        "recurring",
+        "forecast",
+        "savings",
+        "data_quality",
+        "positive_progress",
+    ]
+    severity: Literal[
+        "critical",
+        "warning",
+        "opportunity",
+        "positive",
+        "informational",
+    ]
+    priority: int
+    title: str
+    summary: str
+    why: str
+    recommended_action: str
+    impact: str | None = None
+    confidence: float | None = None
+    source_signals: list[RecommendationSourceSignalOut] = Field(
+        default_factory=list
+    )
+    deep_link: str | None = None
+    evaluated_at: date
+
+
+class RecommendationsOut(BaseModel):
+    as_of: date
+    recommendations: list[RecommendationOut]

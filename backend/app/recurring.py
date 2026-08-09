@@ -120,6 +120,60 @@ def _next_payment_date(
     return date(year, month, day)
 
 
+# The only frequencies the app actually detects (_frequency above) or
+# accepts on a manually-created recurring item (RecurringItemCreate's
+# Literal). "Monthly"'s interval is unused by _next_payment_date's
+# calendar-aware step -- kept here only so every supported frequency
+# has an entry.
+_FREQUENCY_INTERVALS = {
+    "Weekly": 7,
+    "Biweekly": 14,
+    "Monthly": 30,
+}
+
+_MAX_PROJECTED_OCCURRENCES = 500
+
+
+def project_occurrences(
+    next_payment: date,
+    frequency: str,
+    *,
+    as_of: date,
+    through_date: date,
+) -> list[date]:
+    """Every occurrence of a known recurring item within [as_of, through_date].
+
+    A single stored `next_payment` is only the FIRST future occurrence.
+    Over a 60/90-day horizon a monthly bill recurs 2-3 times and a
+    weekly one 8-13 times -- counting just the one stored date
+    understates known obligations for any horizon longer than one
+    cycle. This walks forward using the exact same per-frequency step
+    as `_next_payment_date` (weekly/biweekly: fixed day count;
+    monthly: calendar-month-aware), so a longer horizon is never a
+    different formula, just more steps of the same one.
+
+    Unsupported/unrecognized frequencies never fabricate a cadence --
+    they fall back to the single known date if it's in range.
+    """
+    if frequency not in _FREQUENCY_INTERVALS:
+        if as_of <= next_payment <= through_date:
+            return [next_payment]
+        return []
+
+    expected_interval = _FREQUENCY_INTERVALS[frequency]
+    occurrences: list[date] = []
+    current = next_payment
+    steps = 0
+
+    while current <= through_date and steps < _MAX_PROJECTED_OCCURRENCES:
+        if current >= as_of:
+            occurrences.append(current)
+        current = _next_payment_date(current, frequency, expected_interval)
+        steps += 1
+
+    return occurrences
+
+
 def detect_recurring(
     transactions: list[Transaction],
     as_of: date | None = None,

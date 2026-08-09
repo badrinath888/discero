@@ -2,20 +2,23 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { CashFlowForecast } from "../lib/api";
+import type { CashFlowForecast, FinancialResilience } from "../lib/api";
 import ForecastPage from "./page";
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   getMe: vi.fn(),
   getCashFlowForecast: vi.fn(),
+  getFinancialResilience: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
   clearSession: vi.fn(),
 }));
 
+const routerMock = { replace: mocks.replace };
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mocks.replace }),
+  useRouter: () => routerMock,
 }));
 
 vi.mock("framer-motion", async () => {
@@ -75,6 +78,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       ...actual.api,
       getMe: mocks.getMe,
       getCashFlowForecast: mocks.getCashFlowForecast,
+      getFinancialResilience: mocks.getFinancialResilience,
     },
     session: {
       ...actual.session,
@@ -143,17 +147,94 @@ const forecastResult: CashFlowForecast = {
       { month: "2026-07", score: 90, transaction_count: 9 },
     ],
   },
+  horizon_outlook: [
+    {
+      horizon_days: 30,
+      through_date: "2026-09-03",
+      expected_income_cents: 200_000,
+      known_obligations_cents: 50_000,
+      projected_balance_cents: 650_000,
+      shortfall_cents: 0,
+      confidence_score: 88,
+    },
+    {
+      horizon_days: 60,
+      through_date: "2026-10-03",
+      expected_income_cents: 400_000,
+      known_obligations_cents: 50_000,
+      projected_balance_cents: 850_000,
+      shortfall_cents: 0,
+      confidence_score: 85,
+    },
+    {
+      horizon_days: 90,
+      through_date: "2026-11-02",
+      expected_income_cents: 600_000,
+      known_obligations_cents: 50_000,
+      projected_balance_cents: 1_050_000,
+      shortfall_cents: 0,
+      confidence_score: 82,
+    },
+  ],
+};
+
+const resilienceResult: FinancialResilience = {
+  as_of: "2026-08-04",
+  liquid_balance_cents: 480_000,
+  liquid_account_count: 1,
+  monthly_essential_cents: 120_000,
+  essential_spending_source: "derived",
+  spending_basis_label: "Monthly spending baseline",
+  months_of_spending_data: 3,
+  runway_months: 4.0,
+  runway_days: 120,
+  resilience_status: "fair",
+  horizons: [
+    {
+      horizon_days: 30,
+      required_essential_cents: 120_000,
+      remaining_liquid_cents: 360_000,
+      shortfall_cents: 0,
+      coverage_percent: 100.0,
+    },
+    {
+      horizon_days: 60,
+      required_essential_cents: 240_000,
+      remaining_liquid_cents: 240_000,
+      shortfall_cents: 0,
+      coverage_percent: 100.0,
+    },
+    {
+      horizon_days: 90,
+      required_essential_cents: 360_000,
+      remaining_liquid_cents: 120_000,
+      shortfall_cents: 0,
+      coverage_percent: 100.0,
+    },
+  ],
+  confidence_score: 95,
+  data_quality_note: null,
+  headline: "Your spending coverage is fair",
+  why: "Your liquid cash ($4,800.00) covers approximately 4.0 month(s) at your recent spending pace of $1,200.00/month, estimated from your total spending because FinSight does not yet classify essential vs. discretionary expenses.",
+  what_this_means:
+    "You have a moderate buffer at your recent spending pace, but it would not comfortably cover an extended income gap.",
+  suggested_actions: [
+    "Keep building your buffer toward 6 months of spending coverage.",
+  ],
+  warnings: [],
 };
 
 async function renderPage() {
   render(<ForecastPage />);
   await screen.findByText("Projected month-end balance");
+  await screen.findByText("Your spending coverage is fair");
 }
 
 beforeEach(() => {
   mocks.replace.mockReset();
   mocks.getMe.mockReset();
   mocks.getCashFlowForecast.mockReset();
+  mocks.getFinancialResilience.mockReset();
   mocks.getUserId.mockReturnValue(1);
   mocks.getToken.mockReturnValue("test-token");
   mocks.getMe.mockResolvedValue({
@@ -162,6 +243,7 @@ beforeEach(() => {
     email_verified: true,
   });
   mocks.getCashFlowForecast.mockResolvedValue(forecastResult);
+  mocks.getFinancialResilience.mockResolvedValue(resilienceResult);
 });
 
 describe("forecast confidence", () => {
@@ -347,5 +429,165 @@ describe("existing forecast behavior", () => {
     expect(
       await screen.findByText("Forecast unavailable")
     ).toBeInTheDocument();
+  });
+});
+
+describe("financial resilience section", () => {
+  it("renders the hero runway, supporting metrics, and status badge", async () => {
+    await renderPage();
+
+    expect(screen.getByText("4 months")).toBeInTheDocument();
+    expect(
+      screen.getByText("covered by liquid cash at your recent spending pace")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Fair")).toBeInTheDocument();
+    expect(screen.getByText("$4,800.00")).toBeInTheDocument();
+    expect(screen.getByText("$1,200.00/mo")).toBeInTheDocument();
+    expect(screen.getByText("95%")).toBeInTheDocument();
+  });
+
+  it("renders 30/60/90-day essential coverage", async () => {
+    await renderPage();
+
+    expect(screen.getByText("30-day coverage")).toBeInTheDocument();
+    expect(screen.getByText("60-day coverage")).toBeInTheDocument();
+    expect(screen.getByText("90-day coverage")).toBeInTheDocument();
+    expect(screen.getAllByText("100%").length).toBe(3);
+  });
+
+  it("discloses that spending was estimated, not classified as essential", async () => {
+    await renderPage();
+
+    expect(
+      screen.getByText(
+        "Monthly spending baseline: estimated from your recent total spending (FinSight doesn't yet classify essential vs. discretionary expenses)."
+      )
+    ).toBeInTheDocument();
+    // The hero and section headers must not claim "essential" for an
+    // uncategorized spending baseline.
+    expect(screen.getByText("Spending coverage")).toBeInTheDocument();
+    expect(screen.queryByText("Emergency runway")).not.toBeInTheDocument();
+  });
+
+  it("labels essential spending as user-provided after a simulation", async () => {
+    await renderPage();
+
+    mocks.getFinancialResilience.mockResolvedValueOnce({
+      ...resilienceResult,
+      monthly_essential_cents: 400_000,
+      essential_spending_source: "user_provided",
+      spending_basis_label: "Monthly essential spending",
+      runway_months: 1.2,
+      resilience_status: "weak",
+      headline: "Your emergency runway is weak",
+    });
+
+    const input = screen.getByPlaceholderText("4000.00");
+    fireEvent.change(input, { target: { value: "4000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Simulate" }));
+
+    await waitFor(() =>
+      expect(mocks.getFinancialResilience).toHaveBeenLastCalledWith(
+        1,
+        400_000
+      )
+    );
+
+    expect(
+      await screen.findByText(
+        "Monthly essential spending: your stated amount."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("Emergency runway")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Showing your scenario at \$4,000\.00\/month\./)
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Monthly spending baseline: estimated from your recent total spending (FinSight doesn't yet classify essential vs. discretionary expenses)."
+      )
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reset to estimated" })
+    );
+
+    await waitFor(() =>
+      expect(mocks.getFinancialResilience).toHaveBeenLastCalledWith(
+        1,
+        undefined
+      )
+    );
+  });
+
+  it("rejects an invalid scenario amount without calling the API", async () => {
+    await renderPage();
+
+    mocks.getFinancialResilience.mockClear();
+
+    const input = screen.getByPlaceholderText("4000.00");
+    fireEvent.change(input, { target: { value: "-5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Simulate" }));
+
+    expect(
+      await screen.findByText(
+        "Enter a valid monthly essential-spending amount."
+      )
+    ).toBeInTheDocument();
+    expect(mocks.getFinancialResilience).not.toHaveBeenCalled();
+  });
+
+  it("shows a loading skeleton while resilience is being fetched", async () => {
+    let resolveResilience: (value: FinancialResilience) => void = () => {};
+    mocks.getFinancialResilience.mockReturnValue(
+      new Promise((resolve) => {
+        resolveResilience = resolve;
+      })
+    );
+
+    render(<ForecastPage />);
+    await screen.findByText("Projected month-end balance");
+
+    expect(
+      screen.queryByText("Your spending coverage is fair")
+    ).not.toBeInTheDocument();
+
+    resolveResilience(resilienceResult);
+
+    expect(
+      await screen.findByText("Your spending coverage is fair")
+    ).toBeInTheDocument();
+  });
+
+  it("renders an error state with retry when resilience fails to load", async () => {
+    mocks.getFinancialResilience.mockRejectedValue(
+      new Error("Unable to load financial resilience")
+    );
+
+    render(<ForecastPage />);
+    await screen.findByText("Projected month-end balance");
+
+    expect(
+      await screen.findByText("Unable to load financial resilience")
+    ).toBeInTheDocument();
+
+    mocks.getFinancialResilience.mockResolvedValue(resilienceResult);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(
+      await screen.findByText("Your spending coverage is fair")
+    ).toBeInTheDocument();
+  });
+
+  it("never affirmatively claims the runway or income pace is guaranteed", async () => {
+    await renderPage();
+
+    const bodyText = (document.body.textContent ?? "").toLowerCase();
+    // "not a guaranteed forecast" is the required disclosure and is
+    // fine; an affirmative "is guaranteed" claim would not be.
+    expect(bodyText).not.toContain("is guaranteed");
+    expect(bodyText).not.toContain("will last exactly");
+    expect(bodyText).toContain("not a guaranteed forecast");
+    expect(bodyText).toContain("pace-based estimate");
   });
 });

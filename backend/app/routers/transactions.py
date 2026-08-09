@@ -1,6 +1,6 @@
 from calendar import monthrange
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, or_, select
@@ -11,8 +11,14 @@ from app.database import get_db
 from app.deps import get_categorizer
 from app.ingestion import parse_csv
 from app.llm_categorization import LLMCategorizer
-from app.models import FinancialAccount, PlaidItem, Transaction, User
-from app.recurring import detect_recurring
+from app.models import (
+    FinancialAccount,
+    PlaidItem,
+    RecurringItem,
+    Transaction,
+    User,
+)
+from app.recurring import detect_recurring, project_occurrences
 from app.schemas import (
     BulkTransactionCategoriesUpdate,
     BulkTransactionCategoryUpdate,
@@ -20,11 +26,13 @@ from app.schemas import (
     BulkTransactionDeleteResult,
     CategoryTotal,
     CashFlowForecastOut,
+    CashFlowHorizonOut,
     FinancialInsightOut,
     MonthTotal,
     MonthlyInsightsOut,
     Overview,
     RecurringPaymentOut,
+    SafeToSpendRequest,
     TransactionCreate,
     TransactionOut,
     TransactionPage,
@@ -35,6 +43,7 @@ from app.schemas import (
 from app.services.forecast_confidence_service import (
     calculate_forecast_confidence,
 )
+from app.services.safe_to_spend_service import calculate_safe_to_spend
 
 router = APIRouter(
     prefix="/users/{user_id}",
@@ -952,6 +961,124 @@ def _shift_month(month: str, offset: int) -> str:
     return f"{next_year}-{next_month + 1:02d}"
 
 
+_HORIZON_OUTLOOK_DAYS = (30, 60, 90)
+
+
+def _known_obligations_cents(
+    db: Session,
+    user_id: int,
+    as_of: date,
+    through_date: date,
+) -> int:
+    """Sum of every KNOWN recurring occurrence within the window.
+
+    Deliberately NOT `calculate_safe_to_spend`'s obligation total --
+    that counts only each active item's single stored `next_payment`,
+    which is correct for its own use but silently understates a
+    60/90-day horizon (a monthly bill recurs 2-3 times in 90 days, a
+    weekly one 8-13 times). This uses the shared
+    `app.recurring.project_occurrences` helper instead, kept separate
+    from `safe_to_spend_service` so its existing, widely-depended-on
+    single-occurrence semantics are not changed underneath its other
+    callers.
+    """
+    items = list(
+        db.scalars(
+            select(RecurringItem).where(
+                RecurringItem.user_id == user_id,
+                RecurringItem.status == "active",
+                RecurringItem.next_payment <= through_date,
+            )
+        ).all()
+    )
+
+    return sum(
+        item.amount_cents
+        * len(
+            project_occurrences(
+                item.next_payment,
+                item.frequency,
+                as_of=as_of,
+                through_date=through_date,
+            )
+        )
+        for item in items
+    )
+
+
+def _build_horizon_outlook(
+    db: Session,
+    user_id: int,
+    as_of: date,
+    daily_income_rate: float,
+    *,
+    overall_confidence_score: float,
+) -> list[CashFlowHorizonOut]:
+    """30/60/90-day outlook.
+
+    Liquid balance per horizon still reuses `calculate_safe_to_spend`
+    (no duplicate balance-aggregation formula). Known obligations use
+    `_known_obligations_cents` above instead, since counting only one
+    occurrence per recurring item would materially understate bills
+    over a 60/90-day window.
+
+    Expected income generalizes this endpoint's own within-month
+    income-extrapolation rate (income received so far / days elapsed)
+    across the longer horizon -- the same rate, just applied over
+    more days. This is a PACE-BASED estimate, not a forecast: it
+    assumes the recent pace continues and does not model irregular or
+    seasonal income.
+
+    Confidence blends `calculate_safe_to_spend`'s own (obligations/
+    balance-based) confidence for the horizon with the overall
+    `calculate_forecast_confidence` score already computed for this
+    request -- the latter is what actually scores income consistency,
+    transaction history depth, and data freshness, so sparse or
+    erratic income correctly pulls this DOWN rather than the pace
+    estimate silently borrowing an obligations-only confidence figure
+    that says nothing about the income guess. Both factors are
+    existing, already-tested engines; this reuses them rather than
+    inventing a new confidence formula.
+    """
+    outlook = []
+
+    for horizon_days in _HORIZON_OUTLOOK_DAYS:
+        through_date = as_of + timedelta(days=horizon_days)
+        safe_result = calculate_safe_to_spend(
+            db,
+            user_id,
+            SafeToSpendRequest(horizon_days=horizon_days),
+            as_of=as_of,
+        )
+        known_obligations_cents = _known_obligations_cents(
+            db, user_id, as_of, through_date
+        )
+        expected_income_cents = round(daily_income_rate * horizon_days)
+        projected_balance_cents = (
+            safe_result.breakdown.liquid_balance_cents
+            + expected_income_cents
+            - known_obligations_cents
+        )
+        confidence_score = round(
+            (safe_result.confidence_score + overall_confidence_score) / 2,
+            1,
+        )
+
+        outlook.append(
+            CashFlowHorizonOut(
+                horizon_days=horizon_days,
+                through_date=safe_result.through_date,
+                expected_income_cents=expected_income_cents,
+                known_obligations_cents=known_obligations_cents,
+                projected_balance_cents=projected_balance_cents,
+                shortfall_cents=max(-projected_balance_cents, 0),
+                confidence_score=confidence_score,
+            )
+        )
+
+    return outlook
+
+
 @router.get(
     "/summary/cash-flow-forecast",
     response_model=CashFlowForecastOut,
@@ -1079,6 +1206,17 @@ def cash_flow_forecast(
         recurring_items=recurring,
     )
 
+    daily_income_rate = (
+        income_received / days_elapsed if days_elapsed > 0 else 0.0
+    )
+    horizon_outlook = _build_horizon_outlook(
+        db,
+        user_id,
+        as_of,
+        daily_income_rate,
+        overall_confidence_score=confidence.score,
+    )
+
     return CashFlowForecastOut(
         as_of=as_of,
         month_end=month_end,
@@ -1094,4 +1232,5 @@ def cash_flow_forecast(
             key=lambda item: item.expected_date,
         ),
         confidence=confidence,
+        horizon_outlook=horizon_outlook,
     )

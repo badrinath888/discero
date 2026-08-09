@@ -92,6 +92,22 @@ def seed_income(db: Session, user: User, *, monthly_cents: int = 10_000) -> None
     db.commit()
 
 
+def seed_spending(
+    db: Session, user: User, *, monthly_cents: int = 100_000
+) -> None:
+    for month in (5, 6, 7):
+        db.add(
+            Transaction(
+                user_id=user.id,
+                posted_on=date(2026, month, 15),
+                description="Rent",
+                amount_cents=-monthly_cents,
+                category="Housing",
+            )
+        )
+    db.commit()
+
+
 def seed_dining_overspend(db: Session, user: User) -> None:
     db.add(
         Budget(
@@ -316,3 +332,190 @@ def test_recommendations_endpoint_returns_real_data(
     body = response.json()
     assert "recommendations" in body
     assert isinstance(body["recommendations"], list)
+
+
+# --- Financial resilience recommendation ---------------------------------
+
+
+def test_weak_runway_recommendation() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=200_000)
+        seed_spending(db, user, monthly_cents=100_000)
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        resilience_rec = next(
+            r
+            for r in result.recommendations
+            if r.id == "financial-resilience"
+        )
+        assert resilience_rec.category == "resilience"
+        assert resilience_rec.severity == "warning"
+        assert "2.0 month(s)" in (resilience_rec.impact or "")
+        # Derived from raw spending history -- must never claim to
+        # know which transactions are essential.
+        assert "spending-pace runway" in (resilience_rec.impact or "")
+        assert "essential-expense" not in (resilience_rec.impact or "")
+        burn_signal = next(
+            s
+            for s in resilience_rec.source_signals
+            if s.label == "Monthly spending baseline"
+        )
+        assert burn_signal.value_display == "$1,000.00"
+
+
+def test_strong_runway_is_positive_and_not_critical() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=1_500_000)
+        seed_spending(db, user, monthly_cents=100_000)
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        resilience_rec = next(
+            r
+            for r in result.recommendations
+            if r.id == "financial-resilience"
+        )
+        assert resilience_rec.severity == "positive"
+        assert resilience_rec.severity != "critical"
+
+
+def test_resilience_severity_boundaries() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=150_000)
+        seed_spending(db, user, monthly_cents=300_000)  # ratio 0.5 -> critical
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+        resilience_rec = next(
+            r
+            for r in result.recommendations
+            if r.id == "financial-resilience"
+        )
+        assert resilience_rec.severity == "critical"
+
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=400_000)
+        seed_spending(db, user, monthly_cents=100_000)  # ratio 4.0 -> fair
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+        resilience_rec = next(
+            r
+            for r in result.recommendations
+            if r.id == "financial-resilience"
+        )
+        assert resilience_rec.severity == "informational"
+
+
+def test_reserve_critical_for_severe_runway_not_moderate_budget_overage() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        seed_spending(db, user, monthly_cents=100_000)
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        critical_ids = {
+            r.id for r in result.recommendations if r.severity == "critical"
+        }
+        assert "financial-resilience" not in critical_ids
+
+
+# --- Budget-overage severity regression (fix) -----------------------------
+
+
+def test_normal_budget_overage_is_not_critical() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+        db.add(
+            Budget(
+                user_id=user.id,
+                category="Dining",
+                month="2026-08",
+                limit_cents=3_000,  # $30
+            )
+        )
+        db.add(
+            Transaction(
+                user_id=user.id,
+                posted_on=date(2026, 8, 5),
+                description="Restaurant",
+                amount_cents=-8_940,  # $89.40 spent, $59.40 over
+                category="Dining",
+            )
+        )
+        db.commit()
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        budget_rec = next(
+            r
+            for r in result.recommendations
+            if r.id == "budget-overage-Dining"
+        )
+        assert budget_rec.impact == "$59.40 over budget"
+        # 298% over a tiny $30 budget is a normal overage, not a
+        # critical financial event.
+        assert budget_rec.severity == "warning"
+
+
+def test_large_absolute_budget_overage_is_still_critical() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+        db.add(
+            Budget(
+                user_id=user.id,
+                category="Dining",
+                month="2026-08",
+                limit_cents=10_000,  # $100
+            )
+        )
+        db.add(
+            Transaction(
+                user_id=user.id,
+                posted_on=date(2026, 8, 5),
+                description="Restaurant",
+                amount_cents=-29_800,  # $298 spent, $198 over
+                category="Dining",
+            )
+        )
+        db.commit()
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        budget_rec = next(
+            r
+            for r in result.recommendations
+            if r.id == "budget-overage-Dining"
+        )
+        assert budget_rec.severity == "critical"
+
+
+# --- Safe-to-spend grounded-copy regression (fix) -------------------------
+
+
+def test_safe_to_spend_why_does_not_claim_zero_deductions_reduced_it() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=6_000_000)
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        safe_rec = next(
+            r for r in result.recommendations if r.id == "safe-to-spend-status"
+        )
+        # It's fine to name obligations/essential spending/reserve when
+        # explicitly saying they are NOT reducing the result -- the bug
+        # was claiming they reduced it while being zero.
+        assert "no active obligations" in safe_rec.why.lower()
+        assert "after upcoming obligations" not in safe_rec.why.lower()
+        assert "liquid balance" in safe_rec.why.lower()

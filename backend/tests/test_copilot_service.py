@@ -4,7 +4,13 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
-from app.models import FinancialAccount, PlaidItem, SavingsGoal, User
+from app.models import (
+    FinancialAccount,
+    PlaidItem,
+    SavingsGoal,
+    Transaction,
+    User,
+)
 from app.schemas import CopilotMessageIn
 from app.services.copilot_service import CopilotClient, run_copilot_turn
 from tests.conftest import TestingSessionLocal
@@ -498,6 +504,121 @@ def test_goal_intelligence_ai_enhanced_labels_explicit_capacity() -> None:
         assert result.kind == "answer"
         source_chip = next(
             c for c in result.key_numbers if c.label == "Capacity source"
+        )
+        assert source_chip.value_display == "Your stated amount"
+        assert "estimated" not in (result.low_data_warning or "").lower()
+
+
+def test_financial_resilience_ai_enhanced_labels_derived_essential_spending() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        for month in (5, 6, 7):
+            db.add(
+                Transaction(
+                    user_id=user.id,
+                    posted_on=date(2026, month, 15),
+                    description="Rent",
+                    amount_cents=-100_000,
+                    category="Housing",
+                )
+            )
+        db.commit()
+
+        client = CopilotClient(api_key="fake-key")
+
+        def fake_call(**kwargs):
+            tools = kwargs.get("tools") or []
+            if any(t.get("name") == "present_financial_answer" for t in tools):
+                return _response(
+                    _tool_use_block(
+                        "tool_2",
+                        "present_financial_answer",
+                        {"answer": "Your runway is about 5 months."},
+                    )
+                )
+            # Claude omits essential_spending_cents -- not stated.
+            return _response(
+                _tool_use_block(
+                    "tool_1", "get_financial_resilience", {}
+                )
+            )
+
+        client.call = fake_call  # type: ignore[method-assign]
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message("What is my emergency runway?"),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Financial Resilience"
+        source_chip = next(
+            c
+            for c in result.key_numbers
+            if c.label == "Spending source"
+        )
+        assert source_chip.value_display == "Estimated"
+        assert result.low_data_warning is not None
+        assert "Monthly spending baseline" in result.low_data_warning
+        assert (
+            "does not yet classify essential vs. discretionary "
+            "expenses" in result.low_data_warning
+        )
+
+
+def test_financial_resilience_ai_enhanced_labels_explicit_essential_spending() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        client = CopilotClient(api_key="fake-key")
+
+        def fake_call(**kwargs):
+            tools = kwargs.get("tools") or []
+            if any(t.get("name") == "present_financial_answer" for t in tools):
+                return _response(
+                    _tool_use_block(
+                        "tool_2",
+                        "present_financial_answer",
+                        {"answer": "Your runway is about 1.25 months."},
+                    )
+                )
+            # Claude passes through the user's stated $4,000/month.
+            return _response(
+                _tool_use_block(
+                    "tool_1",
+                    "get_financial_resilience",
+                    {"essential_spending_cents": 400_000},
+                )
+            )
+
+        client.call = fake_call  # type: ignore[method-assign]
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message(
+                "What if my essential spending were $4000 per month?"
+            ),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        source_chip = next(
+            c
+            for c in result.key_numbers
+            if c.label == "Spending source"
         )
         assert source_chip.value_display == "Your stated amount"
         assert "estimated" not in (result.low_data_warning or "").lower()

@@ -1,8 +1,9 @@
 import io
+from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
-from app.models import FinancialAccount, PlaidItem
+from app.models import FinancialAccount, PlaidItem, RecurringItem
 from tests.conftest import TestingSessionLocal
 
 
@@ -293,6 +294,152 @@ def test_cash_flow_forecast_uses_liquid_account_balance(
     assert body["upcoming_bills_cents"] == 0
     assert body["projected_end_balance_cents"] == 120000
     assert body["low_balance_risk"] is False
+
+    horizons = {h["horizon_days"]: h for h in body["horizon_outlook"]}
+    assert set(horizons) == {30, 60, 90}
+
+    for horizon_days, horizon in horizons.items():
+        assert horizon["expected_income_cents"] == 0
+        assert horizon["known_obligations_cents"] == 0
+        assert horizon["projected_balance_cents"] == 120000
+        assert horizon["shortfall_cents"] == 0
+        # Blended with the overall forecast confidence (which factors
+        # in income consistency / transaction history / data
+        # freshness) -- no transaction history at all correctly pulls
+        # this below the obligations-only 88.0 it used to show.
+        assert horizon["confidence_score"] == 62.4
+        assert horizon["through_date"] == (
+            date(2026, 2, 28) + timedelta(days=horizon_days)
+        ).isoformat()
+
+
+def test_cash_flow_forecast_horizon_outlook_counts_multiple_occurrences(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    with TestingSessionLocal() as db:
+        item = PlaidItem(
+            user_id=user_id,
+            provider_item_id="forecast-recurring-item",
+            institution_id="ins_forecast_recurring",
+            institution_name="Forecast Bank",
+            access_token_ciphertext="encrypted",
+            status="active",
+        )
+        db.add(item)
+        db.flush()
+
+        db.add(
+            FinancialAccount(
+                plaid_item_id=item.id,
+                provider_account_id="forecast-recurring-checking",
+                name="Checking",
+                account_type="depository",
+                account_subtype="checking",
+                current_balance_cents=200_000,
+                available_balance_cents=200_000,
+                currency="USD",
+            )
+        )
+
+        db.add(
+            RecurringItem(
+                user_id=user_id,
+                merchant="Rent",
+                normalized_merchant="RENT",
+                amount_cents=10_000,
+                frequency="Monthly",
+                last_payment=date(2026, 1, 5),
+                next_payment=date(2026, 2, 5),
+                status="active",
+                confidence_score=95.0,
+            )
+        )
+        db.commit()
+
+    response = client.get(
+        f"/users/{user_id}/summary/cash-flow-forecast",
+        params={"as_of": "2026-02-01"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    horizons = {
+        h["horizon_days"]: h
+        for h in response.json()["horizon_outlook"]
+    }
+
+    # A single monthly bill recurs 1/2/3 times across a 30/60/90-day
+    # horizon -- not once each time, which was the bug.
+    assert horizons[30]["known_obligations_cents"] == 10_000
+    assert horizons[30]["projected_balance_cents"] == 190_000
+
+    assert horizons[60]["known_obligations_cents"] == 20_000
+    assert horizons[60]["projected_balance_cents"] == 180_000
+
+    assert horizons[90]["known_obligations_cents"] == 30_000
+    assert horizons[90]["projected_balance_cents"] == 170_000
+
+
+def test_cash_flow_forecast_horizon_confidence_reflects_data_richness(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    with TestingSessionLocal() as db:
+        item = PlaidItem(
+            user_id=user_id,
+            provider_item_id="forecast-rich-item",
+            institution_id="ins_forecast_rich",
+            institution_name="Forecast Bank",
+            access_token_ciphertext="encrypted",
+            status="active",
+        )
+        db.add(item)
+        db.flush()
+        db.add(
+            FinancialAccount(
+                plaid_item_id=item.id,
+                provider_account_id="forecast-rich-checking",
+                name="Checking",
+                account_type="depository",
+                account_subtype="checking",
+                current_balance_cents=500_000,
+                available_balance_cents=500_000,
+                currency="USD",
+            )
+        )
+        db.commit()
+
+    # Six months of consistent income + spending history, plus recent
+    # activity right up to the forecast date.
+    rows = ["date,description,amount,category"]
+    for month in range(1, 7):
+        rows.append(f"2026-{month:02d}-01,Payroll,3000.00,Income")
+        rows.append(f"2026-{month:02d}-05,Rent,-1500.00,Housing")
+    rows.append("2026-07-01,Payroll,3000.00,Income")
+    rows.append("2026-07-02,Groceries,-100.00,Groceries")
+
+    _upload(client, user_id, auth_headers, "\n".join(rows) + "\n")
+
+    response = client.get(
+        f"/users/{user_id}/summary/cash-flow-forecast",
+        params={"as_of": "2026-07-10"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    horizons = response.json()["horizon_outlook"]
+    assert horizons
+
+    for horizon in horizons:
+        # Six months of consistent income/spending history must score
+        # meaningfully higher than the no-history case (62.4, see
+        # test_cash_flow_forecast_uses_liquid_account_balance) --
+        # sparse/erratic data must never masquerade as high
+        # confidence for a pace-based income estimate.
+        assert horizon["confidence_score"] > 62.4
 
 
 def test_cash_flow_forecast_estimates_remaining_income(

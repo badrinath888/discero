@@ -8,6 +8,8 @@ import {
   ChevronRight,
   CircleDollarSign,
   Gauge,
+  ShieldAlert,
+  ShieldCheck,
   Sparkles,
   TrendingDown,
   TrendingUp,
@@ -26,9 +28,11 @@ import {
   PageReveal,
   Reveal,
 } from "../components/PremiumMotion";
+import Toast from "../components/Toast";
 import {
   api,
   CashFlowForecast,
+  FinancialResilience,
   ForecastConfidence,
   ForecastConfidenceFactor,
   formatCents,
@@ -36,6 +40,37 @@ import {
 } from "../lib/api";
 
 type ForecastItem = CashFlowForecast["upcoming_cash_flows"][number];
+
+const RESILIENCE_STATUS_CONTENT: Record<
+  FinancialResilience["resilience_status"],
+  { label: string; className: string; barClassName: string }
+> = {
+  critical: {
+    label: "Critical",
+    className: "bg-[#f8ddd5] text-[#923f32]",
+    barClassName: "bg-[#c0604c]",
+  },
+  weak: {
+    label: "Weak",
+    className: "bg-[#f5d66f] text-[#66500f]",
+    barClassName: "bg-[#d9a53a]",
+  },
+  fair: {
+    label: "Fair",
+    className: "bg-[#f7e8b5] text-[#8b6518]",
+    barClassName: "bg-[#c9a13f]",
+  },
+  strong: {
+    label: "Strong",
+    className: "bg-[#dff6c7] text-[#315d31]",
+    barClassName: "bg-[#4d9a5a]",
+  },
+  very_strong: {
+    label: "Very strong",
+    className: "bg-[#dff6c7] text-[#315d31]",
+    barClassName: "bg-[#167c5a]",
+  },
+};
 
 function formatDate(value: string): string {
   return new Date(`${value}T00:00:00`).toLocaleDateString("en-US", {
@@ -102,6 +137,18 @@ export default function ForecastPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [confidenceExpanded, setConfidenceExpanded] = useState(false);
+  const [resilience, setResilience] = useState<FinancialResilience | null>(
+    null
+  );
+  const [resilienceLoading, setResilienceLoading] = useState(true);
+  const [resilienceError, setResilienceError] = useState("");
+  const [essentialOverride, setEssentialOverride] = useState("");
+  const [overrideActive, setOverrideActive] = useState(false);
+  const [simulating, setSimulating] = useState(false);
+  const [toast, setToast] = useState("");
+  const [toastType, setToastType] = useState<"success" | "error">(
+    "success"
+  );
 
   const loadForecast = useCallback(async (id: number) => {
     setLoading(true);
@@ -117,6 +164,28 @@ export default function ForecastPage() {
       setLoading(false);
     }
   }, []);
+
+  const loadResilience = useCallback(
+    async (id: number, essentialSpendingCents?: number) => {
+      setResilienceLoading(true);
+      setResilienceError("");
+
+      try {
+        setResilience(
+          await api.getFinancialResilience(id, essentialSpendingCents)
+        );
+      } catch (err) {
+        setResilienceError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load financial resilience"
+        );
+      } finally {
+        setResilienceLoading(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     async function initialize() {
@@ -139,7 +208,7 @@ export default function ForecastPage() {
         }
 
         setUserId(id);
-        await loadForecast(id);
+        await Promise.all([loadForecast(id), loadResilience(id)]);
       } catch {
         session.clear();
         router.replace("/");
@@ -147,7 +216,44 @@ export default function ForecastPage() {
     }
 
     void initialize();
-  }, [router, loadForecast]);
+  }, [router, loadForecast, loadResilience]);
+
+  async function handleSimulateEssentialSpending() {
+    if (!userId) return;
+
+    const amount = Number(essentialOverride);
+
+    if (!essentialOverride.trim() || !Number.isFinite(amount) || amount < 0) {
+      setToastType("error");
+      setToast("Enter a valid monthly essential-spending amount.");
+      return;
+    }
+
+    setSimulating(true);
+
+    try {
+      await loadResilience(userId, Math.round(amount * 100));
+      setOverrideActive(true);
+      setToastType("success");
+      setToast("Resilience recalculated with your scenario.");
+    } finally {
+      setSimulating(false);
+    }
+  }
+
+  async function handleResetToEstimated() {
+    if (!userId) return;
+
+    setEssentialOverride("");
+    setOverrideActive(false);
+    setSimulating(true);
+
+    try {
+      await loadResilience(userId);
+    } finally {
+      setSimulating(false);
+    }
+  }
 
   const bestCaseBalance = useMemo(() => {
     if (!forecast) return 0;
@@ -317,6 +423,31 @@ export default function ForecastPage() {
                   </article>
                 </section>
               </Reveal>
+
+              {forecast.horizon_outlook.length > 0 && (
+                <Reveal delay={0.08}>
+                  <section className="mt-6">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+                      30 / 60 / 90-day outlook
+                    </p>
+                    <p className="mt-1 max-w-2xl text-xs leading-5 text-[#87928d]">
+                      Expected income is a pace-based estimate from your
+                      recent income spread evenly across each day -- not a
+                      guaranteed forecast. It assumes your recent pace
+                      continues and does not model irregular or seasonal
+                      income; confidence falls when recent data is thin.
+                    </p>
+                    <div className="mt-3 grid gap-4 sm:grid-cols-3">
+                      {forecast.horizon_outlook.map((horizon) => (
+                        <HorizonOutlookCard
+                          key={horizon.horizon_days}
+                          horizon={horizon}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                </Reveal>
+              )}
 
               <Reveal>
                 <section className="mt-6 grid gap-4 md:grid-cols-3">
@@ -518,8 +649,31 @@ export default function ForecastPage() {
               />
             </div>
           )}
+
+          <Reveal>
+            <ResilienceSection
+              resilience={resilience}
+              loading={resilienceLoading}
+              error={resilienceError}
+              simulating={simulating}
+              essentialOverride={essentialOverride}
+              overrideActive={overrideActive}
+              onEssentialOverrideChange={setEssentialOverride}
+              onSimulate={() => void handleSimulateEssentialSpending()}
+              onReset={() => void handleResetToEstimated()}
+              onRetry={
+                userId ? () => void loadResilience(userId) : undefined
+              }
+            />
+          </Reveal>
         </PageReveal>
       </div>
+
+      <Toast
+        message={toast}
+        type={toastType}
+        onClose={() => setToast("")}
+      />
 
       <AnimatePresence>
         {activeItem && (
@@ -620,6 +774,362 @@ function ScenarioCard({
 
       <p className="mt-3 text-sm text-[#66746e]">{description}</p>
     </article>
+  );
+}
+
+function HorizonOutlookCard({
+  horizon,
+}: {
+  horizon: CashFlowForecast["horizon_outlook"][number];
+}) {
+  const shortfall = horizon.shortfall_cents > 0;
+
+  return (
+    <article
+      className={`rounded-[24px] border p-5 ${
+        shortfall
+          ? "border-[#923f32]/20 bg-[#fdf4f1]"
+          : "border-[#14241e]/10 bg-white"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold">{horizon.horizon_days} days</p>
+        <span className="text-xs text-[#87928d]">
+          through {formatDate(horizon.through_date)}
+        </span>
+      </div>
+
+      <p
+        className={`mt-3 text-2xl font-semibold tracking-[-0.04em] ${
+          shortfall ? "text-[#923f32]" : "text-[#14241e]"
+        }`}
+      >
+        {formatCents(horizon.projected_balance_cents)}
+      </p>
+      <p className="mt-1 text-xs text-[#87928d]">
+        {shortfall
+          ? `${formatCents(horizon.shortfall_cents)} projected shortfall`
+          : "Projected balance"}
+      </p>
+
+      <div className="mt-4 flex items-center justify-between text-xs text-[#66746e]">
+        <span>
+          Known bills{" "}
+          {formatCents(-horizon.known_obligations_cents)}
+        </span>
+        <span>{Math.round(horizon.confidence_score)}% confidence</span>
+      </div>
+    </article>
+  );
+}
+
+function ResilienceSection({
+  resilience,
+  loading,
+  error,
+  simulating,
+  essentialOverride,
+  overrideActive,
+  onEssentialOverrideChange,
+  onSimulate,
+  onReset,
+  onRetry,
+}: {
+  resilience: FinancialResilience | null;
+  loading: boolean;
+  error: string;
+  simulating: boolean;
+  essentialOverride: string;
+  overrideActive: boolean;
+  onEssentialOverrideChange: (value: string) => void;
+  onSimulate: () => void;
+  onReset: () => void;
+  onRetry?: () => void;
+}) {
+  return (
+    <section className="mt-10">
+      <div className="flex items-center gap-3">
+        <ShieldCheck className="h-5 w-5 text-[#167c5a]" aria-hidden="true" />
+        <h2 className="text-2xl font-semibold tracking-[-0.03em]">
+          Financial resilience
+        </h2>
+      </div>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#66746e]">
+        How long your liquid cash would last if income stopped today, at
+        your recent spending pace or a specific essential-spending amount
+        you provide.
+      </p>
+
+      {error ? (
+        <div className="mt-5">
+          <PageError message={error} onRetry={onRetry} />
+        </div>
+      ) : loading ? (
+        <div className="mt-5">
+          <CardSkeleton count={2} />
+        </div>
+      ) : !resilience ? null : (
+        <div className="mt-5 space-y-4">
+          <ResilienceHero resilience={resilience} />
+
+          <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+            <article className="rounded-[24px] border border-[#14241e]/10 bg-white p-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+                30 / 60 / 90-day{" "}
+                {resilience.essential_spending_source === "user_provided"
+                  ? "essential-expense"
+                  : "spending-pace"}{" "}
+                coverage
+              </p>
+              <div className="mt-4 space-y-3">
+                {resilience.horizons.map((horizon) => (
+                  <CoverageHorizonRow
+                    key={horizon.horizon_days}
+                    horizon={horizon}
+                    isExplicit={
+                      resilience.essential_spending_source ===
+                      "user_provided"
+                    }
+                  />
+                ))}
+              </div>
+            </article>
+
+            <article className="rounded-[24px] border border-[#14241e]/10 bg-white p-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+                What if essential spending changes?
+              </p>
+              <p className="mt-2 text-xs leading-5 text-[#66746e]">
+                Enter a monthly essential-spending amount to see how your
+                runway would change.
+              </p>
+
+              <div className="mt-4 flex flex-wrap items-end gap-3">
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[#66746e]">
+                    Monthly essential spending
+                  </span>
+                  <div className="relative mt-2">
+                    <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#728078]">
+                      $
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={essentialOverride}
+                      onChange={(event) =>
+                        onEssentialOverrideChange(event.target.value)
+                      }
+                      placeholder="4000.00"
+                      className="h-11 w-40 rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] pl-8 pr-3 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+                    />
+                  </div>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={onSimulate}
+                  disabled={simulating}
+                  className="h-11 rounded-xl bg-[#14241e] px-4 text-sm font-semibold text-white transition hover:bg-[#25443a] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  {simulating ? "Simulating..." : "Simulate"}
+                </button>
+
+                {overrideActive && (
+                  <button
+                    type="button"
+                    onClick={onReset}
+                    disabled={simulating}
+                    className="h-11 rounded-xl border border-[#14241e]/10 px-4 text-sm font-semibold text-[#66746e] transition hover:bg-[#f1eee7] disabled:opacity-55"
+                  >
+                    Reset to estimated
+                  </button>
+                )}
+              </div>
+
+              {overrideActive && (
+                <p className="mt-3 text-xs font-medium text-[#167c5a]">
+                  Showing your scenario at{" "}
+                  {formatCents(resilience.monthly_essential_cents)}/month.
+                </p>
+              )}
+            </article>
+          </div>
+
+          <article className="rounded-[24px] border border-[#14241e]/10 bg-[#f5f1e8] p-6">
+            <div className="flex items-start gap-3">
+              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#167c5a]" />
+              <div>
+                <p className="text-sm font-semibold">
+                  {resilience.headline}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-[#66746e]">
+                  {resilience.why}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-[#66746e]">
+                  {resilience.what_this_means}
+                </p>
+                {resilience.suggested_actions.length > 0 && (
+                  <ul className="mt-3 space-y-1.5 text-sm leading-6 text-[#66746e]">
+                    {resilience.suggested_actions.map((action) => (
+                      <li key={action} className="flex gap-2">
+                        <span aria-hidden="true">•</span>
+                        <span>{action}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="mt-3 text-xs font-medium text-[#87928d]">
+                  {resilience.essential_spending_source === "user_provided"
+                    ? `${resilience.spending_basis_label}: your stated amount.`
+                    : `${resilience.spending_basis_label}: estimated from your recent total spending (FinSight doesn't yet classify essential vs. discretionary expenses).`}
+                  {resilience.data_quality_note
+                    ? ` ${resilience.data_quality_note}`
+                    : ""}
+                </p>
+              </div>
+            </div>
+          </article>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ResilienceHero({
+  resilience,
+}: {
+  resilience: FinancialResilience;
+}) {
+  const status = RESILIENCE_STATUS_CONTENT[resilience.resilience_status];
+  const barPercent =
+    resilience.runway_months === null
+      ? 100
+      : Math.min((resilience.runway_months / 12) * 100, 100);
+  const isExplicit = resilience.essential_spending_source === "user_provided";
+
+  return (
+    <article className="relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.18)] sm:p-9">
+      <div className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full bg-[#76dfbd]/15 blur-3xl" />
+
+      <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+            {isExplicit ? "Emergency runway" : "Spending coverage"}
+          </p>
+          <p className="mt-3 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
+            {resilience.runway_months === null
+              ? "No measurable spending"
+              : `${resilience.runway_months} months`}
+          </p>
+          <p className="mt-2 text-sm text-white/55">
+            {resilience.runway_months === null
+              ? isExplicit
+                ? "of essential expenses covered"
+                : "at your recent spending pace"
+              : isExplicit
+                ? "of essential expenses covered by liquid cash"
+                : "covered by liquid cash at your recent spending pace"}
+          </p>
+
+          <span
+            className={`mt-4 inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${status.className}`}
+          >
+            {resilience.resilience_status === "critical" ? (
+              <ShieldAlert className="h-3.5 w-3.5" />
+            ) : (
+              <ShieldCheck className="h-3.5 w-3.5" />
+            )}
+            {status.label}
+          </span>
+
+          <div className="mt-5 h-2 w-full max-w-xs overflow-hidden rounded-full bg-white/10">
+            <div
+              className={`h-full rounded-full ${status.barClassName}`}
+              style={{ width: `${barPercent}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-4 lg:w-[420px]">
+          <ResilienceMetric
+            label="Liquid cash"
+            value={formatCents(resilience.liquid_balance_cents)}
+          />
+          <ResilienceMetric
+            label={resilience.spending_basis_label}
+            value={`${formatCents(resilience.monthly_essential_cents)}/mo`}
+          />
+          <ResilienceMetric
+            label="Accounts"
+            value={String(resilience.liquid_account_count)}
+          />
+          <ResilienceMetric
+            label="Confidence"
+            value={`${Math.round(resilience.confidence_score)}%`}
+          />
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ResilienceMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="bg-white/[0.045] p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
+        {label}
+      </p>
+      <p className="mt-2 text-lg font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function CoverageHorizonRow({
+  horizon,
+  isExplicit,
+}: {
+  horizon: FinancialResilience["horizons"][number];
+  isExplicit: boolean;
+}) {
+  const shortfall = horizon.shortfall_cents > 0;
+  const spendingPhrase = isExplicit
+    ? "essential spending"
+    : "your recent spending pace";
+
+  return (
+    <div className="rounded-2xl border border-[#14241e]/8 bg-[#fbfaf7] p-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold">{horizon.horizon_days}-day coverage</p>
+        <p
+          className={`text-sm font-semibold ${
+            shortfall ? "text-[#923f32]" : "text-[#167c5a]"
+          }`}
+        >
+          {horizon.coverage_percent}%
+        </p>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#14241e]/8">
+        <div
+          className={`h-full rounded-full ${
+            shortfall ? "bg-[#c0604c]" : "bg-[#167c5a]"
+          }`}
+          style={{ width: `${Math.min(horizon.coverage_percent, 100)}%` }}
+        />
+      </div>
+      <p className="mt-2 text-xs text-[#87928d]">
+        {shortfall
+          ? `${formatCents(horizon.shortfall_cents)} shortfall against ${spendingPhrase}`
+          : `${formatCents(horizon.remaining_liquid_cents)} remaining after ${spendingPhrase}`}
+      </p>
+    </div>
   );
 }
 

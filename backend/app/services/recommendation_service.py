@@ -79,7 +79,7 @@ def _rule_no_linked_accounts(
             "Safe-to-Spend, forecasting, and liquidity insights all "
             "need at least one connected account."
         ),
-        why="No linked accounts were found for this account.",
+        why="No linked accounts were found for this user.",
         recommended_action="Connect a bank account to get started.",
         confidence=None,
         source_signals=[],

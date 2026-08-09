@@ -278,7 +278,12 @@ _TOOLS = [
             "'when can I realistically finish this goal', or 'what "
             "if I move this goal's target date' questions. Omit "
             "monthly_capacity_cents if not stated by the user; it "
-            "will be estimated from real income history."
+            "will be estimated from real income history -- if you "
+            "omit it, explicitly tell the user the capacity figure "
+            "was estimated from their financial data and that they "
+            "can state a specific monthly amount instead. If the "
+            "user did state an amount and you passed it through, "
+            "never call it estimated."
         ),
         "input_schema": {
             "type": "object",
@@ -730,13 +735,26 @@ def _handle_goal_conflicts(db, user_id, tool_input, as_of, current_user):
     )
 
 
+_CAPACITY_ESTIMATED_NOTE = (
+    "Monthly capacity ({capacity}) was estimated from your recent "
+    "financial data. Tell me a specific monthly amount and I'll use "
+    "that instead."
+)
+
+
 def _handle_goal_intelligence(db, user_id, tool_input, as_of, current_user):
     tool_input = dict(tool_input)
 
     # Same fallback convention as _handle_goal_conflicts: a genuinely
     # unstated capacity is estimated from real income history rather
-    # than silently defaulting to zero.
-    if tool_input.get("monthly_capacity_cents") is None:
+    # than silently defaulting to zero. Recorded as `capacity_source`
+    # so the response can be transparent about which one happened --
+    # an estimated figure must never be presented as if the user said
+    # it, and vice versa.
+    explicit_capacity = tool_input.get("monthly_capacity_cents") is not None
+    capacity_source = "explicit" if explicit_capacity else "estimated"
+
+    if not explicit_capacity:
         tool_input["monthly_capacity_cents"] = (
             _average_monthly_income_cents(db, user_id, as_of)
         )
@@ -758,6 +776,14 @@ def _handle_goal_intelligence(db, user_id, tool_input, as_of, current_user):
         _chip(
             "Monthly capacity",
             _currency(result.total_capacity_cents),
+            tone="neutral",
+        ),
+        _chip(
+            "Capacity source",
+            "Your stated amount"
+            if capacity_source == "explicit"
+            else "Estimated",
+            kind="text",
             tone="neutral",
         ),
         _chip(
@@ -792,11 +818,25 @@ def _handle_goal_intelligence(db, user_id, tool_input, as_of, current_user):
         )
     )
 
+    # Only the estimated path needs a disclosure -- an explicitly
+    # stated capacity needs no caveat, per the product requirement to
+    # never call a user-provided figure "estimated".
+    low_data_warning = _low_data_warning(result.confidence_score)
+    if capacity_source == "estimated":
+        capacity_note = _CAPACITY_ESTIMATED_NOTE.format(
+            capacity=_currency(result.total_capacity_cents)
+        )
+        low_data_warning = (
+            f"{capacity_note} {low_data_warning}"
+            if low_data_warning
+            else capacity_note
+        )
+
     return (
         result,
         chips,
         _confidence(result.confidence_score),
-        _low_data_warning(result.confidence_score),
+        low_data_warning,
     )
 
 

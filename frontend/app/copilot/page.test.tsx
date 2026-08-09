@@ -317,6 +317,46 @@ describe("Copilot page", () => {
     );
   });
 
+  it("renders an auto-derived capacity source chip and transparency note", async () => {
+    mocks.sendCopilotChat.mockResolvedValue({
+      ...answerResponse,
+      answer: "Emergency Fund is your most urgent goal.",
+      tool_used: "Goal Intelligence",
+      key_numbers: [
+        {
+          label: "Capacity source",
+          value_display: "Estimated",
+          kind: "text",
+          tone: "neutral",
+        },
+      ],
+      low_data_warning:
+        "Monthly capacity ($675.11) was estimated from your recent financial data. Tell me a specific monthly amount and I'll use that instead.",
+    });
+
+    render(<CopilotPage />);
+
+    const input = await screen.findByLabelText("Message");
+    fireEvent.change(input, {
+      target: { value: "Which goal is most urgent?" },
+    });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Emergency Fund is your most urgent goal.")
+      ).toBeInTheDocument()
+    );
+
+    expect(screen.getByText("Capacity source")).toBeInTheDocument();
+    expect(screen.getByText("Estimated")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Monthly capacity ($675.11) was estimated from your recent financial data. Tell me a specific monthly amount and I'll use that instead."
+      )
+    ).toBeInTheDocument();
+  });
+
   it("keeps prior turns visible across multiple exchanges", async () => {
     mocks.sendCopilotChat.mockResolvedValue(answerResponse);
 

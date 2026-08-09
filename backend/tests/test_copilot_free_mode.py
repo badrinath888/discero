@@ -889,6 +889,120 @@ def test_shortfall_cause_goal_question_works_without_key() -> None:
         assert "Far Goal" in (result.answer or "")
 
 
+def test_auto_derived_capacity_is_labeled_estimated() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _two_goal_conflict_setup(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Which goal is most urgent?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        source_chip = next(
+            c for c in result.key_numbers if c.label == "Capacity source"
+        )
+        assert source_chip.value_display == "Estimated"
+
+        # A concise, structured transparency note must accompany an
+        # auto-derived capacity.
+        assert result.low_data_warning is not None
+        assert "estimated from your recent financial data" in (
+            result.low_data_warning
+        )
+        assert "Tell me a specific monthly amount" in (
+            result.low_data_warning
+        )
+
+
+def test_explicit_capacity_is_labeled_explicit_not_estimated() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _two_goal_conflict_setup(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages(
+                "I can save $500 per month. Which goal is most urgent?"
+            ),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        source_chip = next(
+            c for c in result.key_numbers if c.label == "Capacity source"
+        )
+        assert source_chip.value_display == "Your stated amount"
+
+        capacity_chip = next(
+            c for c in result.key_numbers if c.label == "Monthly capacity"
+        )
+        assert capacity_chip.value_display == "$500.00"
+
+        # No path may call the user's own stated figure "estimated".
+        assert "estimated" not in (result.low_data_warning or "").lower()
+        assert "estimated" not in (result.answer or "").lower()
+        assert "estimated" not in (result.why or "").lower()
+
+
+def test_capacity_transparency_applies_to_shortfall_cause_question() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _two_goal_conflict_setup(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Which goal is causing my shortfall?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        source_chip = next(
+            c for c in result.key_numbers if c.label == "Capacity source"
+        )
+        assert source_chip.value_display == "Estimated"
+        assert "estimated from your recent financial data" in (
+            result.low_data_warning or ""
+        )
+
+
+def test_capacity_transparency_applies_to_required_monthly_question() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _two_goal_conflict_setup(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("How much should I save per month for my goals?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        source_chip = next(
+            c for c in result.key_numbers if c.label == "Capacity source"
+        )
+        assert source_chip.value_display == "Estimated"
+        assert "estimated from your recent financial data" in (
+            result.low_data_warning or ""
+        )
+
+
 def test_required_monthly_goal_question_works_without_key() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db)

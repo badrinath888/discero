@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GoalContribution, SavingsGoal } from "../lib/api";
+import type { GoalContribution, GoalIntelligence, SavingsGoal } from "../lib/api";
 import GoalsPage from "./page";
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getSavingsGoals: vi.fn(),
   getGoalContributions: vi.fn(),
   createGoalContribution: vi.fn(),
+  getGoalIntelligence: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
   clearSession: vi.fn(),
@@ -81,6 +82,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       getSavingsGoals: mocks.getSavingsGoals,
       getGoalContributions: mocks.getGoalContributions,
       createGoalContribution: mocks.createGoalContribution,
+      getGoalIntelligence: mocks.getGoalIntelligence,
     },
     session: {
       ...actual.session,
@@ -189,6 +191,56 @@ describe("goals contribution submission", () => {
     expect(
       screen.queryByText("Unable to save contribution")
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("goal intelligence panel", () => {
+  it("shows per-goal urgency, gap, and feasible target date after analyzing", async () => {
+    await renderPage();
+
+    const intelligence: GoalIntelligence = {
+      as_of: "2026-08-08",
+      conflict_status: "conflict",
+      total_capacity_cents: 50_000,
+      total_required_cents: 200_000,
+      total_shortfall_cents: 150_000,
+      largest_pressure_goal_id: 1,
+      confidence_score: 90,
+      explanation: "Your goals require more than your current capacity.",
+      suggestions: ["Increase monthly savings by $1,500.00."],
+      goals: [
+        {
+          goal_id: 1,
+          name: "Emergency fund",
+          target_amount_cents: 500_000,
+          saved_amount_cents: 100_000,
+          remaining_amount_cents: 400_000,
+          target_date: "2026-12-08",
+          months_remaining: 4,
+          required_monthly_cents: 100_000,
+          allocated_monthly_cents: 50_000,
+          monthly_gap_cents: 50_000,
+          status: "conflict",
+          projected_completion_date: "2027-02-08",
+          suggested_feasible_target_date: "2027-02-08",
+          urgency_rank: 1,
+          confidence_score: 90,
+          explanation: "Emergency fund needs $1,000.00/month.",
+        },
+      ],
+    };
+    mocks.getGoalIntelligence.mockResolvedValue(intelligence);
+
+    fireEvent.change(screen.getByPlaceholderText("1000.00"), {
+      target: { value: "500" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Analyze my goals" }));
+
+    expect(await screen.findByText("Most urgent")).toBeInTheDocument();
+    expect(
+      screen.getByText("Largest contributor to shortfall")
+    ).toBeInTheDocument();
+    expect(mocks.getGoalIntelligence).toHaveBeenCalledWith(1, 50_000);
   });
 });
 

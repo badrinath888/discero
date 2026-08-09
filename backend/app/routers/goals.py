@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,10 +11,12 @@ from app.schemas import (
     GoalContributionCreate,
     GoalContributionOut,
     GoalContributionUpdate,
+    GoalIntelligenceOut,
     SavingsGoalCreate,
     SavingsGoalOut,
     SavingsGoalUpdate,
 )
+from app.services.goal_intelligence_service import evaluate_goal_intelligence
 
 router = APIRouter(
     prefix="/users/{user_id}/goals",
@@ -169,6 +171,23 @@ def list_goals(
     ).all()
 
     return [_goal_out(goal) for goal in goals]
+
+
+@router.get(
+    "/intelligence",
+    response_model=GoalIntelligenceOut,
+)
+def get_goal_intelligence(
+    user_id: int,
+    monthly_capacity_cents: int | None = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> GoalIntelligenceOut:
+    _authorize_user(user_id, current_user)
+
+    return evaluate_goal_intelligence(
+        db, user_id, monthly_capacity_cents=monthly_capacity_cents
+    )
 
 
 @router.post(

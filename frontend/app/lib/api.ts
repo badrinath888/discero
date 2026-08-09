@@ -463,6 +463,44 @@ export type MajorPurchaseSimulationResult = {
   goal_impacts: GoalImpact[];
 };
 
+export type BuyNowVsWaitRequest = {
+  purchase_name: string;
+  purchase_amount_cents: number;
+  buy_now_date: string;
+  wait_until_date: string;
+  safety_reserve_cents: number;
+  essential_spending_cents: number;
+  horizon_days: number;
+};
+
+export type BuyNowVsWaitOption = {
+  label: "now" | "wait";
+  evaluated_date: string;
+  simulation: MajorPurchaseSimulationResult;
+};
+
+export type BuyNowVsWaitResult = {
+  purchase_name: string;
+  purchase_amount_cents: number;
+  buy_now_date: string;
+  wait_until_date: string;
+  now: BuyNowVsWaitOption;
+  wait: BuyNowVsWaitOption;
+  recommended_timing: "buy_now" | "wait" | "either" | "neither";
+  reason: string;
+  key_driver:
+    | "affordability"
+    | "buffer"
+    | "goal_impact"
+    | "confidence"
+    | "equivalent";
+  buffer_difference_cents: number;
+  goal_impact_note: string | null;
+  confidence_difference: number;
+  assumption: string;
+  caveat: string | null;
+};
+
 export type ScenarioComparisonRequest = {
   option_a: MajorPurchaseSimulationRequest;
   option_b: MajorPurchaseSimulationRequest;
@@ -697,6 +735,45 @@ export type GoalConflictDetection = {
   warnings: string[];
 };
 
+export type GoalIntelligenceStatus =
+  | "on_track"
+  | "at_risk"
+  | "conflict"
+  | "completed"
+  | "no_deadline";
+
+export type GoalIntelligenceGoal = {
+  goal_id: number;
+  name: string;
+  target_amount_cents: number;
+  saved_amount_cents: number;
+  remaining_amount_cents: number;
+  target_date: string | null;
+  months_remaining: number | null;
+  required_monthly_cents: number;
+  allocated_monthly_cents: number;
+  monthly_gap_cents: number;
+  status: GoalIntelligenceStatus;
+  projected_completion_date: string | null;
+  suggested_feasible_target_date: string | null;
+  urgency_rank: number | null;
+  confidence_score: number;
+  explanation: string;
+};
+
+export type GoalIntelligence = {
+  as_of: string;
+  conflict_status: "no_conflict" | "strained" | "conflict";
+  total_capacity_cents: number;
+  total_required_cents: number;
+  total_shortfall_cents: number;
+  largest_pressure_goal_id: number | null;
+  confidence_score: number;
+  explanation: string;
+  suggestions: string[];
+  goals: GoalIntelligenceGoal[];
+};
+
 export type CopilotMessage = {
   role: "user" | "assistant";
   content: string;
@@ -776,7 +853,8 @@ export type RecommendationsResult = {
 export type DecisionType =
   | "major_purchase"
   | "scenario_comparison"
-  | "stress_test";
+  | "stress_test"
+  | "buy_now_vs_wait";
 
 export type SaveDecisionRequest = {
   decision_type: DecisionType;
@@ -1306,6 +1384,19 @@ compareMajorPurchaseScenarios: (
     }
   ).then((res) => handle<ScenarioComparisonResult>(res)),
 
+evaluateBuyNowVsWait: (
+  userId: number,
+  payload: BuyNowVsWaitRequest
+): Promise<BuyNowVsWaitResult> =>
+  fetchWithTimeout(
+    `${API_URL}/users/${userId}/major-purchase/buy-now-vs-wait`,
+    {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }
+  ).then((res) => handle<BuyNowVsWaitResult>(res)),
+
 runFinancialStressTest: (
   userId: number,
   payload: FinancialStressTestRequest
@@ -1401,6 +1492,20 @@ runFinancialStressTest: (
       headers: authHeaders(),
     }).then((res) => handle<SavingsGoal[]>(res)),
 
+  getGoalIntelligence: (
+    userId: number,
+    monthlyCapacityCents?: number
+  ): Promise<GoalIntelligence> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/goals/intelligence${
+        monthlyCapacityCents != null
+          ? `?monthly_capacity_cents=${monthlyCapacityCents}`
+          : ""
+      }`,
+      {
+        headers: authHeaders(),
+      }
+    ).then((res) => handle<GoalIntelligence>(res)),
 
   detectGoalConflicts: (
     userId: number,

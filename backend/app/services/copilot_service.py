@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.models import PlaidItem, SavingsGoal, User
 from app.schemas import (
+    BuyNowVsWaitRequest,
     CopilotConfidenceOut,
     CopilotMessageIn,
     CopilotMetricOut,
@@ -40,12 +41,14 @@ from app.schemas import (
     SafeToSpendRequest,
     ScenarioComparisonRequest,
 )
+from app.services.buy_now_vs_wait_service import evaluate_buy_now_vs_wait
 from app.services.financial_stress_test_service import (
     run_financial_stress_test,
 )
 from app.services.goal_conflict_detection_service import (
     detect_goal_conflicts,
 )
+from app.services.goal_intelligence_service import evaluate_goal_intelligence
 from app.services.major_purchase_service import (
     _average_monthly_income_cents,
     simulate_major_purchase,
@@ -90,9 +93,14 @@ _STATUS_TONE = {
     "unfunded": "danger",
     "impossible": "danger",
     "completed": "positive",
+    "no_deadline": "neutral",
     "high": "positive",
     "medium": "warning",
     "low": "danger",
+    "buy_now": "positive",
+    "wait": "positive",
+    "either": "neutral",
+    "neither": "danger",
 }
 
 
@@ -259,6 +267,51 @@ _TOOLS = [
         "input_schema": _tool_schema(GoalConflictDetectionRequest),
     },
     {
+        "name": "get_goal_intelligence",
+        "description": (
+            "Get detailed per-goal intelligence: which goal is most "
+            "urgent, which goal is causing a savings shortfall, each "
+            "goal's required monthly contribution, on-track/at-risk "
+            "status, and a realistic projected completion date. Use "
+            "for 'which goal is most urgent', 'which goal is causing "
+            "my shortfall', 'how much should I save for this goal', "
+            "'when can I realistically finish this goal', or 'what "
+            "if I move this goal's target date' questions. Omit "
+            "monthly_capacity_cents if not stated by the user; it "
+            "will be estimated from real income history."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "monthly_capacity_cents": {
+                    "type": ["integer", "null"],
+                    "description": (
+                        "Monthly savings capacity in cents, if "
+                        "stated by the user."
+                    ),
+                }
+            },
+        },
+    },
+    {
+        "name": "buy_now_vs_wait",
+        "description": (
+            "Compare buying a specific purchase NOW versus WAITING "
+            "until a later date: affordability, safe-to-spend, goal "
+            "impact, and confidence for both timings, with a "
+            "deterministic recommendation. Use for 'should I buy "
+            "this now or wait until X', 'what if I wait a month', or "
+            "'when is the safest time to buy this' questions. All "
+            "*_cents fields must be in CENTS. The WAIT figures "
+            "project today's known balances and obligations forward "
+            "to that date -- they are NOT a forecast of actual "
+            "future income or spending. Always relay the result's "
+            "`assumption` field to the user; never describe the WAIT "
+            "result as a real future forecast."
+        ),
+        "input_schema": _tool_schema(BuyNowVsWaitRequest),
+    },
+    {
         "name": "get_cash_flow_forecast",
         "description": (
             "Get the projected month-end balance, expected income, "
@@ -409,6 +462,8 @@ _TOOL_LABELS = {
     "compare_purchase_scenarios": "Scenario Comparison",
     "run_stress_test": "Financial Stress Test",
     "check_goal_conflicts": "Goal Conflict Check",
+    "get_goal_intelligence": "Goal Intelligence",
+    "buy_now_vs_wait": "Buy Now vs Wait",
     "get_cash_flow_forecast": "Cash-Flow Forecast",
     "get_monthly_insights": "Monthly Insights",
     "get_recommendations": "Recommendations",
@@ -675,6 +730,123 @@ def _handle_goal_conflicts(db, user_id, tool_input, as_of, current_user):
     )
 
 
+def _handle_goal_intelligence(db, user_id, tool_input, as_of, current_user):
+    tool_input = dict(tool_input)
+
+    # Same fallback convention as _handle_goal_conflicts: a genuinely
+    # unstated capacity is estimated from real income history rather
+    # than silently defaulting to zero.
+    if tool_input.get("monthly_capacity_cents") is None:
+        tool_input["monthly_capacity_cents"] = (
+            _average_monthly_income_cents(db, user_id, as_of)
+        )
+
+    result = evaluate_goal_intelligence(
+        db,
+        user_id,
+        monthly_capacity_cents=tool_input["monthly_capacity_cents"],
+        as_of=as_of,
+    )
+
+    chips = [
+        _chip(
+            "Status",
+            result.conflict_status.replace("_", " ").title(),
+            kind="text",
+            tone=_tone(result.conflict_status),
+        ),
+        _chip(
+            "Monthly capacity",
+            _currency(result.total_capacity_cents),
+            tone="neutral",
+        ),
+        _chip(
+            "Required monthly",
+            _currency(result.total_required_cents),
+            tone="neutral",
+        ),
+        _chip(
+            "Shortfall",
+            _currency(result.total_shortfall_cents),
+            tone="danger" if result.total_shortfall_cents else "positive",
+        ),
+    ]
+
+    urgent = next((g for g in result.goals if g.urgency_rank == 1), None)
+    if urgent:
+        chips.append(
+            _chip(
+                "Most urgent",
+                urgent.name,
+                kind="text",
+                tone=_tone(urgent.status),
+            )
+        )
+
+    chips.append(
+        _chip(
+            "Confidence",
+            f"{round(result.confidence_score)}%",
+            kind="score",
+            tone=_tone(_confidence_level(result.confidence_score)),
+        )
+    )
+
+    return (
+        result,
+        chips,
+        _confidence(result.confidence_score),
+        _low_data_warning(result.confidence_score),
+    )
+
+
+def _handle_buy_now_vs_wait(db, user_id, tool_input, as_of, current_user):
+    payload = BuyNowVsWaitRequest(**tool_input)
+    result = evaluate_buy_now_vs_wait(db, user_id, payload, as_of=as_of)
+
+    chips = [
+        _chip(
+            "Recommendation",
+            result.recommended_timing.replace("_", " ").title(),
+            kind="text",
+            tone=_tone(result.recommended_timing),
+        ),
+        _chip(
+            "Now: safe to spend after",
+            _currency(
+                result.now.simulation.safe_to_spend_after_purchase_cents
+            ),
+        ),
+        _chip(
+            "Wait: safe to spend after",
+            _currency(
+                result.wait.simulation.safe_to_spend_after_purchase_cents
+            ),
+        ),
+        _chip(
+            "Buffer difference",
+            _currency(result.buffer_difference_cents),
+            tone=(
+                "positive"
+                if result.buffer_difference_cents >= 0
+                else "danger"
+            ),
+        ),
+    ]
+
+    confidence_score = min(
+        result.now.simulation.confidence_score,
+        result.wait.simulation.confidence_score,
+    )
+
+    return (
+        result,
+        chips,
+        _confidence(confidence_score),
+        result.caveat,
+    )
+
+
 def _handle_cash_flow_forecast(
     db, user_id, tool_input, as_of, current_user
 ):
@@ -795,6 +967,8 @@ _TOOL_HANDLERS = {
     "compare_purchase_scenarios": _handle_compare_scenarios,
     "run_stress_test": _handle_stress_test,
     "check_goal_conflicts": _handle_goal_conflicts,
+    "get_goal_intelligence": _handle_goal_intelligence,
+    "buy_now_vs_wait": _handle_buy_now_vs_wait,
     "get_cash_flow_forecast": _handle_cash_flow_forecast,
     "get_monthly_insights": _handle_monthly_insights,
     "get_recommendations": _handle_recommendations,

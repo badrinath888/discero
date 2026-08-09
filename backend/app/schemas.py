@@ -890,6 +890,53 @@ class MajorPurchaseSimulationOut(BaseModel):
     goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
 
 
+class BuyNowVsWaitRequest(BaseModel):
+    purchase_name: str = Field(min_length=1, max_length=120)
+    purchase_amount_cents: int = Field(gt=0)
+    buy_now_date: date
+    wait_until_date: date
+    safety_reserve_cents: int = Field(default=0, ge=0)
+    essential_spending_cents: int = Field(default=0, ge=0)
+    horizon_days: int = Field(default=30, ge=1, le=90)
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> "BuyNowVsWaitRequest":
+        if self.wait_until_date <= self.buy_now_date:
+            raise ValueError(
+                "wait_until_date must be after buy_now_date"
+            )
+        return self
+
+
+class BuyNowVsWaitOptionOut(BaseModel):
+    label: Literal["now", "wait"]
+    evaluated_date: date
+    simulation: MajorPurchaseSimulationOut
+
+
+class BuyNowVsWaitOut(BaseModel):
+    purchase_name: str
+    purchase_amount_cents: int
+    buy_now_date: date
+    wait_until_date: date
+    now: BuyNowVsWaitOptionOut
+    wait: BuyNowVsWaitOptionOut
+    recommended_timing: Literal["buy_now", "wait", "either", "neither"]
+    reason: str
+    key_driver: Literal[
+        "affordability",
+        "buffer",
+        "goal_impact",
+        "confidence",
+        "equivalent",
+    ]
+    buffer_difference_cents: int
+    goal_impact_note: str | None
+    confidence_difference: float
+    assumption: str
+    caveat: str | None
+
+
 class ScenarioComparisonRequest(BaseModel):
     option_a: MajorPurchaseSimulationRequest
     option_b: MajorPurchaseSimulationRequest
@@ -1098,6 +1145,48 @@ class GoalConflictDetectionOut(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class GoalIntelligenceGoalOut(BaseModel):
+    goal_id: int
+    name: str
+    target_amount_cents: int
+    saved_amount_cents: int
+    remaining_amount_cents: int
+    target_date: date | None
+    months_remaining: int | None
+    required_monthly_cents: int
+    allocated_monthly_cents: int
+    monthly_gap_cents: int
+    status: Literal[
+        "on_track",
+        "at_risk",
+        "conflict",
+        "completed",
+        "no_deadline",
+    ]
+    projected_completion_date: date | None
+    suggested_feasible_target_date: date | None
+    urgency_rank: int | None
+    confidence_score: float
+    explanation: str
+
+
+class GoalIntelligenceOut(BaseModel):
+    as_of: date
+    conflict_status: Literal[
+        "no_conflict",
+        "strained",
+        "conflict",
+    ]
+    total_capacity_cents: int
+    total_required_cents: int
+    total_shortfall_cents: int
+    largest_pressure_goal_id: int | None
+    confidence_score: float
+    explanation: str
+    suggestions: list[str]
+    goals: list[GoalIntelligenceGoalOut]
+
+
 class CopilotMessageIn(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1, max_length=4000)
@@ -1187,7 +1276,7 @@ class RecommendationsOut(BaseModel):
 
 
 DecisionType = Literal[
-    "major_purchase", "scenario_comparison", "stress_test"
+    "major_purchase", "scenario_comparison", "stress_test", "buy_now_vs_wait"
 ]
 
 

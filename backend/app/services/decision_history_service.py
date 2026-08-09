@@ -17,11 +17,13 @@ from sqlalchemy.orm import Session
 
 from app.models import SavedDecision
 from app.schemas import (
+    BuyNowVsWaitRequest,
     FinancialStressTestRequest,
     MajorPurchaseSimulationRequest,
     SaveDecisionRequest,
     ScenarioComparisonRequest,
 )
+from app.services.buy_now_vs_wait_service import evaluate_buy_now_vs_wait
 from app.services.financial_stress_test_service import (
     run_financial_stress_test,
 )
@@ -36,6 +38,7 @@ _REQUEST_MODELS: dict[str, type[BaseModel]] = {
     "major_purchase": MajorPurchaseSimulationRequest,
     "scenario_comparison": ScenarioComparisonRequest,
     "stress_test": FinancialStressTestRequest,
+    "buy_now_vs_wait": BuyNowVsWaitRequest,
 }
 
 
@@ -48,6 +51,8 @@ def _run(db: Session, user_id: int, decision_type: str, payload, as_of: date):
         )
     if decision_type == "stress_test":
         return run_financial_stress_test(db, user_id, payload, as_of=as_of)
+    if decision_type == "buy_now_vs_wait":
+        return evaluate_buy_now_vs_wait(db, user_id, payload, as_of=as_of)
     raise ValueError(f"unknown decision_type: {decision_type}")
 
 

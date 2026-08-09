@@ -9,6 +9,7 @@ import {
   CalendarDays,
   CheckCircle2,
   CircleAlert,
+  Clock,
   Gauge,
   GitCompareArrows,
   Lightbulb,
@@ -25,6 +26,8 @@ import GoalImpactList from "../components/GoalImpactList";
 import { PageReveal, Reveal } from "../components/PremiumMotion";
 import {
   api,
+  BuyNowVsWaitRequest,
+  BuyNowVsWaitResult,
   DecisionType,
   FinancialStressScenarioType,
   FinancialStressTestRequest,
@@ -38,7 +41,7 @@ import {
   session,
 } from "../lib/api";
 
-type DecisionMode = "single" | "compare" | "stress";
+type DecisionMode = "single" | "compare" | "stress" | "buy_now_wait";
 
 const SCENARIO_OPTIONS: {
   value: FinancialStressScenarioType;
@@ -213,6 +216,32 @@ const RISK_CONTENT = {
   },
 } as const;
 
+const TIMING_CONTENT: Record<
+  BuyNowVsWaitResult["recommended_timing"],
+  { label: string; className: string; icon: typeof CheckCircle2 }
+> = {
+  buy_now: {
+    label: "Buy now",
+    className: "bg-[#dff6c7] text-[#315d31]",
+    icon: CheckCircle2,
+  },
+  wait: {
+    label: "Wait",
+    className: "bg-[#dff6c7] text-[#315d31]",
+    icon: Clock,
+  },
+  either: {
+    label: "Either works",
+    className: "bg-[#f5d66f] text-[#66500f]",
+    icon: Scale,
+  },
+  neither: {
+    label: "Neither works right now",
+    className: "bg-[#f0b8a8] text-[#7b3528]",
+    icon: CircleAlert,
+  },
+};
+
 const SEVERITY_CONTENT: Record<
   FinancialStressTestResult["severity"],
   { label: string; className: string }
@@ -267,18 +296,28 @@ export default function DecisionsPage() {
     toDateInputValue(addDays(today, 7))
   );
   const [durationDays, setDurationDays] = useState("");
+  const [waitPurchaseName, setWaitPurchaseName] = useState("New laptop");
+  const [waitPurchaseAmount, setWaitPurchaseAmount] = useState("2000");
+  const [buyNowDate, setBuyNowDate] = useState(toDateInputValue(today));
+  const [waitUntilDate, setWaitUntilDate] = useState(
+    toDateInputValue(addDays(today, 30))
+  );
   const [result, setResult] =
     useState<MajorPurchaseSimulationResult | null>(null);
   const [compareResult, setCompareResult] =
     useState<ScenarioComparisonResult | null>(null);
   const [stressResult, setStressResult] =
     useState<FinancialStressTestResult | null>(null);
+  const [buyNowVsWaitResult, setBuyNowVsWaitResult] =
+    useState<BuyNowVsWaitResult | null>(null);
   const [lastPurchaseInput, setLastPurchaseInput] =
     useState<MajorPurchaseSimulationRequest | null>(null);
   const [lastComparisonInput, setLastComparisonInput] =
     useState<ScenarioComparisonRequest | null>(null);
   const [lastStressInput, setLastStressInput] =
     useState<FinancialStressTestRequest | null>(null);
+  const [lastBuyNowVsWaitInput, setLastBuyNowVsWaitInput] =
+    useState<BuyNowVsWaitRequest | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [simulating, setSimulating] = useState(false);
   const [error, setError] = useState("");
@@ -337,6 +376,7 @@ export default function DecisionsPage() {
     setResult(null);
     setCompareResult(null);
     setStressResult(null);
+    setBuyNowVsWaitResult(null);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -361,6 +401,11 @@ export default function DecisionsPage() {
       }
     }
 
+    if (mode === "buy_now_wait" && waitUntilDate <= buyNowDate) {
+      setError("The wait date must be after the buy-now date.");
+      return;
+    }
+
     setError("");
     setSimulating(true);
 
@@ -383,6 +428,7 @@ export default function DecisionsPage() {
         setResult(data);
         setCompareResult(null);
         setStressResult(null);
+        setBuyNowVsWaitResult(null);
         setLastPurchaseInput(payload);
       } else if (mode === "compare") {
         const payload: ScenarioComparisonRequest = {
@@ -407,7 +453,23 @@ export default function DecisionsPage() {
         setCompareResult(data);
         setResult(null);
         setStressResult(null);
+        setBuyNowVsWaitResult(null);
         setLastComparisonInput(payload);
+      } else if (mode === "buy_now_wait") {
+        const payload: BuyNowVsWaitRequest = {
+          purchase_name: waitPurchaseName.trim(),
+          purchase_amount_cents: dollarsToCents(waitPurchaseAmount),
+          buy_now_date: buyNowDate,
+          wait_until_date: waitUntilDate,
+          ...sharedSettings,
+        };
+        const data = await api.evaluateBuyNowVsWait(userId, payload);
+
+        setBuyNowVsWaitResult(data);
+        setResult(null);
+        setCompareResult(null);
+        setStressResult(null);
+        setLastBuyNowVsWaitInput(payload);
       } else {
         const payload: FinancialStressTestRequest = {
           scenario_type: scenarioType,
@@ -436,11 +498,13 @@ export default function DecisionsPage() {
         setStressResult(data);
         setResult(null);
         setCompareResult(null);
+        setBuyNowVsWaitResult(null);
       }
     } catch (err) {
       setResult(null);
       setCompareResult(null);
       setStressResult(null);
+      setBuyNowVsWaitResult(null);
       setError(
         err instanceof Error
           ? err.message
@@ -448,7 +512,9 @@ export default function DecisionsPage() {
             ? "Unable to simulate this purchase"
             : mode === "compare"
               ? "Unable to compare these options"
-              : "Unable to run this stress test"
+              : mode === "buy_now_wait"
+                ? "Unable to compare buy now vs wait"
+                : "Unable to run this stress test"
       );
     } finally {
       setSimulating(false);
@@ -461,6 +527,9 @@ export default function DecisionsPage() {
   const riskContent =
     RISK_CONTENT[stressResult?.risk_level ?? "resilient"];
   const RiskIcon = riskContent.icon;
+  const timingContent =
+    TIMING_CONTENT[buyNowVsWaitResult?.recommended_timing ?? "either"];
+  const TimingIcon = timingContent.icon;
 
   return (
     <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
@@ -477,13 +546,17 @@ export default function DecisionsPage() {
               <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
                 {mode === "stress"
                   ? "Financial stress test"
-                  : "Major purchase simulator"}
+                  : mode === "buy_now_wait"
+                    ? "Buy now vs wait"
+                    : "Major purchase simulator"}
               </h1>
 
               <p className="mt-3 max-w-3xl text-sm leading-6 text-[#66746e]">
                 {mode === "stress"
                   ? "Model how an emergency expense, income loss, delayed paycheck, or bill increase would affect your safe-to-spend position."
-                  : "Test a purchase before making it. FinSight compares the cost with your liquid balance, active obligations, safety reserve, and essential spending."}
+                  : mode === "buy_now_wait"
+                    ? "Compare buying a purchase today against waiting until a later date, and see which timing leaves you better off."
+                    : "Test a purchase before making it. FinSight compares the cost with your liquid balance, active obligations, safety reserve, and essential spending."}
               </p>
 
               <div
@@ -500,6 +573,11 @@ export default function DecisionsPage() {
                     active={mode === "compare"}
                     onClick={() => handleModeChange("compare")}
                     label="Compare options"
+                  />
+                  <ModeButton
+                    active={mode === "buy_now_wait"}
+                    onClick={() => handleModeChange("buy_now_wait")}
+                    label="Buy now vs wait"
                   />
                   <ModeButton
                     active={mode === "stress"}
@@ -531,6 +609,8 @@ export default function DecisionsPage() {
                       <BadgeDollarSign className="h-5 w-5" />
                     ) : mode === "compare" ? (
                       <GitCompareArrows className="h-5 w-5" />
+                    ) : mode === "buy_now_wait" ? (
+                      <Clock className="h-5 w-5" />
                     ) : (
                       <Activity className="h-5 w-5" />
                     )}
@@ -545,7 +625,9 @@ export default function DecisionsPage() {
                         ? "What are you planning to buy?"
                         : mode === "compare"
                           ? "Which options should FinSight compare?"
-                          : "What financial shock do you want to test?"}
+                          : mode === "buy_now_wait"
+                            ? "Should you buy now or wait?"
+                            : "What financial shock do you want to test?"}
                     </h2>
                   </div>
                 </div>
@@ -612,6 +694,41 @@ export default function DecisionsPage() {
                           to both options.
                         </p>
                       </div>
+                    </>
+                  ) : mode === "buy_now_wait" ? (
+                    <>
+                      <Field
+                        label="Purchase name"
+                        value={waitPurchaseName}
+                        onChange={setWaitPurchaseName}
+                        placeholder="New laptop"
+                        required
+                      />
+
+                      <Field
+                        label="Purchase amount"
+                        value={waitPurchaseAmount}
+                        onChange={setWaitPurchaseAmount}
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        prefix="$"
+                        required
+                      />
+
+                      <DateField
+                        label="Buy now date"
+                        value={buyNowDate}
+                        min={toDateInputValue(today)}
+                        onChange={setBuyNowDate}
+                      />
+
+                      <DateField
+                        label="Wait until date"
+                        value={waitUntilDate}
+                        min={toDateInputValue(addDays(today, 1))}
+                        onChange={setWaitUntilDate}
+                      />
                     </>
                   ) : (
                     <>
@@ -791,12 +908,16 @@ export default function DecisionsPage() {
                       ? "Running simulation..."
                       : mode === "compare"
                         ? "Comparing options..."
-                        : "Running stress test..."
+                        : mode === "buy_now_wait"
+                          ? "Comparing timing..."
+                          : "Running stress test..."
                     : mode === "single"
                       ? "Simulate purchase"
                       : mode === "compare"
                         ? "Run comparison"
-                        : "Run stress test"}
+                        : mode === "buy_now_wait"
+                          ? "Compare timing"
+                          : "Run stress test"}
                   {!simulating && <ArrowRight className="h-4 w-4" />}
                 </button>
               </form>
@@ -845,6 +966,30 @@ export default function DecisionsPage() {
                   <EmptyState
                     title="Compare two purchase paths"
                     description="Enter two options with shared assumptions to see which leaves you in a safer financial position."
+                  />
+                )
+              ) : mode === "buy_now_wait" ? (
+                buyNowVsWaitResult ? (
+                  <div className="space-y-3">
+                    <BuyNowVsWaitResults
+                      result={buyNowVsWaitResult}
+                      timingContent={timingContent}
+                      TimingIcon={TimingIcon}
+                    />
+                    {userId !== null && lastBuyNowVsWaitInput && (
+                      <SaveDecisionButton
+                        userId={userId}
+                        decisionType="buy_now_vs_wait"
+                        defaultTitle={`${buyNowVsWaitResult.purchase_name}: now or wait?`}
+                        input={lastBuyNowVsWaitInput}
+                        onSaved={scrollToTopControls}
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="Should you buy now or wait?"
+                    description="Enter a purchase and a wait date to see affordability, buffer, and goal impact for both timings, plus a clear recommendation."
                   />
                 )
               ) : stressResult ? (
@@ -1600,6 +1745,192 @@ function ScorecardTotal({
         />
       </div>
     </div>
+  );
+}
+
+function formatDateLong(value: string): string {
+  return new Date(`${value}T00:00:00`).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function BuyNowVsWaitResults({
+  result,
+  timingContent,
+  TimingIcon,
+}: {
+  result: BuyNowVsWaitResult;
+  timingContent: (typeof TIMING_CONTENT)[keyof typeof TIMING_CONTENT];
+  TimingIcon: typeof CheckCircle2;
+}) {
+  return (
+    <div className="space-y-6">
+      <article className="relative overflow-hidden rounded-[30px] border border-[#167c5a]/20 bg-[#14241e] p-6 text-white shadow-[0_18px_50px_rgba(20,36,30,0.08)] sm:p-8">
+        <div className="flex items-start gap-4">
+          <span
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${timingContent.className}`}
+          >
+            <TimingIcon className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+              Recommendation
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] sm:text-3xl">
+              {timingContent.label}
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-white/60">
+              {result.reason}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-5 border-t border-white/10 pt-6 sm:grid-cols-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/35">
+              Why
+            </p>
+            <p className="mt-2 text-sm leading-6 text-white/70">
+              {formatCents(result.buffer_difference_cents)} difference in
+              remaining buffer between the two timings.
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/35">
+              What changes
+            </p>
+            <p className="mt-2 text-sm leading-6 text-white/70">
+              {result.goal_impact_note ??
+                "Your goal timeline is unaffected either way."}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.045] p-4">
+          <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-[#83dcb9]" />
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/40">
+              How the wait estimate works
+            </p>
+            <p className="mt-1 text-xs leading-5 text-white/60">
+              {result.assumption}
+            </p>
+          </div>
+        </div>
+
+        {result.caveat && (
+          <div className="mt-4 flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.045] p-4">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-[#f4a594]" />
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/40">
+                What this means
+              </p>
+              <p className="mt-1 text-xs leading-5 text-white/60">
+                {result.caveat}
+              </p>
+            </div>
+          </div>
+        )}
+      </article>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <BuyNowVsWaitOptionCard
+          title="Buy now"
+          dateLabel={formatDateLong(result.now.evaluated_date)}
+          option={result.now}
+          highlighted={result.recommended_timing === "buy_now"}
+        />
+        <BuyNowVsWaitOptionCard
+          title="Wait"
+          dateLabel={formatDateLong(result.wait.evaluated_date)}
+          option={result.wait}
+          highlighted={result.recommended_timing === "wait"}
+        />
+      </div>
+    </div>
+  );
+}
+
+function BuyNowVsWaitOptionCard({
+  title,
+  dateLabel,
+  option,
+  highlighted,
+}: {
+  title: string;
+  dateLabel: string;
+  option: BuyNowVsWaitResult["now"];
+  highlighted: boolean;
+}) {
+  const simulation = option.simulation;
+  const status = STATUS_CONTENT[simulation.affordability_status];
+  const StatusIcon = status.icon;
+
+  return (
+    <article
+      className={`relative overflow-hidden rounded-[30px] p-6 shadow-[0_18px_50px_rgba(20,36,30,0.08)] sm:p-7 ${
+        highlighted
+          ? "border-2 border-[#83dcb9] bg-[#14241e] text-white"
+          : "border border-[#14241e]/10 bg-white text-[#14241e]"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p
+            className={`text-xs font-semibold uppercase tracking-[0.14em] ${
+              highlighted ? "text-[#83dcb9]" : "text-[#167c5a]"
+            }`}
+          >
+            {title}
+          </p>
+          <h3 className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
+            {dateLabel}
+          </h3>
+        </div>
+
+        {highlighted && (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#83dcb9]/15 px-3 py-1 text-xs font-semibold text-[#83dcb9]">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Recommended
+          </span>
+        )}
+      </div>
+
+      <span
+        className={`mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${status.className}`}
+      >
+        <StatusIcon className="h-4 w-4" />
+        {status.label}
+      </span>
+
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        <ComparisonMetric
+          label="Safe to spend after"
+          value={formatCents(
+            simulation.safe_to_spend_after_purchase_cents
+          )}
+          highlighted={highlighted}
+        />
+        <ComparisonMetric
+          label="Shortfall"
+          value={formatCents(-simulation.shortfall_after_purchase_cents)}
+          highlighted={highlighted}
+          warning={simulation.shortfall_after_purchase_cents > 0}
+        />
+        <ComparisonMetric
+          label="Impact"
+          value={`${simulation.purchase_impact_percent}%`}
+          highlighted={highlighted}
+        />
+        <ComparisonMetric
+          label="Confidence"
+          value={`${Math.round(simulation.confidence_score)}%`}
+          highlighted={highlighted}
+        />
+      </div>
+    </article>
   );
 }
 

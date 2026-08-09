@@ -5,11 +5,14 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models import User
 from app.schemas import (
+    BuyNowVsWaitOut,
+    BuyNowVsWaitRequest,
     MajorPurchaseSimulationOut,
     MajorPurchaseSimulationRequest,
     ScenarioComparisonOut,
     ScenarioComparisonRequest,
 )
+from app.services.buy_now_vs_wait_service import evaluate_buy_now_vs_wait
 from app.services.major_purchase_service import (
     simulate_major_purchase,
 )
@@ -73,6 +76,31 @@ def compare_purchase_scenarios(
 
     try:
         return compare_major_purchase_scenarios(
+            db,
+            user_id,
+            payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/buy-now-vs-wait",
+    response_model=BuyNowVsWaitOut,
+)
+def buy_now_vs_wait(
+    user_id: int,
+    payload: BuyNowVsWaitRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BuyNowVsWaitOut:
+    _authorize_user(user_id, current_user)
+
+    try:
+        return evaluate_buy_now_vs_wait(
             db,
             user_id,
             payload,

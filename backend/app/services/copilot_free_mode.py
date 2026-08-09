@@ -17,16 +17,19 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from app.schemas import CopilotMessageIn
+from app.services.goal_impact_service import _add_months
 
 CAPABILITY_EXPLANATION = (
     "I can help with questions FinSight can calculate directly from "
     "your real data: your safe-to-spend, whether you can afford a "
     "specific purchase, your monthly cash flow and savings insights, "
-    "whether your savings goals are on track, cash-flow forecasts, and "
-    "stress-testing an income drop. Try asking one of those."
+    "whether your savings goals are on track and which one is most "
+    "urgent, whether you should buy something now or wait, cash-flow "
+    "forecasts, and stress-testing an income drop. Try asking one of "
+    "those."
 )
 
 _GOAL_STATUS_RANK = {
@@ -115,6 +118,67 @@ def extract_percent(text: str) -> float | None:
     return value
 
 
+_MONTH_NAMES = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
+_MONTH_NAME_RE = re.compile(
+    r"\b(" + "|".join(_MONTH_NAMES) + r")\b", re.IGNORECASE
+)
+_RELATIVE_UNIT_RE = re.compile(
+    r"\b(\d+)\s+(day|week|month)s?\b", re.IGNORECASE
+)
+_ONE_MONTH_RE = re.compile(r"\bone month\b", re.IGNORECASE)
+_ONE_WEEK_RE = re.compile(r"\bone week\b", re.IGNORECASE)
+
+
+def extract_future_date(text: str, as_of: date) -> date | None:
+    """Deterministically resolves a future date phrase.
+
+    Supports "in N day(s)/week(s)/month(s)", "one month"/"one week",
+    and a bare month name (rolled forward to the next occurrence of
+    that month if it's already passed this year). Never guesses --
+    returns None if nothing matches.
+    """
+    match = _RELATIVE_UNIT_RE.search(text)
+    if match:
+        amount = int(match.group(1))
+        unit = match.group(2).lower()
+        if amount <= 0:
+            return None
+        if unit == "day":
+            return as_of + timedelta(days=amount)
+        if unit == "week":
+            return as_of + timedelta(days=amount * 7)
+        return _add_months(as_of, amount)
+
+    if _ONE_MONTH_RE.search(text):
+        return _add_months(as_of, 1)
+
+    if _ONE_WEEK_RE.search(text):
+        return as_of + timedelta(days=7)
+
+    month_match = _MONTH_NAME_RE.search(text)
+    if month_match:
+        month_number = _MONTH_NAMES[month_match.group(1).lower()]
+        year = as_of.year
+        if month_number <= as_of.month:
+            year += 1
+        return date(year, month_number, 1)
+
+    return None
+
+
 _MONTHLY_CADENCE_RE = re.compile(
     r"\b(per month|/\s*month|a month|each month|monthly)\b",
     re.IGNORECASE,
@@ -145,6 +209,26 @@ def extract_monthly_capacity_cents(text: str) -> tuple[bool, int | None]:
 # --- Intent classification --------------------------------------------
 
 _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "buy_now_vs_wait",
+        re.compile(
+            r"\b(now or wait|buy\w* (it |this )?now[^.?!]{0,20}\bwait\b|"
+            r"wait (until|till|for)|wait one (month|week)|safest time to "
+            r"buy|better to (buy|wait))\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "get_goal_intelligence",
+        re.compile(
+            r"\b(most urgent|which goal[^.?!]{0,40}\b(urgent|shortfall|"
+            r"causing|behind)\b|how much[^.?!]{0,30}\bsave\b[^.?!]{0,20}"
+            r"\b(month|goal)\b|when (can|will) i[^.?!]{0,20}\b(finish|"
+            r"complete|reach)\b|realistically (finish|complete)|move "
+            r"(this|the|my) goal|feasible target date)\b",
+            re.IGNORECASE,
+        ),
+    ),
     (
         "run_stress_test",
         re.compile(
@@ -215,6 +299,33 @@ def classify_intent(text: str) -> str | None:
     return None
 
 
+_URGENT_RE = re.compile(r"\bmost urgent\b", re.IGNORECASE)
+_MOVE_DATE_RE = re.compile(r"\bmove (this|the|my) goal\b", re.IGNORECASE)
+_SHORTFALL_CAUSE_RE = re.compile(
+    r"\bcausing\b|\bshortfall\b", re.IGNORECASE
+)
+_REQUIRED_MONTHLY_RE = re.compile(
+    r"how much[^.?!]{0,30}\bsave\b|per month for", re.IGNORECASE
+)
+_COMPLETION_RE = re.compile(
+    r"when (can|will) i|realistically (finish|complete)", re.IGNORECASE
+)
+
+
+def _goal_intelligence_emphasis(text: str) -> str:
+    if _URGENT_RE.search(text):
+        return "urgent"
+    if _MOVE_DATE_RE.search(text):
+        return "move_date"
+    if _SHORTFALL_CAUSE_RE.search(text):
+        return "shortfall_cause"
+    if _COMPLETION_RE.search(text):
+        return "completion"
+    if _REQUIRED_MONTHLY_RE.search(text):
+        return "required_monthly"
+    return "overview"
+
+
 def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
     if name in (
         "get_safe_to_spend",
@@ -245,6 +356,41 @@ def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
             "purchase_date": as_of.isoformat(),
         }
 
+    if name == "get_goal_intelligence":
+        # "How much should I save per month" is ASKING for the
+        # required amount, not stating an available capacity -- don't
+        # let the capacity-statement heuristic misread it as one.
+        if _REQUIRED_MONTHLY_RE.search(text):
+            return {}
+
+        stated, amount = extract_monthly_capacity_cents(text)
+        if stated and amount is None:
+            return Clarify(
+                "What's your monthly savings capacity available for "
+                'goals? (e.g. "$100 per month")'
+            )
+        if stated:
+            return {"monthly_capacity_cents": amount}
+        return {}
+
+    if name == "buy_now_vs_wait":
+        amount = extract_amount_cents(text)
+        if amount is None:
+            return Clarify("What amount are you considering?")
+
+        wait_until_date = extract_future_date(text, as_of)
+        if wait_until_date is None:
+            return Clarify(
+                "Wait until when? (e.g. \"October\" or \"in 3 weeks\")"
+            )
+
+        return {
+            "purchase_name": "This purchase",
+            "purchase_amount_cents": amount,
+            "buy_now_date": as_of.isoformat(),
+            "wait_until_date": wait_until_date.isoformat(),
+        }
+
     if name == "run_stress_test":
         percent = extract_percent(text)
         if percent is None:
@@ -269,6 +415,12 @@ _WHICH_GOAL_RE = re.compile(r"\bwhich goal|what goal\b", re.IGNORECASE)
 _FOLLOW_UP_AMOUNT_RE = re.compile(
     r"^(?:what about|how about|and|or)?\s*\$?\s*[\d][\d,]*(?:\.\d{1,2})?"
     r"\s*[kK]?\s*\??$",
+    re.IGNORECASE,
+)
+_FOLLOW_UP_DATE_RE = re.compile(
+    r"^(?:what about|how about|and|or)?\s*"
+    r"(?:" + "|".join(_MONTH_NAMES) + r"|in \d+\s*(?:day|week|month)s?|"
+    r"one (?:month|week))\s*\??$",
     re.IGNORECASE,
 )
 
@@ -322,8 +474,9 @@ def resolve_intent(
             return built
 
         if (
-            name == "check_goal_conflicts"
+            name in ("check_goal_conflicts", "get_goal_intelligence")
             and "monthly_savings_capacity_cents" not in built
+            and "monthly_capacity_cents" not in built
         ):
             # The current message didn't restate a capacity -- carry
             # forward an unambiguous one from earlier in this chat
@@ -331,12 +484,19 @@ def resolve_intent(
             # override what the user already told us.
             prior_capacity = _find_prior_monthly_capacity(history)
             if prior_capacity is not None:
-                built = {
-                    **built,
-                    "monthly_savings_capacity_cents": prior_capacity,
-                }
+                capacity_key = (
+                    "monthly_savings_capacity_cents"
+                    if name == "check_goal_conflicts"
+                    else "monthly_capacity_cents"
+                )
+                built = {**built, capacity_key: prior_capacity}
 
-        return Resolution(name, built)
+        emphasize = (
+            _goal_intelligence_emphasis(current)
+            if name == "get_goal_intelligence"
+            else None
+        )
+        return Resolution(name, built, emphasize)
 
     stripped = current.strip()
 
@@ -361,6 +521,15 @@ def resolve_intent(
             if prior and prior[0] == "simulate_major_purchase":
                 new_input = dict(prior[1])
                 new_input["purchase_amount_cents"] = amount
+                return Resolution(prior[0], new_input)
+
+    if _FOLLOW_UP_DATE_RE.match(stripped):
+        follow_up_date = extract_future_date(stripped, as_of)
+        if follow_up_date is not None:
+            prior = _find_prior_tool(history, as_of)
+            if prior and prior[0] == "buy_now_vs_wait":
+                new_input = dict(prior[1])
+                new_input["wait_until_date"] = follow_up_date.isoformat()
                 return Resolution(prior[0], new_input)
 
     return None
@@ -617,6 +786,129 @@ def _render_recommendations(result, emphasize):
     return answer, why, what_this_means, actions
 
 
+def _render_goal_intelligence(result, emphasize):
+    if not result.goals:
+        return (
+            "You don't have any active savings goals yet.",
+            None,
+            None,
+            [],
+        )
+
+    urgent = next(
+        (g for g in result.goals if g.urgency_rank == 1), result.goals[0]
+    )
+
+    if emphasize == "urgent":
+        answer = f"{urgent.name} is your most urgent goal."
+        return (
+            answer,
+            urgent.explanation,
+            None,
+            ["How much should I save for it?", "When can I finish it?"],
+        )
+
+    if emphasize == "shortfall_cause":
+        if result.largest_pressure_goal_id is None:
+            return (
+                "You don't currently have a funding shortfall across "
+                "your goals.",
+                None,
+                None,
+                [],
+            )
+        pressure = next(
+            g
+            for g in result.goals
+            if g.goal_id == result.largest_pressure_goal_id
+        )
+        return (
+            f"{pressure.name} is contributing the most to your "
+            "shortfall.",
+            pressure.explanation,
+            None,
+            [],
+        )
+
+    if emphasize == "required_monthly":
+        lines = [
+            f"{g.name}: {_currency(g.required_monthly_cents)}/month"
+            for g in result.goals
+            if g.status != "completed"
+        ]
+        answer = (
+            "Required monthly contributions -- " + "; ".join(lines)
+            if lines
+            else "All your goals are already funded."
+        )
+        return answer, result.explanation or None, None, []
+
+    if emphasize == "completion":
+        lines = [
+            (
+                f"{g.name}: {g.projected_completion_date.isoformat()}"
+                if g.projected_completion_date
+                else f"{g.name}: not enough capacity to project"
+            )
+            for g in result.goals
+            if g.status != "completed"
+        ]
+        answer = (
+            "Projected completion -- " + "; ".join(lines)
+            if lines
+            else "Your goals are already complete."
+        )
+        return answer, None, None, []
+
+    if emphasize == "move_date":
+        at_risk = [
+            g for g in result.goals if g.status in ("at_risk", "conflict")
+        ]
+        target = at_risk[0] if len(at_risk) == 1 else urgent
+        if target.suggested_feasible_target_date:
+            answer = (
+                f"At your current capacity, {target.name} would "
+                "realistically complete around "
+                f"{target.suggested_feasible_target_date.isoformat()}."
+            )
+        else:
+            answer = (
+                f"{target.name} is already on track for its current "
+                "target date."
+            )
+        return answer, target.explanation, None, []
+
+    answer = (
+        f"You have {len(result.goals)} active goal(s); {urgent.name} "
+        "needs the most attention."
+    )
+    return answer, result.explanation or None, None, []
+
+
+def _render_buy_now_vs_wait(result, emphasize):
+    timing_lead = {
+        "buy_now": "Buy it now.",
+        "wait": f"Wait until {result.wait_until_date.isoformat()}.",
+        "either": "Either timing works.",
+        "neither": "Neither timing works right now.",
+    }[result.recommended_timing]
+
+    answer = timing_lead
+    # The methodology assumption is always disclosed alongside the
+    # reason -- never just on request -- so the WAIT figures are never
+    # mistaken for a real future income/spending forecast.
+    why = f"{result.reason} {result.assumption}"
+    what_this_means = result.goal_impact_note
+    actions = ["Try a different wait date", "See the full comparison"]
+
+    if emphasize == "why":
+        answer, why = why, answer
+    elif emphasize == "goals" and result.goal_impact_note:
+        answer = result.goal_impact_note
+
+    return answer, why, what_this_means, actions
+
+
 _RENDERERS = {
     "get_safe_to_spend": _render_safe_to_spend,
     "simulate_major_purchase": _render_major_purchase,
@@ -626,6 +918,8 @@ _RENDERERS = {
     "get_cash_flow_forecast": _render_cash_flow_forecast,
     "get_monthly_insights": _render_monthly_insights,
     "get_recommendations": _render_recommendations,
+    "get_goal_intelligence": _render_goal_intelligence,
+    "buy_now_vs_wait": _render_buy_now_vs_wait,
 }
 
 

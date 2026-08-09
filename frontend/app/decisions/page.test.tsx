@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
+  BuyNowVsWaitResult,
   FinancialStressTestResult,
   ScenarioComparisonResult,
 } from "../lib/api";
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   simulateMajorPurchase: vi.fn(),
   compareMajorPurchaseScenarios: vi.fn(),
   runFinancialStressTest: vi.fn(),
+  evaluateBuyNowVsWait: vi.fn(),
   saveDecision: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
@@ -82,6 +84,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       simulateMajorPurchase: mocks.simulateMajorPurchase,
       compareMajorPurchaseScenarios: mocks.compareMajorPurchaseScenarios,
       runFinancialStressTest: mocks.runFinancialStressTest,
+      evaluateBuyNowVsWait: mocks.evaluateBuyNowVsWait,
       saveDecision: mocks.saveDecision,
     },
     session: {
@@ -998,6 +1001,263 @@ describe("decisions financial stress test mode", () => {
     expect(screen.queryByText("Job loss buffer")).not.toBeInTheDocument();
     expect(
       screen.getByText("See the impact before you spend")
+    ).toBeInTheDocument();
+  });
+});
+
+describe("decisions buy now vs wait mode", () => {
+  const buyNowVsWaitResult: BuyNowVsWaitResult = {
+    purchase_name: "New laptop",
+    purchase_amount_cents: 200_000,
+    buy_now_date: "2026-08-11",
+    wait_until_date: "2026-09-13",
+    recommended_timing: "wait",
+    reason: "Waiting until 2026-09-13 gives you $1,000.00 more room.",
+    key_driver: "buffer",
+    buffer_difference_cents: 100_000,
+    goal_impact_note: "Your goal timeline is unaffected either way.",
+    confidence_difference: -2,
+    assumption:
+      "The wait estimate uses your current balances and known obligations as of the future date; it does not predict the income or spending that will occur before then.",
+    caveat: null,
+    now: {
+      label: "now",
+      evaluated_date: "2026-08-11",
+      simulation: {
+        purchase_name: "New laptop",
+        purchase_amount_cents: 200_000,
+        purchase_date: "2026-08-11",
+        as_of: "2026-08-04",
+        through_date: "2026-09-03",
+        affordability_status: "affordable",
+        safe_to_spend_before_purchase_cents: 400_000,
+        safe_to_spend_after_purchase_cents: 200_000,
+        shortfall_after_purchase_cents: 0,
+        recommended_max_purchase_cents: 300_000,
+        purchase_impact_percent: 50,
+        goal_monthly_savings_required_cents: 0,
+        goal_impact_months: 0,
+        confidence_score: 88,
+        explanation: "Affordable now.",
+        alternatives: [],
+        goal_impacts: [],
+        safe_to_spend: {
+          as_of: "2026-08-04",
+          through_date: "2026-09-03",
+          horizon_days: 30,
+          safe_to_spend_cents: 400_000,
+          shortfall_cents: 0,
+          status: "safe",
+          confidence_score: 88,
+          breakdown: {
+            liquid_balance_cents: 400_000,
+            upcoming_obligations_cents: 0,
+            essential_spending_cents: 0,
+            safety_reserve_cents: 0,
+          },
+          obligations: [],
+          warnings: [],
+        },
+      },
+    },
+    wait: {
+      label: "wait",
+      evaluated_date: "2026-09-13",
+      simulation: {
+        purchase_name: "New laptop",
+        purchase_amount_cents: 200_000,
+        purchase_date: "2026-09-13",
+        as_of: "2026-09-13",
+        through_date: "2026-10-13",
+        affordability_status: "affordable",
+        safe_to_spend_before_purchase_cents: 500_000,
+        safe_to_spend_after_purchase_cents: 300_000,
+        shortfall_after_purchase_cents: 0,
+        recommended_max_purchase_cents: 375_000,
+        purchase_impact_percent: 40,
+        goal_monthly_savings_required_cents: 0,
+        goal_impact_months: 0,
+        confidence_score: 86,
+        explanation: "Affordable if you wait.",
+        alternatives: [],
+        goal_impacts: [],
+        safe_to_spend: {
+          as_of: "2026-09-13",
+          through_date: "2026-10-13",
+          horizon_days: 30,
+          safe_to_spend_cents: 500_000,
+          shortfall_cents: 0,
+          status: "safe",
+          confidence_score: 86,
+          breakdown: {
+            liquid_balance_cents: 500_000,
+            upcoming_obligations_cents: 0,
+            essential_spending_cents: 0,
+            safety_reserve_cents: 0,
+          },
+          obligations: [],
+          warnings: [],
+        },
+      },
+    },
+  };
+
+  it("sends the buy-now-vs-wait payload and renders the recommendation", async () => {
+    mocks.evaluateBuyNowVsWait.mockResolvedValue(buyNowVsWaitResult);
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Buy now vs wait" })
+    );
+
+    fireEvent.change(screen.getByLabelText(/^Purchase name$/i), {
+      target: { value: "New laptop" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Buy now date$/i), {
+      target: { value: "2026-08-11" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Wait until date$/i), {
+      target: { value: "2026-09-13" },
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Compare timing" })
+    );
+
+    await waitFor(() =>
+      expect(mocks.evaluateBuyNowVsWait).toHaveBeenCalledWith(1, {
+        purchase_name: "New laptop",
+        purchase_amount_cents: 200_000,
+        buy_now_date: "2026-08-11",
+        wait_until_date: "2026-09-13",
+        safety_reserve_cents: 100_000,
+        essential_spending_cents: 50_000,
+        horizon_days: 30,
+      })
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Wait", level: 2 })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Waiting until 2026-09-13 gives you $1,000.00 more room."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Your goal timeline is unaffected either way.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("How the wait estimate works")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(buyNowVsWaitResult.assumption)
+    ).toBeInTheDocument();
+  });
+
+  it("shows the confidence caveat in addition to the methodology disclosure", async () => {
+    mocks.evaluateBuyNowVsWait.mockResolvedValue({
+      ...buyNowVsWaitResult,
+      caveat:
+        "Confidence is lower for the 2026-09-13 estimate (65 vs 88) -- treat it as directional, not exact.",
+    });
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Buy now vs wait" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Compare timing" })
+    );
+
+    expect(
+      await screen.findByText("How the wait estimate works")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(buyNowVsWaitResult.assumption)
+    ).toBeInTheDocument();
+    expect(screen.getByText("What this means")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Confidence is lower for the 2026-09-13 estimate (65 vs 88) -- treat it as directional, not exact."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("rejects a wait date that isn't after the buy-now date", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Buy now vs wait" })
+    );
+
+    fireEvent.change(screen.getByLabelText(/^Wait until date$/i), {
+      target: { value: "2026-08-11" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Buy now date$/i), {
+      target: { value: "2026-08-11" },
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Compare timing" })
+    );
+
+    expect(
+      await screen.findByText(
+        "The wait date must be after the buy-now date."
+      )
+    ).toBeInTheDocument();
+    expect(mocks.evaluateBuyNowVsWait).not.toHaveBeenCalled();
+  });
+
+  it("shows a Save button and saves a buy-now-vs-wait decision", async () => {
+    mocks.evaluateBuyNowVsWait.mockResolvedValue(buyNowVsWaitResult);
+    mocks.saveDecision.mockResolvedValue({
+      id: 1,
+      decision_type: "buy_now_vs_wait",
+      title: "New laptop: now or wait?",
+      input_snapshot: {},
+      result_snapshot: {},
+      created_at: "2026-08-04T00:00:00Z",
+    });
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Buy now vs wait" })
+    );
+    fireEvent.change(screen.getByLabelText(/^Wait until date$/i), {
+      target: { value: "2026-09-13" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Compare timing" })
+    );
+
+    await waitFor(() =>
+      expect(mocks.evaluateBuyNowVsWait).toHaveBeenCalled()
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save this decision" })
+    );
+
+    await waitFor(() =>
+      expect(mocks.saveDecision).toHaveBeenCalledWith(1, {
+        decision_type: "buy_now_vs_wait",
+        title: "New laptop: now or wait?",
+        input: {
+          purchase_name: "New laptop",
+          purchase_amount_cents: 200_000,
+          buy_now_date: "2026-08-04",
+          wait_until_date: "2026-09-13",
+          safety_reserve_cents: 100_000,
+          essential_spending_cents: 50_000,
+          horizon_days: 30,
+        },
+      })
+    );
+
+    expect(
+      await screen.findByText("Saved to your decision history.")
     ).toBeInTheDocument();
   });
 });

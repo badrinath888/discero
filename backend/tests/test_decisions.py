@@ -168,6 +168,68 @@ def test_save_stress_test_decision() -> None:
         )
 
 
+def _buy_now_vs_wait_input() -> dict:
+    return {
+        "purchase_name": "Laptop",
+        "purchase_amount_cents": 150_000,
+        "buy_now_date": TEST_DATE.isoformat(),
+        "wait_until_date": date(2026, 9, 8).isoformat(),
+    }
+
+
+def test_save_buy_now_vs_wait_decision_stores_real_result() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+
+        request = SaveDecisionRequest(
+            decision_type="buy_now_vs_wait",
+            title="Laptop: now or wait?",
+            input=_buy_now_vs_wait_input(),
+        )
+
+        decision = decision_history_service.save_decision(
+            db, user.id, request, as_of=TEST_DATE
+        )
+
+        assert decision.decision_type == "buy_now_vs_wait"
+        assert decision.result_snapshot["recommended_timing"] in (
+            "buy_now",
+            "wait",
+            "either",
+            "neither",
+        )
+        assert "now" in decision.result_snapshot
+        assert "wait" in decision.result_snapshot
+
+
+def test_rerun_buy_now_vs_wait_decision() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=5_000_000)
+
+        decision = decision_history_service.save_decision(
+            db,
+            user.id,
+            SaveDecisionRequest(
+                decision_type="buy_now_vs_wait",
+                title="Laptop: now or wait?",
+                input=_buy_now_vs_wait_input(),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        outcome = decision_history_service.rerun_decision(
+            db, user.id, decision.id, as_of=TEST_DATE
+        )
+
+        assert outcome is not None
+        _unchanged_decision, evaluated_at, fresh_result = outcome
+        assert evaluated_at == TEST_DATE
+        assert fresh_result["purchase_amount_cents"] == 150_000
+        assert "recommended_timing" in fresh_result
+
+
 def test_save_decision_with_malformed_input_raises() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db)
@@ -429,6 +491,39 @@ def test_save_decision_endpoint_rejects_malformed_input(
     )
 
     assert response.status_code == 422
+
+
+def test_decisions_http_lifecycle_for_buy_now_vs_wait(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(client, "decisions-bnw-http")
+
+    save_response = client.post(
+        f"/users/{user_id}/decisions",
+        headers=headers,
+        json={
+            "decision_type": "buy_now_vs_wait",
+            "title": "Laptop: now or wait?",
+            "input": {
+                "purchase_name": "Laptop",
+                "purchase_amount_cents": 150_000,
+                "buy_now_date": date.today().isoformat(),
+                "wait_until_date": date(
+                    date.today().year, 12, 28
+                ).isoformat(),
+            },
+        },
+    )
+    assert save_response.status_code == 201
+    decision_id = save_response.json()["id"]
+    assert save_response.json()["decision_type"] == "buy_now_vs_wait"
+
+    rerun_response = client.post(
+        f"/users/{user_id}/decisions/{decision_id}/rerun",
+        headers=headers,
+    )
+    assert rerun_response.status_code == 200
+    assert "recommended_timing" in rerun_response.json()["result_snapshot"]
 
 
 def test_save_decision_endpoint_rejects_unknown_decision_type(

@@ -23,6 +23,7 @@ const TYPE_LABEL: Record<DecisionType, string> = {
   major_purchase: "Major Purchase",
   scenario_comparison: "Scenario Comparison",
   stress_test: "Stress Test",
+  buy_now_vs_wait: "Buy Now vs Wait",
 };
 
 const STATUS_TONE: Record<string, string> = {
@@ -32,6 +33,10 @@ const STATUS_TONE: Record<string, string> = {
   resilient: "bg-[#dff6c7] text-[#315d31]",
   strained: "bg-[#f5d66f] text-[#66500f]",
   critical: "bg-[#f0b8a8] text-[#7b3528]",
+  buy_now: "bg-[#dff6c7] text-[#315d31]",
+  wait: "bg-[#dff6c7] text-[#315d31]",
+  either: "bg-[#f5d66f] text-[#66500f]",
+  neither: "bg-[#f0b8a8] text-[#7b3528]",
 };
 
 function formatDate(iso: string): string {
@@ -77,6 +82,19 @@ function summaryChips(
     return [{ label: "Recommended", value: label }];
   }
 
+  if (decision.decision_type === "buy_now_vs_wait") {
+    return [
+      {
+        label: "Recommendation",
+        value: (r.recommended_timing as string).replace(/_/g, " "),
+      },
+      {
+        label: "Buffer difference",
+        value: formatCents(r.buffer_difference_cents as number),
+      },
+    ];
+  }
+
   return [
     {
       label: "Resilience score",
@@ -93,7 +111,8 @@ function statusLabel(decision: SavedDecision): string | null {
   const r = decision.result_snapshot as Record<string, unknown>;
   const status =
     (r.affordability_status as string | undefined) ??
-    (r.risk_level as string | undefined);
+    (r.risk_level as string | undefined) ??
+    (r.recommended_timing as string | undefined);
   return status ? status.replace(/_/g, " ") : null;
 }
 

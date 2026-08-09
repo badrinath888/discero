@@ -26,15 +26,12 @@ from app.models import (
     User,
 )
 from app.schemas import (
-    GoalConflictDetectionRequest,
     RecommendationOut,
     RecommendationSourceSignalOut,
     RecommendationsOut,
     SafeToSpendRequest,
 )
-from app.services.goal_conflict_detection_service import (
-    detect_goal_conflicts,
-)
+from app.services.goal_intelligence_service import evaluate_goal_intelligence
 from app.services.major_purchase_service import (
     _average_monthly_income_cents,
 )
@@ -138,30 +135,53 @@ def _rule_goal_conflict(
         return None
 
     capacity = _average_monthly_income_cents(db, user_id, as_of)
-    result = detect_goal_conflicts(
-        db,
-        user_id,
-        GoalConflictDetectionRequest(
-            monthly_savings_capacity_cents=capacity
-        ),
-        as_of=as_of,
+    result = evaluate_goal_intelligence(
+        db, user_id, monthly_capacity_cents=capacity, as_of=as_of
     )
 
     if result.conflict_status == "no_conflict":
         return None
 
-    shortfall = result.monthly_shortfall_cents
+    shortfall = result.total_shortfall_cents
     severity = "critical" if result.conflict_status == "conflict" else "warning"
 
-    title = (
-        f"Close your {_currency(shortfall)}/month goal gap"
-        if shortfall > 0
-        else "Your goals are tightly funded"
+    pressure_goal = next(
+        (
+            g
+            for g in result.goals
+            if g.goal_id == result.largest_pressure_goal_id
+        ),
+        None,
     )
+
+    # Prefer a specific, named goal over a vague aggregate figure --
+    # "X needs $Y more/month" is more actionable than "your goals need
+    # $Y/month" when one goal is clearly driving the gap.
+    if pressure_goal and pressure_goal.monthly_gap_cents > 0:
+        title = (
+            f"{pressure_goal.name} needs "
+            f"{_currency(pressure_goal.monthly_gap_cents)} more per "
+            "month to stay on track"
+        )
+    elif shortfall > 0:
+        title = f"Close your {_currency(shortfall)}/month goal gap"
+    else:
+        title = "Your goals are tightly funded"
+
+    action_parts = []
+    if shortfall > 0:
+        action_parts.append(
+            f"Increase monthly savings by {_currency(shortfall)}"
+        )
+    if pressure_goal and pressure_goal.suggested_feasible_target_date:
+        action_parts.append(
+            f"moving {pressure_goal.name}'s target date to "
+            f"{pressure_goal.suggested_feasible_target_date.strftime('%B %Y')}"
+            " would fit your current capacity"
+        )
     action = (
-        f"Increase monthly savings by {_currency(shortfall)}, or move "
-        "a goal's target date further out."
-        if shortfall > 0
+        (", or ".join(action_parts) + ".")
+        if action_parts
         else "Your capacity covers your goals with little room to spare."
     )
 
@@ -173,9 +193,9 @@ def _rule_goal_conflict(
         title=title,
         summary=result.explanation,
         why=(
-            f"Your goals require {_currency(result.total_required_monthly_cents)}"
+            f"Your goals require {_currency(result.total_required_cents)}"
             f"/month but your current capacity is "
-            f"{_currency(result.monthly_savings_capacity_cents)}/month."
+            f"{_currency(result.total_capacity_cents)}/month."
         ),
         recommended_action=action,
         impact=(
@@ -185,11 +205,11 @@ def _rule_goal_conflict(
         source_signals=[
             _signal(
                 "Monthly capacity",
-                _currency(result.monthly_savings_capacity_cents),
+                _currency(result.total_capacity_cents),
             ),
             _signal(
                 "Required monthly",
-                _currency(result.total_required_monthly_cents),
+                _currency(result.total_required_cents),
             ),
             _signal("Monthly shortfall", _currency(shortfall)),
         ],

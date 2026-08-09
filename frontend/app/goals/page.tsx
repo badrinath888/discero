@@ -36,7 +36,7 @@ import {
   api,
   formatCents,
   GoalContribution,
-  GoalConflictDetection,
+  GoalIntelligence,
   GoalContributionType,
   SavingsGoal,
   session,
@@ -89,7 +89,7 @@ export default function GoalsPage() {
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
   const [monthlyCapacity, setMonthlyCapacity] = useState("");
   const [conflictAnalysis, setConflictAnalysis] =
-    useState<GoalConflictDetection | null>(null);
+    useState<GoalIntelligence | null>(null);
   const [conflictLoading, setConflictLoading] = useState(false);
   const [drawerMode, setDrawerMode] = useState<DrawerMode | null>(null);
   const [activeGoalId, setActiveGoalId] = useState<number | null>(null);
@@ -283,9 +283,7 @@ useEffect(() => {
     setError("");
 
     try {
-      const result = await api.detectGoalConflicts(userId, {
-        monthly_savings_capacity_cents: capacityCents,
-      });
+      const result = await api.getGoalIntelligence(userId, capacityCents);
 
       setConflictAnalysis(result);
     } catch (err) {
@@ -828,6 +826,14 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+const GOAL_INTELLIGENCE_STATUS_STYLE: Record<string, string> = {
+  on_track: "bg-[#edf5ee] text-[#167c5a]",
+  at_risk: "bg-[#fbeecb] text-[#8b6518]",
+  conflict: "bg-[#f8ddd5] text-[#923f32]",
+  completed: "bg-[#e8ecea] text-[#4b5a54]",
+  no_deadline: "bg-[#e8ecea] text-[#4b5a54]",
+};
+
 function GoalConflictPanel({
   monthlyCapacity,
   analysis,
@@ -837,7 +843,7 @@ function GoalConflictPanel({
   onAnalyze,
 }: {
   monthlyCapacity: string;
-  analysis: GoalConflictDetection | null;
+  analysis: GoalIntelligence | null;
   loading: boolean;
   disabled: boolean;
   onCapacityChange: (value: string) => void;
@@ -847,11 +853,12 @@ function GoalConflictPanel({
     <section className="mt-8 rounded-[30px] border border-[#14241e]/10 bg-white p-6">
       <div className="flex items-center gap-3">
         <AlertTriangle className="h-5 w-5 text-[#8b6518]" />
-        <h2 className="text-2xl font-semibold">Goal conflict check</h2>
+        <h2 className="text-2xl font-semibold">Goal intelligence</h2>
       </div>
 
       <p className="mt-3 text-sm text-[#66746e]">
-        Compare your monthly savings capacity against every active goal.
+        See which goal is most urgent, how much each needs per month, and
+        whether your capacity covers them all.
       </p>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[320px_1fr]">
@@ -875,7 +882,7 @@ function GoalConflictPanel({
             disabled={disabled || loading}
             className="mt-4 min-h-11 w-full rounded-2xl bg-[#14241e] px-5 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {loading ? "Analyzing..." : "Analyze goal conflicts"}
+            {loading ? "Analyzing..." : "Analyze my goals"}
           </button>
         </div>
 
@@ -898,25 +905,116 @@ function GoalConflictPanel({
               <div className="mt-5 grid gap-3 sm:grid-cols-3">
                 <SummaryCard
                   label="Capacity"
-                  value={formatCents(
-                    analysis.monthly_savings_capacity_cents
-                  )}
+                  value={formatCents(analysis.total_capacity_cents)}
                 />
                 <SummaryCard
                   label="Required"
-                  value={formatCents(
-                    analysis.total_required_monthly_cents
-                  )}
+                  value={formatCents(analysis.total_required_cents)}
                 />
                 <SummaryCard
                   label="Shortfall"
-                  value={formatCents(analysis.monthly_shortfall_cents)}
+                  value={formatCents(analysis.total_shortfall_cents)}
                 />
               </div>
+
+              {analysis.suggestions.length > 0 && (
+                <ul className="mt-5 space-y-2">
+                  {analysis.suggestions.map((suggestion) => (
+                    <li
+                      key={suggestion}
+                      className="rounded-xl bg-white px-4 py-3 text-sm leading-6 text-[#3f4b46]"
+                    >
+                      {suggestion}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </>
           )}
         </div>
       </div>
+
+      {analysis && analysis.goals.length > 0 && (
+        <div className="mt-6 space-y-3">
+          {analysis.goals.map((goal) => (
+            <article
+              key={goal.goal_id}
+              className={`rounded-2xl border p-4 ${
+                goal.goal_id === analysis.largest_pressure_goal_id
+                  ? "border-[#923f32]/30 bg-[#fdf4f1]"
+                  : "border-[#14241e]/10 bg-white"
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {goal.urgency_rank === 1 && (
+                    <span className="rounded-full bg-[#14241e] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white">
+                      Most urgent
+                    </span>
+                  )}
+                  <p className="text-sm font-semibold">{goal.name}</p>
+                  {goal.goal_id === analysis.largest_pressure_goal_id && (
+                    <span className="text-[11px] font-medium text-[#923f32]">
+                      Largest contributor to shortfall
+                    </span>
+                  )}
+                </div>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${
+                    GOAL_INTELLIGENCE_STATUS_STYLE[goal.status] ??
+                    "bg-[#e8ecea] text-[#4b5a54]"
+                  }`}
+                >
+                  {goal.status.replaceAll("_", " ")}
+                </span>
+              </div>
+
+              <p className="mt-2 text-sm leading-6 text-[#66746e]">
+                {goal.explanation}
+              </p>
+
+              <div className="mt-3 grid gap-3 text-xs text-[#66746e] sm:grid-cols-4">
+                <div>
+                  <p className="uppercase tracking-[0.08em] text-[#87928d]">
+                    Required / mo
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-[#14241e]">
+                    {formatCents(goal.required_monthly_cents)}
+                  </p>
+                </div>
+                <div>
+                  <p className="uppercase tracking-[0.08em] text-[#87928d]">
+                    Monthly gap
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-[#14241e]">
+                    {formatCents(goal.monthly_gap_cents)}
+                  </p>
+                </div>
+                <div>
+                  <p className="uppercase tracking-[0.08em] text-[#87928d]">
+                    Projected completion
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-[#14241e]">
+                    {goal.projected_completion_date
+                      ? formatDate(goal.projected_completion_date)
+                      : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="uppercase tracking-[0.08em] text-[#87928d]">
+                    Feasible target date
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-[#14241e]">
+                    {goal.suggested_feasible_target_date
+                      ? formatDate(goal.suggested_feasible_target_date)
+                      : "On track"}
+                  </p>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

@@ -825,3 +825,247 @@ def test_render_recommendations_all_caught_up_when_empty() -> None:
     assert why is None
     assert what_this_means is None
     assert actions == []
+
+
+# --- Goal Intelligence + Buy Now vs Wait (free mode) --------------------
+
+
+def _two_goal_conflict_setup(db: Session, user: User) -> None:
+    create_account(db, user, available_balance_cents=500_000)
+    seed_income(db, user)  # avg monthly income: $3,000
+    create_goal(
+        db,
+        user,
+        name="Near Goal",
+        target_cents=100_000,
+        target_date=date(2026, 9, 8),
+    )
+    create_goal(
+        db,
+        user,
+        name="Far Goal",
+        target_cents=2_000_000,
+        target_date=date(2026, 11, 8),
+    )
+
+
+def test_most_urgent_goal_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _two_goal_conflict_setup(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Which goal is most urgent?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Goal Intelligence"
+        # A goal with a live funding gap outranks one that's already
+        # fully funded, even if its deadline is farther out.
+        assert "Far Goal" in (result.answer or "")
+
+
+def test_shortfall_cause_goal_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _two_goal_conflict_setup(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Which goal is causing my shortfall?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Goal Intelligence"
+        assert "Far Goal" in (result.answer or "")
+
+
+def test_required_monthly_goal_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _two_goal_conflict_setup(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("How much should I save per month for my goals?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Goal Intelligence"
+        assert "Near Goal" in (result.answer or "")
+        assert "Far Goal" in (result.answer or "")
+
+
+def test_goal_completion_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _two_goal_conflict_setup(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("When can I realistically finish this goal?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Goal Intelligence"
+
+
+def test_buy_now_vs_wait_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages(
+                "Should I buy a $500 gadget now or wait until October?"
+            ),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Buy Now vs Wait"
+        # The methodology assumption must always be disclosed, and the
+        # WAIT result must never be described as a genuine future
+        # income/spending forecast.
+        assert "does not predict the income or spending" in (
+            result.why or ""
+        )
+        assert "forecast of your future" not in (result.why or "").lower()
+        assert "predicts your future" not in (result.why or "").lower()
+
+
+def test_buy_now_vs_wait_why_follow_up_still_discloses_assumption() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        messages = _messages(
+            "Should I buy a $500 gadget now or wait until October?",
+            "Why?",
+        )
+
+        result = run_copilot_turn(
+            db, user.id, user, messages, _free_client(), as_of=TEST_DATE
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Buy Now vs Wait"
+        assert "does not predict the income or spending" in (
+            result.answer or ""
+        )
+
+
+def test_buy_now_vs_wait_missing_amount_asks_clarification() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Should I buy this now or wait until October?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "clarifying_question"
+        assert "amount" in (result.clarifying_question or "").lower()
+
+
+def test_follow_up_december_reuses_buy_now_vs_wait_intent() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        messages = _messages(
+            "Should I buy a $500 gadget now or wait until October?",
+            "What about December?",
+        )
+
+        result = run_copilot_turn(
+            db, user.id, user, messages, _free_client(), as_of=TEST_DATE
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Buy Now vs Wait"
+
+
+def test_ambiguous_goal_question_falls_back_to_capability_explanation() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Tell me about my goal"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "out_of_scope"
+
+
+def test_unrelated_question_falls_back_to_capability_explanation() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What's the weather like today?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "out_of_scope"
+        assert result.answer == copilot_free_mode.CAPABILITY_EXPLANATION
+
+
+def test_extract_future_date_handles_common_phrasings() -> None:
+    as_of = TEST_DATE
+
+    assert copilot_free_mode.extract_future_date(
+        "wait until October", as_of
+    ) == date(2026, 10, 1)
+    # Already-passed month this year rolls forward to next year.
+    assert copilot_free_mode.extract_future_date(
+        "wait until March", as_of
+    ) == date(2027, 3, 1)
+    assert copilot_free_mode.extract_future_date(
+        "in 3 weeks", as_of
+    ) == date(2026, 8, 29)
+    assert copilot_free_mode.extract_future_date(
+        "in 2 months", as_of
+    ) == date(2026, 10, 8)
+    assert copilot_free_mode.extract_future_date(
+        "one month", as_of
+    ) == date(2026, 9, 8)
+    assert copilot_free_mode.extract_future_date("no date here", as_of) is None

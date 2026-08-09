@@ -179,6 +179,34 @@ def test_goal_conflict_recommendation_reflects_real_shortfall() -> None:
         assert goal_rec.impact == "$50.00/month shortfall"
 
 
+def test_goal_conflict_recommendation_names_the_pressure_goal() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+        seed_income(db, user, monthly_cents=10_000)  # $100/mo capacity
+        create_goal(
+            db,
+            user,
+            name="Production Test Goal",
+            target_cents=15_000,
+            saved_cents=0,
+        )  # requires $150/mo (target_date == as_of)
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        goal_rec = next(
+            r for r in result.recommendations if r.id == "goal-conflict"
+        )
+        assert "Production Test Goal" in goal_rec.title
+        assert "$50.00" in goal_rec.title
+        assert "Increase monthly savings by $50.00" in (
+            goal_rec.recommended_action or ""
+        )
+        assert "Production Test Goal's target date" in (
+            goal_rec.recommended_action or ""
+        )
+
+
 def test_budget_overage_recommendation() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db)

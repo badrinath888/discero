@@ -188,11 +188,20 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        "get_recommendations",
+        re.compile(
+            r"\b(what should i (do next|focus on|work on)|what needs "
+            r"my attention|pay attention|top (financial )?priorit\w*|"
+            r"how can i improve|what('?s| is) going well|biggest "
+            r"(financial )?risks?)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "get_monthly_insights",
         re.compile(
             r"\b(this month|how am i doing|monthly summary|how much "
-            r"did i save|spending trend|pay attention|what should i "
-            r"(watch|know)|anything i should)\b",
+            r"did i save|spending trend)\b",
             re.IGNORECASE,
         ),
     ),
@@ -211,6 +220,7 @@ def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
         "get_safe_to_spend",
         "get_cash_flow_forecast",
         "get_monthly_insights",
+        "get_recommendations",
     ):
         return {}
 
@@ -572,6 +582,41 @@ def _render_monthly_insights(result, emphasize):
     return answer, why, None, actions
 
 
+def _render_recommendations(result, emphasize):
+    items = result.recommendations
+
+    if not items:
+        return (
+            "You're all caught up -- nothing needs your attention "
+            "right now.",
+            None,
+            None,
+            [],
+        )
+
+    top = items[0]
+
+    if emphasize == "goals":
+        lines = [f"{rec.title}" for rec in items[:3]]
+        answer = "Your top priorities: " + "; ".join(lines)
+    elif len(items) == 1:
+        answer = f"Your top priority: {top.title}."
+    else:
+        answer = (
+            f"Your top priority is {top.title}, plus "
+            f"{len(items) - 1} more item(s) worth a look."
+        )
+
+    why = top.why
+    what_this_means = top.recommended_action
+    actions = [rec.title for rec in items[1:3]]
+
+    if emphasize == "why":
+        answer, why = why, answer
+
+    return answer, why, what_this_means, actions
+
+
 _RENDERERS = {
     "get_safe_to_spend": _render_safe_to_spend,
     "simulate_major_purchase": _render_major_purchase,
@@ -580,6 +625,7 @@ _RENDERERS = {
     "check_goal_conflicts": _render_goal_conflicts,
     "get_cash_flow_forecast": _render_cash_flow_forecast,
     "get_monthly_insights": _render_monthly_insights,
+    "get_recommendations": _render_recommendations,
 }
 
 

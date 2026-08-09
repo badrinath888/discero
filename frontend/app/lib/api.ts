@@ -729,6 +729,77 @@ export type CopilotResponse = {
   provenance: "deterministic" | "ai_enhanced";
 };
 
+export type RecommendationCategory =
+  | "liquidity"
+  | "budget"
+  | "goals"
+  | "spending"
+  | "recurring"
+  | "forecast"
+  | "savings"
+  | "data_quality"
+  | "positive_progress";
+
+export type RecommendationSeverity =
+  | "critical"
+  | "warning"
+  | "opportunity"
+  | "positive"
+  | "informational";
+
+export type RecommendationSourceSignal = {
+  label: string;
+  value_display: string;
+};
+
+export type Recommendation = {
+  id: string;
+  category: RecommendationCategory;
+  severity: RecommendationSeverity;
+  priority: number;
+  title: string;
+  summary: string;
+  why: string;
+  recommended_action: string;
+  impact: string | null;
+  confidence: number | null;
+  source_signals: RecommendationSourceSignal[];
+  deep_link: string | null;
+  evaluated_at: string;
+};
+
+export type RecommendationsResult = {
+  as_of: string;
+  recommendations: Recommendation[];
+};
+
+export type DecisionType =
+  | "major_purchase"
+  | "scenario_comparison"
+  | "stress_test";
+
+export type SaveDecisionRequest = {
+  decision_type: DecisionType;
+  title: string;
+  input: Record<string, unknown>;
+};
+
+export type SavedDecision = {
+  id: number;
+  decision_type: DecisionType;
+  title: string;
+  input_snapshot: Record<string, unknown>;
+  result_snapshot: Record<string, unknown>;
+  created_at: string;
+};
+
+export type DecisionRerunResult = {
+  decision_id: number;
+  decision_type: DecisionType;
+  evaluated_at: string;
+  result_snapshot: Record<string, unknown>;
+};
+
 export type RecurringPayment = {
   merchant: string;
   amount_cents: number;
@@ -1353,6 +1424,55 @@ runFinancialStressTest: (
       headers: jsonHeaders(),
       body: JSON.stringify({ messages }),
     }).then((res) => handle<CopilotResponse>(res)),
+
+  getRecommendations: (
+    userId: number
+  ): Promise<RecommendationsResult> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/recommendations`, {
+      headers: authHeaders(),
+    }).then((res) => handle<RecommendationsResult>(res)),
+
+  saveDecision: (
+    userId: number,
+    payload: SaveDecisionRequest
+  ): Promise<SavedDecision> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/decisions`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }).then((res) => handle<SavedDecision>(res)),
+
+  getSavedDecisions: (userId: number): Promise<SavedDecision[]> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/decisions`, {
+      headers: authHeaders(),
+    }).then((res) => handle<SavedDecision[]>(res)),
+
+  getSavedDecision: (
+    userId: number,
+    decisionId: number
+  ): Promise<SavedDecision> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/decisions/${decisionId}`,
+      { headers: authHeaders() }
+    ).then((res) => handle<SavedDecision>(res)),
+
+  deleteSavedDecision: (
+    userId: number,
+    decisionId: number
+  ): Promise<void> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/decisions/${decisionId}`,
+      { method: "DELETE", headers: authHeaders() }
+    ).then(handleEmpty),
+
+  rerunSavedDecision: (
+    userId: number,
+    decisionId: number
+  ): Promise<DecisionRerunResult> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/decisions/${decisionId}/rerun`,
+      { method: "POST", headers: authHeaders() }
+    ).then((res) => handle<DecisionRerunResult>(res)),
 
   createSavingsGoal: (
     userId: number,

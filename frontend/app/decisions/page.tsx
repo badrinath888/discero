@@ -18,16 +18,21 @@ import {
   Sparkles,
   TriangleAlert,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
 import GoalImpactList from "../components/GoalImpactList";
 import { PageReveal, Reveal } from "../components/PremiumMotion";
 import {
   api,
+  DecisionType,
   FinancialStressScenarioType,
+  FinancialStressTestRequest,
   FinancialStressTestResult,
   formatCents,
+  MajorPurchaseSimulationRequest,
   MajorPurchaseSimulationResult,
+  ScenarioComparisonRequest,
   ScenarioComparisonResult,
   ScenarioComparisonScorecard,
   session,
@@ -268,6 +273,12 @@ export default function DecisionsPage() {
     useState<ScenarioComparisonResult | null>(null);
   const [stressResult, setStressResult] =
     useState<FinancialStressTestResult | null>(null);
+  const [lastPurchaseInput, setLastPurchaseInput] =
+    useState<MajorPurchaseSimulationRequest | null>(null);
+  const [lastComparisonInput, setLastComparisonInput] =
+    useState<ScenarioComparisonRequest | null>(null);
+  const [lastStressInput, setLastStressInput] =
+    useState<FinancialStressTestRequest | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [simulating, setSimulating] = useState(false);
   const [error, setError] = useState("");
@@ -353,18 +364,20 @@ export default function DecisionsPage() {
 
     try {
       if (mode === "single") {
-        const data = await api.simulateMajorPurchase(userId, {
+        const payload: MajorPurchaseSimulationRequest = {
           purchase_name: purchaseName.trim(),
           purchase_amount_cents: dollarsToCents(purchaseAmount),
           purchase_date: purchaseDate,
           ...sharedSettings,
-        });
+        };
+        const data = await api.simulateMajorPurchase(userId, payload);
 
         setResult(data);
         setCompareResult(null);
         setStressResult(null);
+        setLastPurchaseInput(payload);
       } else if (mode === "compare") {
-        const data = await api.compareMajorPurchaseScenarios(userId, {
+        const payload: ScenarioComparisonRequest = {
           option_a: {
             purchase_name: optionAName.trim(),
             purchase_amount_cents: dollarsToCents(optionAAmount),
@@ -377,13 +390,18 @@ export default function DecisionsPage() {
             purchase_date: optionBDate,
             ...sharedSettings,
           },
-        });
+        };
+        const data = await api.compareMajorPurchaseScenarios(
+          userId,
+          payload
+        );
 
         setCompareResult(data);
         setResult(null);
         setStressResult(null);
+        setLastComparisonInput(payload);
       } else {
-        const data = await api.runFinancialStressTest(userId, {
+        const payload: FinancialStressTestRequest = {
           scenario_type: scenarioType,
           scenario_name: scenarioName.trim(),
           stress_amount_cents:
@@ -403,7 +421,9 @@ export default function DecisionsPage() {
             ? Number(durationDays)
             : null,
           ...sharedSettings,
-        });
+        };
+        const data = await api.runFinancialStressTest(userId, payload);
+        setLastStressInput(payload);
 
         setStressResult(data);
         setResult(null);
@@ -475,6 +495,14 @@ export default function DecisionsPage() {
                   label="Financial stress test"
                 />
               </div>
+
+              <Link
+                href="/decisions/history"
+                className="focus-ring mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#167c5a]"
+              >
+                View saved decisions
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
             </header>
           </Reveal>
 
@@ -764,11 +792,21 @@ export default function DecisionsPage() {
             <Reveal delay={0.06}>
               {mode === "single" ? (
                 result ? (
-                  <SinglePurchaseResult
-                    result={result}
-                    statusContent={statusContent}
-                    StatusIcon={StatusIcon}
-                  />
+                  <div className="space-y-3">
+                    <SinglePurchaseResult
+                      result={result}
+                      statusContent={statusContent}
+                      StatusIcon={StatusIcon}
+                    />
+                    {userId !== null && lastPurchaseInput && (
+                      <SaveDecisionButton
+                        userId={userId}
+                        decisionType="major_purchase"
+                        defaultTitle={result.purchase_name}
+                        input={lastPurchaseInput}
+                      />
+                    )}
+                  </div>
                 ) : (
                   <EmptyState
                     title="See the impact before you spend"
@@ -777,7 +815,17 @@ export default function DecisionsPage() {
                 )
               ) : mode === "compare" ? (
                 compareResult ? (
-                  <ComparisonResults result={compareResult} />
+                  <div className="space-y-3">
+                    <ComparisonResults result={compareResult} />
+                    {userId !== null && lastComparisonInput && (
+                      <SaveDecisionButton
+                        userId={userId}
+                        decisionType="scenario_comparison"
+                        defaultTitle={`${compareResult.option_a.simulation.purchase_name} vs ${compareResult.option_b.simulation.purchase_name}`}
+                        input={lastComparisonInput}
+                      />
+                    )}
+                  </div>
                 ) : (
                   <EmptyState
                     title="Compare two purchase paths"
@@ -785,11 +833,21 @@ export default function DecisionsPage() {
                   />
                 )
               ) : stressResult ? (
-                <StressTestResult
-                  result={stressResult}
-                  riskContent={riskContent}
-                  RiskIcon={RiskIcon}
-                />
+                <div className="space-y-3">
+                  <StressTestResult
+                    result={stressResult}
+                    riskContent={riskContent}
+                    RiskIcon={RiskIcon}
+                  />
+                  {userId !== null && lastStressInput && (
+                    <SaveDecisionButton
+                      userId={userId}
+                      decisionType="stress_test"
+                      defaultTitle={stressResult.scenario_name}
+                      input={lastStressInput}
+                    />
+                  )}
+                </div>
               ) : (
                 <EmptyState
                   title="See how a shock affects your safety net"
@@ -825,6 +883,63 @@ function ModeButton({
     >
       {label}
     </button>
+  );
+}
+
+function SaveDecisionButton({
+  userId,
+  decisionType,
+  defaultTitle,
+  input,
+}: {
+  userId: number;
+  decisionType: DecisionType;
+  defaultTitle: string;
+  input: Record<string, unknown>;
+}) {
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
+    "idle"
+  );
+
+  async function handleSave() {
+    setStatus("saving");
+    try {
+      await api.saveDecision(userId, {
+        decision_type: decisionType,
+        title: defaultTitle.trim() || "Saved decision",
+        input,
+      });
+      setStatus("saved");
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  if (status === "saved") {
+    return (
+      <p className="text-sm font-semibold text-[#167c5a]">
+        Saved to your decision history.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={status === "saving"}
+        className="focus-ring rounded-full border border-[#167c5a]/25 bg-[#f7fbf5] px-4 py-2 text-sm font-semibold text-[#167c5a] transition hover:bg-[#dff6c7] disabled:opacity-50"
+      >
+        {status === "saving" ? "Saving..." : "Save this decision"}
+      </button>
+
+      {status === "error" && (
+        <span className="text-xs font-medium text-[#a64b3d]">
+          Couldn&apos;t save just now.
+        </span>
+      )}
+    </div>
   );
 }
 

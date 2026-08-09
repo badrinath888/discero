@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   simulateMajorPurchase: vi.fn(),
   compareMajorPurchaseScenarios: vi.fn(),
   runFinancialStressTest: vi.fn(),
+  saveDecision: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
   clearSession: vi.fn(),
@@ -81,6 +82,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       simulateMajorPurchase: mocks.simulateMajorPurchase,
       compareMajorPurchaseScenarios: mocks.compareMajorPurchaseScenarios,
       runFinancialStressTest: mocks.runFinancialStressTest,
+      saveDecision: mocks.saveDecision,
     },
     session: {
       ...actual.session,
@@ -996,5 +998,98 @@ describe("decisions financial stress test mode", () => {
     expect(
       screen.getByText("See the impact before you spend")
     ).toBeInTheDocument();
+  });
+});
+
+describe("decisions save to history", () => {
+  const singlePurchaseResult = {
+    purchase_name: "New laptop",
+    purchase_amount_cents: 200_000,
+    purchase_date: "2026-08-11",
+    as_of: "2026-08-04",
+    through_date: "2026-09-03",
+    affordability_status: "affordable" as const,
+    safe_to_spend_before_purchase_cents: 500_000,
+    safe_to_spend_after_purchase_cents: 300_000,
+    shortfall_after_purchase_cents: 0,
+    recommended_max_purchase_cents: 375_000,
+    purchase_impact_percent: 40.0,
+    goal_monthly_savings_required_cents: 0,
+    goal_impact_months: 0,
+    confidence_score: 85,
+    explanation: "New laptop is within the recommended purchase range.",
+    alternatives: [],
+    goal_impacts: [],
+    safe_to_spend: {
+      as_of: "2026-08-04",
+      through_date: "2026-09-03",
+      horizon_days: 30,
+      safe_to_spend_cents: 500_000,
+      shortfall_cents: 0,
+      status: "safe" as const,
+      confidence_score: 85,
+      breakdown: {
+        liquid_balance_cents: 500_000,
+        upcoming_obligations_cents: 0,
+        essential_spending_cents: 0,
+        safety_reserve_cents: 0,
+      },
+      obligations: [],
+      warnings: [],
+    },
+  };
+
+  it("shows a Save button after simulating a purchase and saves it", async () => {
+    mocks.simulateMajorPurchase.mockResolvedValue(singlePurchaseResult);
+    mocks.saveDecision.mockResolvedValue({
+      id: 1,
+      decision_type: "major_purchase",
+      title: "New laptop",
+      input_snapshot: {},
+      result_snapshot: {},
+      created_at: "2026-08-04T00:00:00Z",
+    });
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Simulate purchase" })
+    );
+
+    await waitFor(() =>
+      expect(mocks.simulateMajorPurchase).toHaveBeenCalled()
+    );
+
+    const saveButton = await screen.findByRole("button", {
+      name: "Save this decision",
+    });
+    fireEvent.click(saveButton);
+
+    await waitFor(() =>
+      expect(mocks.saveDecision).toHaveBeenCalledWith(1, {
+        decision_type: "major_purchase",
+        title: "New laptop",
+        input: {
+          purchase_name: "New laptop",
+          purchase_amount_cents: 200_000,
+          purchase_date: "2026-08-11",
+          safety_reserve_cents: 100_000,
+          essential_spending_cents: 50_000,
+          horizon_days: 30,
+        },
+      })
+    );
+
+    expect(
+      await screen.findByText("Saved to your decision history.")
+    ).toBeInTheDocument();
+  });
+
+  it("links to the saved decision history page", async () => {
+    await renderPage();
+
+    expect(
+      screen.getByRole("link", { name: /view saved decisions/i })
+    ).toHaveAttribute("href", "/decisions/history");
   });
 });

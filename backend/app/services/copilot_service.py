@@ -51,6 +51,7 @@ from app.services.major_purchase_service import (
     simulate_major_purchase,
 )
 from app.services import copilot_free_mode
+from app.services.recommendation_service import evaluate_recommendations
 from app.services.safe_to_spend_service import calculate_safe_to_spend
 from app.services.scenario_comparison_service import (
     compare_major_purchase_scenarios,
@@ -298,6 +299,18 @@ _TOOLS = [
         },
     },
     {
+        "name": "get_recommendations",
+        "description": (
+            "Get the user's ranked proactive financial "
+            "recommendations/priorities. Use for 'what should I do "
+            "next', 'what needs my attention', 'what are my top "
+            "priorities', 'how can I improve my finances', 'what's "
+            "going well', or 'what are my biggest financial risks' "
+            "questions."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "request_clarification",
         "description": (
             "Use when a required financial parameter (amount, "
@@ -398,6 +411,15 @@ _TOOL_LABELS = {
     "check_goal_conflicts": "Goal Conflict Check",
     "get_cash_flow_forecast": "Cash-Flow Forecast",
     "get_monthly_insights": "Monthly Insights",
+    "get_recommendations": "Recommendations",
+}
+
+_RECOMMENDATION_SEVERITY_TONE = {
+    "critical": "danger",
+    "warning": "warning",
+    "opportunity": "neutral",
+    "positive": "positive",
+    "informational": "neutral",
 }
 
 
@@ -751,6 +773,22 @@ def _handle_monthly_insights(
     return (result, chips, None, None)
 
 
+def _handle_recommendations(db, user_id, tool_input, as_of, current_user):
+    result = evaluate_recommendations(db, user_id, current_user, as_of=as_of)
+
+    chips = [
+        _chip(
+            rec.title,
+            rec.impact or rec.severity.replace("_", " ").title(),
+            kind="text",
+            tone=_RECOMMENDATION_SEVERITY_TONE.get(rec.severity, "neutral"),
+        )
+        for rec in result.recommendations[:3]
+    ]
+
+    return (result, chips, None, None)
+
+
 _TOOL_HANDLERS = {
     "get_safe_to_spend": _handle_safe_to_spend,
     "simulate_major_purchase": _handle_major_purchase,
@@ -759,6 +797,7 @@ _TOOL_HANDLERS = {
     "check_goal_conflicts": _handle_goal_conflicts,
     "get_cash_flow_forecast": _handle_cash_flow_forecast,
     "get_monthly_insights": _handle_monthly_insights,
+    "get_recommendations": _handle_recommendations,
 }
 
 

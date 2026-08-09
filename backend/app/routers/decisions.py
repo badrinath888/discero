@@ -1,0 +1,143 @@
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+
+from app.auth import get_current_user
+from app.database import get_db
+from app.models import User
+from app.schemas import (
+    DecisionRerunOut,
+    SaveDecisionRequest,
+    SavedDecisionOut,
+)
+from app.services import decision_history_service
+
+router = APIRouter(
+    prefix="/users/{user_id}/decisions",
+    tags=["decisions"],
+)
+
+
+def _authorize_user(
+    user_id: int,
+    current_user: User,
+) -> None:
+    if current_user.id != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="you cannot access another user's data",
+        )
+
+
+@router.post(
+    "",
+    response_model=SavedDecisionOut,
+    status_code=201,
+)
+def save_decision(
+    user_id: int,
+    payload: SaveDecisionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SavedDecisionOut:
+    _authorize_user(user_id, current_user)
+
+    try:
+        return decision_history_service.save_decision(
+            db, user_id, payload
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "",
+    response_model=list[SavedDecisionOut],
+)
+def list_decisions(
+    user_id: int,
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[SavedDecisionOut]:
+    _authorize_user(user_id, current_user)
+
+    return decision_history_service.list_decisions(
+        db, user_id, limit=limit
+    )
+
+
+@router.get(
+    "/{decision_id}",
+    response_model=SavedDecisionOut,
+)
+def get_decision(
+    user_id: int,
+    decision_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SavedDecisionOut:
+    _authorize_user(user_id, current_user)
+
+    decision = decision_history_service.get_decision(
+        db, user_id, decision_id
+    )
+
+    if decision is None:
+        raise HTTPException(
+            status_code=404, detail="saved decision not found"
+        )
+
+    return decision
+
+
+@router.delete(
+    "/{decision_id}",
+    status_code=204,
+)
+def delete_decision(
+    user_id: int,
+    decision_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    _authorize_user(user_id, current_user)
+
+    deleted = decision_history_service.delete_decision(
+        db, user_id, decision_id
+    )
+
+    if not deleted:
+        raise HTTPException(
+            status_code=404, detail="saved decision not found"
+        )
+
+
+@router.post(
+    "/{decision_id}/rerun",
+    response_model=DecisionRerunOut,
+)
+def rerun_decision(
+    user_id: int,
+    decision_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DecisionRerunOut:
+    _authorize_user(user_id, current_user)
+
+    outcome = decision_history_service.rerun_decision(
+        db, user_id, decision_id
+    )
+
+    if outcome is None:
+        raise HTTPException(
+            status_code=404, detail="saved decision not found"
+        )
+
+    decision, evaluated_at, result_snapshot = outcome
+
+    return DecisionRerunOut(
+        decision_id=decision.id,
+        decision_type=decision.decision_type,
+        evaluated_at=evaluated_at,
+        result_snapshot=result_snapshot,
+    )

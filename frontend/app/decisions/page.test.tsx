@@ -421,6 +421,7 @@ beforeEach(() => {
   });
   mocks.compareMajorPurchaseScenarios.mockResolvedValue(comparisonResult);
   mocks.runFinancialStressTest.mockResolvedValue(stressTestResult);
+  HTMLElement.prototype.scrollIntoView = vi.fn();
 });
 
 describe("decisions mobile layout", () => {
@@ -1083,13 +1084,115 @@ describe("decisions save to history", () => {
     expect(
       await screen.findByText("Saved to your decision history.")
     ).toBeInTheDocument();
+
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "start",
+    });
   });
 
-  it("links to the saved decision history page", async () => {
+  it("renders 'View saved decisions' as a polished button-styled control", async () => {
     await renderPage();
 
+    const link = screen.getByRole("link", {
+      name: /view saved decisions/i,
+    });
+
+    expect(link).toHaveAttribute("href", "/decisions/history");
+    // Button-like styling (outlined pill), not a plain text link.
+    expect(link.className).toContain("rounded-full");
+    expect(link.className).toContain("border");
+  });
+
+  it("scrolls to the top controls after a successful Scenario Comparison save", async () => {
+    mocks.saveDecision.mockResolvedValue({
+      id: 2,
+      decision_type: "scenario_comparison",
+      title: "New laptop vs Used laptop",
+      input_snapshot: {},
+      result_snapshot: {},
+      created_at: "2026-08-04T00:00:00Z",
+    });
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Compare options" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run comparison" })
+    );
+
+    const saveButton = await screen.findByRole("button", {
+      name: "Save this decision",
+    });
+    fireEvent.click(saveButton);
+
     expect(
-      screen.getByRole("link", { name: /view saved decisions/i })
-    ).toHaveAttribute("href", "/decisions/history");
+      await screen.findByText("Saved to your decision history.")
+    ).toBeInTheDocument();
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "start",
+    });
+  });
+
+  it("scrolls to the top controls after a successful Financial Stress Test save", async () => {
+    mocks.saveDecision.mockResolvedValue({
+      id: 3,
+      decision_type: "stress_test",
+      title: "Job loss buffer",
+      input_snapshot: {},
+      result_snapshot: {},
+      created_at: "2026-08-04T00:00:00Z",
+    });
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    const saveButton = await screen.findByRole("button", {
+      name: "Save this decision",
+    });
+    fireEvent.click(saveButton);
+
+    expect(
+      await screen.findByText("Saved to your decision history.")
+    ).toBeInTheDocument();
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "start",
+    });
+  });
+
+  it("does not scroll when saving a decision fails", async () => {
+    mocks.simulateMajorPurchase.mockResolvedValue(singlePurchaseResult);
+    mocks.saveDecision.mockRejectedValue(new Error("network error"));
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Simulate purchase" })
+    );
+
+    const saveButton = await screen.findByRole("button", {
+      name: "Save this decision",
+    });
+    fireEvent.click(saveButton);
+
+    await waitFor(() =>
+      expect(mocks.saveDecision).toHaveBeenCalled()
+    );
+
+    // The button remains available to retry -- no success text, no scroll.
+    expect(
+      screen.queryByText("Saved to your decision history.")
+    ).not.toBeInTheDocument();
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 });

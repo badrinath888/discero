@@ -10,6 +10,7 @@ from app.models import (
     RecurringItem,
     Transaction,
 )
+from app.recurring import project_occurrences
 from app.schemas import (
     SafeToSpendBreakdownOut,
     SafeToSpendObligationOut,
@@ -185,12 +186,34 @@ def _get_upcoming_obligations(
     as_of: date,
     through_date: date,
 ) -> list[SafeToSpendObligationOut]:
+    """Every KNOWN occurrence of each active recurring item in the window.
+
+    A recurring item's stored `next_payment` is only its FIRST future
+    occurrence -- over a 60/90-day horizon a monthly bill can recur
+    2-3 times and a weekly one 8-13 times. This reuses the same
+    deterministic `app.recurring.project_occurrences` helper the
+    Forecast horizon outlook uses (Weekly/Biweekly/Monthly, the only
+    frequencies the app actually produces), rather than a second
+    recurrence formula, so a bill is counted once per real due date
+    instead of once per item regardless of horizon length.
+
+    The query has no lower bound on `next_payment`: an item whose
+    stored `next_payment` is slightly stale (e.g. sync lag, now
+    before `as_of`) can still have a genuine future occurrence inside
+    the window once projected forward. `project_occurrences` itself
+    filters to `>= as_of`, so nothing before `as_of` is ever counted
+    -- this only recovers occurrences that were being silently missed,
+    it never counts something earlier than before.
+
+    Fetches all candidate items in a single query (not one query per
+    item) and projects each item's occurrences in memory, bounded by
+    the requested horizon -- no per-occurrence database round trips.
+    """
     statement = (
         select(RecurringItem)
         .where(
             RecurringItem.user_id == user_id,
             RecurringItem.status == "active",
-            RecurringItem.next_payment >= as_of,
             RecurringItem.next_payment <= through_date,
         )
         .order_by(
@@ -201,17 +224,29 @@ def _get_upcoming_obligations(
 
     items = list(db.scalars(statement).all())
 
-    return [
-        SafeToSpendObligationOut(
-            name=item.merchant,
-            amount_cents=item.amount_cents,
-            expected_date=item.next_payment,
-            category=item.category,
-            confidence_score=item.confidence_score,
-            source="recurring",
+    obligations: list[SafeToSpendObligationOut] = []
+
+    for item in items:
+        occurrences = project_occurrences(
+            item.next_payment,
+            item.frequency,
+            as_of=as_of,
+            through_date=through_date,
         )
-        for item in items
-    ]
+
+        obligations.extend(
+            SafeToSpendObligationOut(
+                name=item.merchant,
+                amount_cents=item.amount_cents,
+                expected_date=occurrence,
+                category=item.category,
+                confidence_score=item.confidence_score,
+                source="recurring",
+            )
+            for occurrence in occurrences
+        )
+
+    return obligations
 
 
 def _get_budget_obligations(

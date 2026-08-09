@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     FinancialAccount,
     PlaidItem,
+    RecurringItem,
     SavingsGoal,
     Transaction,
     User,
@@ -79,6 +80,36 @@ def create_goal(
     return goal
 
 
+def create_recurring_item(
+    db: Session,
+    user: User,
+    *,
+    merchant: str,
+    amount_cents: int,
+    next_payment: date,
+    frequency: str = "Monthly",
+    status: str = "active",
+    confidence_score: float = 90.0,
+    category: str = "Bills",
+) -> RecurringItem:
+    item = RecurringItem(
+        user_id=user.id,
+        merchant=merchant,
+        normalized_merchant=f"{merchant.upper()}-{uuid4().hex}",
+        category=category,
+        amount_cents=amount_cents,
+        frequency=frequency,
+        last_payment=next_payment - timedelta(days=30),
+        next_payment=next_payment,
+        status=status,
+        confidence_score=confidence_score,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
 def _text_block(text: str) -> SimpleNamespace:
     return SimpleNamespace(type="text", text=text)
 
@@ -123,6 +154,46 @@ def test_free_mode_answers_without_api_key() -> None:
             c for c in result.key_numbers if c.label == "Safe to spend"
         )
         assert safe_chip.value_display == "$5,000.00"
+
+
+def test_free_mode_safe_to_spend_reflects_corrected_multi_occurrence() -> (
+    None
+):
+    # Regression test for the Safe-to-Spend recurrence-horizon fix: a
+    # weekly bill recurs 5 times within the default 30-day horizon,
+    # not once, so a deterministic (no API key) Safe-to-Spend question
+    # must surface the corrected total -- no special Copilot math,
+    # just the same calculate_safe_to_spend result other tests use.
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Groceries",
+            amount_cents=5_000,
+            next_payment=date(2026, 8, 10),
+            frequency="Weekly",
+        )
+        client = CopilotClient(api_key=None)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message("What's my safe to spend?"),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.provenance == "deterministic"
+        assert result.tool_used == "Safe-to-Spend"
+        safe_chip = next(
+            c for c in result.key_numbers if c.label == "Safe to spend"
+        )
+        # 500_000 - (5 occurrences x 5_000) = 475_000 cents.
+        assert safe_chip.value_display == "$4,750.00"
 
 
 def test_safe_to_spend_tool_grounds_chips_in_real_calculation() -> None:

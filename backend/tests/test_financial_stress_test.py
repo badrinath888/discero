@@ -8,6 +8,7 @@ from app.models import (
     Budget,
     FinancialAccount,
     PlaidItem,
+    RecurringItem,
     SavingsGoal,
     Transaction,
     User,
@@ -115,6 +116,38 @@ def create_budget(
     db.commit()
 
     return budget
+
+
+def create_recurring_item(
+    db: Session,
+    user: User,
+    *,
+    merchant: str,
+    amount_cents: int,
+    next_payment: date,
+    frequency: str = "Monthly",
+    status: str = "active",
+    confidence_score: float = 90.0,
+    category: str = "Bills",
+) -> RecurringItem:
+    item = RecurringItem(
+        user_id=user.id,
+        merchant=merchant,
+        normalized_merchant=f"{merchant.upper()}-{uuid4().hex}",
+        category=category,
+        amount_cents=amount_cents,
+        frequency=frequency,
+        last_payment=next_payment - timedelta(days=30),
+        next_payment=next_payment,
+        status=status,
+        confidence_score=confidence_score,
+    )
+
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    return item
 
 
 def create_goal(
@@ -1454,3 +1487,47 @@ def test_goal_impacts_present_even_for_one_time_scenario() -> None:
         assert len(result.goal_impacts) == 1
         assert result.goal_impacts[0].status == "unaffected"
         assert result.affected_goals == []
+
+
+def test_baseline_uses_corrected_multi_occurrence_obligations() -> None:
+    # Regression test for the Safe-to-Spend recurrence-horizon fix:
+    # the stress test's baseline safe-to-spend and obligations figures
+    # are derived entirely from calculate_safe_to_spend, so a monthly
+    # bill recurring 3 times across a 90-day horizon must be reflected
+    # here too, not just in the Safe-to-Spend endpoint itself.
+    with TestingSessionLocal() as db:
+        user = create_user(db, "stress-multi-occurrence")
+
+        create_account(
+            db,
+            user,
+            available_balance_cents=1_000_000,
+        )
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=100_000,
+            next_payment=date(2026, 8, 15),
+        )
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="emergency_expense",
+                scenario_name="Car repair",
+                stress_amount_cents=50_000,
+                event_date=date(2026, 9, 1),
+                horizon_days=90,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert (
+            result.safe_to_spend.breakdown.upcoming_obligations_cents
+            == 300_000
+        )
+        assert result.safe_to_spend_before_stress_cents == 700_000
+        assert result.baseline_projected_balance_cents == 700_000
+        assert result.safe_to_spend_after_stress_cents == 650_000

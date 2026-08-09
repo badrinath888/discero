@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -8,6 +8,7 @@ from app.models import (
     Budget,
     FinancialAccount,
     PlaidItem,
+    RecurringItem,
     SavingsGoal,
     Transaction,
     User,
@@ -76,6 +77,36 @@ def create_goal(
     db.add(goal)
     db.commit()
     return goal
+
+
+def create_recurring_item(
+    db: Session,
+    user: User,
+    *,
+    merchant: str,
+    amount_cents: int,
+    next_payment: date,
+    frequency: str = "Monthly",
+    status: str = "active",
+    confidence_score: float = 90.0,
+    category: str = "Bills",
+) -> RecurringItem:
+    item = RecurringItem(
+        user_id=user.id,
+        merchant=merchant,
+        normalized_merchant=f"{merchant.upper()}-{uuid4().hex}",
+        category=category,
+        amount_cents=amount_cents,
+        frequency=frequency,
+        last_payment=next_payment - timedelta(days=30),
+        next_payment=next_payment,
+        status=status,
+        confidence_score=confidence_score,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
 
 
 def seed_income(db: Session, user: User, *, monthly_cents: int = 10_000) -> None:
@@ -519,3 +550,38 @@ def test_safe_to_spend_why_does_not_claim_zero_deductions_reduced_it() -> (
         assert "no active obligations" in safe_rec.why.lower()
         assert "after upcoming obligations" not in safe_rec.why.lower()
         assert "liquid balance" in safe_rec.why.lower()
+
+
+def test_safe_to_spend_recommendation_reflects_corrected_obligations() -> (
+    None
+):
+    # Regression test for the Safe-to-Spend recurrence-horizon fix: a
+    # weekly bill recurs 5 times within the recommendation rule's
+    # default 30-day horizon, not once, so the safe-to-spend figure
+    # surfaced in the recommendation must reflect that corrected
+    # total instead of a single $50 occurrence.
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Groceries",
+            amount_cents=5_000,
+            next_payment=date(2026, 8, 10),
+            frequency="Weekly",
+        )
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        safe_rec = next(
+            r for r in result.recommendations if r.id == "safe-to-spend-status"
+        )
+
+        assert "$4,750.00 safe to spend" in safe_rec.summary
+        assert "upcoming obligations" in safe_rec.why.lower()
+        signal_values = {
+            signal.label: signal.value_display
+            for signal in safe_rec.source_signals
+        }
+        assert signal_values["Safe to spend"] == "$4,750.00"

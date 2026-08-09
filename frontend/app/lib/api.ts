@@ -348,6 +348,16 @@ export type ForecastConfidence = {
   monthly_confidence: MonthlyForecastConfidence[];
 };
 
+export type CashFlowHorizon = {
+  horizon_days: number;
+  through_date: string;
+  expected_income_cents: number;
+  known_obligations_cents: number;
+  projected_balance_cents: number;
+  shortfall_cents: number;
+  confidence_score: number;
+};
+
 export type CashFlowForecast = {
   as_of: string;
   month_end: string;
@@ -360,6 +370,43 @@ export type CashFlowForecast = {
   low_balance_risk: boolean;
   upcoming_cash_flows: UpcomingCashFlow[];
   confidence: ForecastConfidence;
+  horizon_outlook: CashFlowHorizon[];
+};
+
+export type ResilienceHorizon = {
+  horizon_days: number;
+  required_essential_cents: number;
+  remaining_liquid_cents: number;
+  shortfall_cents: number;
+  coverage_percent: number;
+};
+
+export type ResilienceStatus =
+  | "critical"
+  | "weak"
+  | "fair"
+  | "strong"
+  | "very_strong";
+
+export type FinancialResilience = {
+  as_of: string;
+  liquid_balance_cents: number;
+  liquid_account_count: number;
+  monthly_essential_cents: number;
+  essential_spending_source: "user_provided" | "derived";
+  spending_basis_label: string;
+  months_of_spending_data: number;
+  runway_months: number | null;
+  runway_days: number | null;
+  resilience_status: ResilienceStatus;
+  horizons: ResilienceHorizon[];
+  confidence_score: number;
+  data_quality_note: string | null;
+  headline: string;
+  why: string;
+  what_this_means: string;
+  suggested_actions: string[];
+  warnings: string[];
 };
 
 export type SafeToSpendRequest = {
@@ -1341,6 +1388,23 @@ export const api = {
         headers: authHeaders(),
       }
     ).then((res) => handle<CashFlowForecast>(res));
+  },
+
+  getFinancialResilience: (
+    userId: number,
+    essentialSpendingCents?: number
+  ): Promise<FinancialResilience> => {
+    const query =
+      essentialSpendingCents != null
+        ? `?essential_spending_cents=${essentialSpendingCents}`
+        : "";
+
+    return fetchWithTimeout(
+      `${API_URL}/users/${userId}/financial-resilience${query}`,
+      {
+        headers: authHeaders(),
+      }
+    ).then((res) => handle<FinancialResilience>(res));
   },
 
   getSafeToSpend: (

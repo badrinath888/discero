@@ -88,6 +88,22 @@ def seed_income(db: Session, user: User) -> None:
     db.commit()
 
 
+def seed_spending(
+    db: Session, user: User, *, monthly_amount_cents: int = 100_000
+) -> None:
+    for month in (5, 6, 7):
+        db.add(
+            Transaction(
+                user_id=user.id,
+                posted_on=date(2026, month, 15),
+                description="Rent",
+                amount_cents=-monthly_amount_cents,
+                category="Housing",
+            )
+        )
+    db.commit()
+
+
 def _messages(*texts: str) -> list[CopilotMessageIn]:
     return [CopilotMessageIn(role="user", content=t) for t in texts]
 
@@ -1183,3 +1199,233 @@ def test_extract_future_date_handles_common_phrasings() -> None:
         "one month", as_of
     ) == date(2026, 9, 8)
     assert copilot_free_mode.extract_future_date("no date here", as_of) is None
+
+
+# --- Financial Resilience (free mode) ------------------------------------
+
+
+def test_emergency_runway_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        seed_spending(db, user, monthly_amount_cents=100_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What is my emergency runway?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Financial Resilience"
+        status_chip = next(
+            c for c in result.key_numbers if c.label == "Resilience status"
+        )
+        assert status_chip.value_display == "Fair"
+        assert "5.0 month(s)" in (result.answer or "")
+
+
+def test_survive_without_income_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        seed_spending(db, user, monthly_amount_cents=100_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("How many months could I survive without income?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Financial Resilience"
+
+
+def test_how_financially_resilient_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        seed_spending(db, user, monthly_amount_cents=100_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("How financially resilient am I?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Financial Resilience"
+
+
+def test_three_month_income_stop_question_targets_ninety_day_horizon() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=100_000)
+        seed_spending(db, user, monthly_amount_cents=60_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What happens if my income stops for 3 months?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Financial Resilience"
+        assert "90 days without income" in (result.answer or "")
+
+
+def test_cover_ninety_days_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        seed_spending(db, user, monthly_amount_cents=100_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Can I cover 90 days without income?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Financial Resilience"
+        assert "90 days without income" in (result.answer or "")
+
+
+def test_essential_spending_override_question_uses_stated_amount() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        # Real spending history exists too -- an explicit override
+        # must win over it, not blend with it.
+        seed_spending(db, user, monthly_amount_cents=100_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages(
+                "What if my essential spending were $4000 per month?"
+            ),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Financial Resilience"
+        source_chip = next(
+            c
+            for c in result.key_numbers
+            if c.label == "Spending source"
+        )
+        assert source_chip.value_display == "Your stated amount"
+        burn_chip = next(
+            c
+            for c in result.key_numbers
+            if c.label == "Monthly essential spending"
+        )
+        assert burn_chip.value_display == "$4,000.00"
+        assert "estimated" not in (result.low_data_warning or "").lower()
+        assert "estimated" not in (result.answer or "").lower()
+
+
+def test_derived_essential_spending_is_labeled_estimated() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        seed_spending(db, user, monthly_amount_cents=100_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What is my emergency runway?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        source_chip = next(
+            c
+            for c in result.key_numbers
+            if c.label == "Spending source"
+        )
+        assert source_chip.value_display == "Estimated"
+        assert result.low_data_warning is not None
+        assert "Monthly spending baseline" in result.low_data_warning
+        assert (
+            "does not yet classify essential vs. discretionary "
+            "expenses" in result.low_data_warning
+        )
+        assert (
+            "Tell me a specific essential-spending amount"
+            in result.low_data_warning
+        )
+
+
+def test_resilience_missing_essential_amount_asks_clarification() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What if my essential spending were higher?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "clarifying_question"
+        assert "essential spending" in (
+            result.clarifying_question or ""
+        ).lower()
+
+
+def test_resilience_response_never_uses_forecast_certainty_language() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        seed_spending(db, user, monthly_amount_cents=100_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What is my emergency runway?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        combined = " ".join(
+            filter(
+                None,
+                [
+                    result.answer,
+                    result.why,
+                    result.what_this_means,
+                    result.low_data_warning,
+                ],
+            )
+        ).lower()
+        assert "guarantee" not in combined
+        assert "guaranteed" not in combined
+        assert "will happen" not in combined

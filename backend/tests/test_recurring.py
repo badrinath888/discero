@@ -1,7 +1,10 @@
 from datetime import date
 
 from app.models import Transaction
-from app.recurring import detect_recurring
+from app.recurring import detect_recurring, project_occurrences
+
+
+TEST_DATE = date(2026, 8, 4)
 
 
 def transaction(
@@ -119,3 +122,152 @@ def test_detects_price_increase_warning() -> None:
     assert len(result) == 1
     assert result[0]["price_change_percent"] == 20.0
     assert result[0]["price_change_warning"] is True
+
+
+# --- project_occurrences (30/60/90-day recurrence projection) -----------
+
+
+def test_monthly_bill_in_thirty_day_horizon() -> None:
+    occurrences = project_occurrences(
+        date(2026, 8, 10),
+        "Monthly",
+        as_of=TEST_DATE,
+        through_date=date(2026, 9, 3),  # +30 days
+    )
+
+    assert occurrences == [date(2026, 8, 10)]
+
+
+def test_monthly_bill_in_sixty_day_horizon() -> None:
+    occurrences = project_occurrences(
+        date(2026, 8, 10),
+        "Monthly",
+        as_of=TEST_DATE,
+        through_date=date(2026, 10, 3),  # +60 days
+    )
+
+    assert occurrences == [date(2026, 8, 10), date(2026, 9, 10)]
+
+
+def test_monthly_bill_in_ninety_day_horizon() -> None:
+    occurrences = project_occurrences(
+        date(2026, 8, 10),
+        "Monthly",
+        as_of=TEST_DATE,
+        through_date=date(2026, 11, 2),  # +90 days
+    )
+
+    assert occurrences == [
+        date(2026, 8, 10),
+        date(2026, 9, 10),
+        date(2026, 10, 10),
+    ]
+
+
+def test_weekly_bill_occurrences_over_thirty_days() -> None:
+    occurrences = project_occurrences(
+        date(2026, 8, 6),
+        "Weekly",
+        as_of=TEST_DATE,
+        through_date=date(2026, 9, 3),  # +30 days
+    )
+
+    assert occurrences == [
+        date(2026, 8, 6),
+        date(2026, 8, 13),
+        date(2026, 8, 20),
+        date(2026, 8, 27),
+        date(2026, 9, 3),
+    ]
+
+
+def test_biweekly_bill_occurrences_over_sixty_days() -> None:
+    occurrences = project_occurrences(
+        date(2026, 8, 5),
+        "Biweekly",
+        as_of=TEST_DATE,
+        through_date=date(2026, 10, 3),  # +60 days
+    )
+
+    assert occurrences == [
+        date(2026, 8, 5),
+        date(2026, 8, 19),
+        date(2026, 9, 2),
+        date(2026, 9, 16),
+        date(2026, 9, 30),
+    ]
+
+
+def test_next_occurrence_just_outside_horizon_is_excluded() -> None:
+    occurrences = project_occurrences(
+        date(2026, 9, 5),  # 32 days out
+        "Monthly",
+        as_of=TEST_DATE,
+        through_date=date(2026, 9, 3),  # +30 days
+    )
+
+    assert occurrences == []
+
+
+def test_occurrence_exactly_on_horizon_boundary_is_included() -> None:
+    # The weekly test above already lands exactly on day 30 (Sep 3);
+    # this asserts that inclusion explicitly and in isolation.
+    occurrences = project_occurrences(
+        date(2026, 9, 3),
+        "Monthly",
+        as_of=TEST_DATE,
+        through_date=date(2026, 9, 3),
+    )
+
+    assert occurrences == [date(2026, 9, 3)]
+
+
+def test_no_double_counting_all_occurrences_unique_and_ordered() -> None:
+    occurrences = project_occurrences(
+        date(2026, 8, 6),
+        "Weekly",
+        as_of=TEST_DATE,
+        through_date=date(2026, 11, 2),  # +90 days
+    )
+
+    assert len(occurrences) == len(set(occurrences))
+    assert occurrences == sorted(occurrences)
+    assert len(occurrences) == 13
+
+
+def test_unsupported_frequency_falls_back_to_single_known_date() -> None:
+    # Never fabricate a cadence for a frequency the app doesn't
+    # actually detect or accept.
+    occurrences = project_occurrences(
+        date(2026, 8, 20),
+        "Quarterly",
+        as_of=TEST_DATE,
+        through_date=date(2026, 11, 2),
+    )
+
+    assert occurrences == [date(2026, 8, 20)]
+
+
+def test_unsupported_frequency_excluded_when_out_of_range() -> None:
+    occurrences = project_occurrences(
+        date(2026, 12, 1),
+        "Quarterly",
+        as_of=TEST_DATE,
+        through_date=date(2026, 11, 2),
+    )
+
+    assert occurrences == []
+
+
+def test_next_payment_before_as_of_is_not_projected_backwards() -> None:
+    # A stale next_payment (e.g. sync lag) should never yield an
+    # occurrence dated before the calculation window starts.
+    occurrences = project_occurrences(
+        date(2026, 7, 20),  # before TEST_DATE
+        "Weekly",
+        as_of=TEST_DATE,
+        through_date=date(2026, 8, 11),
+    )
+
+    assert all(occurrence >= TEST_DATE for occurrence in occurrences)
+    assert occurrences == [date(2026, 8, 10)]

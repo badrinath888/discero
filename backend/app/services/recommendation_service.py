@@ -31,6 +31,9 @@ from app.schemas import (
     RecommendationsOut,
     SafeToSpendRequest,
 )
+from app.services.financial_resilience_service import (
+    evaluate_financial_resilience,
+)
 from app.services.goal_intelligence_service import evaluate_goal_intelligence
 from app.services.major_purchase_service import (
     _average_monthly_income_cents,
@@ -38,6 +41,14 @@ from app.services.major_purchase_service import (
 from app.services.safe_to_spend_service import calculate_safe_to_spend
 
 _MAX_RECOMMENDATIONS = 8
+
+# A budget overage only escalates to "critical" when it is both a
+# large percentage AND a materially large dollar amount -- a tiny
+# budget ($30) overspent by a normal amount ($59.40) is a 298% overage
+# but not a critical financial event. Reserve "critical" for genuinely
+# severe states.
+_BUDGET_OVERAGE_CRITICAL_PERCENT = 150.0
+_BUDGET_OVERAGE_CRITICAL_CENTS = 15_000
 
 _SEVERITY_WEIGHT = {
     "critical": 5,
@@ -242,7 +253,12 @@ def _rule_budget_overage(
         return None
 
     worst = max(overspent, key=lambda item: item.percent_used)
-    severity = "critical" if worst.percent_used >= 150 else "warning"
+    severity = (
+        "critical"
+        if worst.percent_used >= _BUDGET_OVERAGE_CRITICAL_PERCENT
+        and worst.over_budget_cents >= _BUDGET_OVERAGE_CRITICAL_CENTS
+        else "warning"
+    )
 
     return RecommendationOut(
         id=f"budget-overage-{worst.category}",
@@ -278,6 +294,45 @@ def _rule_budget_overage(
     )
 
 
+def _safe_to_spend_why(result) -> str:
+    # Never imply a deduction reduced the result when it's actually
+    # zero -- only name the ones genuinely in play.
+    breakdown = result.breakdown
+    deductions = {
+        "upcoming obligations": breakdown.upcoming_obligations_cents,
+        "essential spending": breakdown.essential_spending_cents,
+        "your safety reserve": breakdown.safety_reserve_cents,
+    }
+    nonzero_labels = [
+        label for label, cents in deductions.items() if cents > 0
+    ]
+
+    if result.shortfall_cents > 0:
+        if not nonzero_labels:
+            return (
+                f"A projected shortfall of "
+                f"{_currency(result.shortfall_cents)} against your "
+                "liquid balance."
+            )
+        return (
+            f"A projected shortfall of "
+            f"{_currency(result.shortfall_cents)} against "
+            f"{', '.join(nonzero_labels)}."
+        )
+
+    if not nonzero_labels:
+        return (
+            "This reflects your available liquid balance -- there "
+            "are no active obligations, essential spending, or "
+            "safety reserve currently reducing it."
+        )
+
+    return (
+        "This reflects your liquid balance after "
+        f"{', '.join(nonzero_labels)}."
+    )
+
+
 def _rule_safe_to_spend(
     db: Session, user_id: int, as_of: date
 ) -> RecommendationOut | None:
@@ -305,16 +360,7 @@ def _rule_safe_to_spend(
         title = "Your safe-to-spend position is healthy"
         action = "You have room for planned purchases or extra savings."
 
-    why = (
-        f"A projected shortfall of {_currency(result.shortfall_cents)} "
-        "against upcoming obligations, essential spending, and your "
-        "safety reserve."
-        if result.shortfall_cents > 0
-        else (
-            "This reflects your liquid balance after upcoming "
-            "obligations, essential spending, and your safety reserve."
-        )
-    )
+    why = _safe_to_spend_why(result)
 
     return RecommendationOut(
         id="safe-to-spend-status",
@@ -339,6 +385,69 @@ def _rule_safe_to_spend(
             _signal("Shortfall", _currency(result.shortfall_cents)),
         ],
         deep_link="/decisions",
+        evaluated_at=as_of,
+    )
+
+
+_RESILIENCE_SEVERITY = {
+    "critical": "critical",
+    "weak": "warning",
+    "fair": "informational",
+}
+
+
+def _rule_financial_resilience(
+    db: Session, user_id: int, as_of: date
+) -> RecommendationOut | None:
+    result = evaluate_financial_resilience(db, user_id, as_of=as_of)
+    status = result.resilience_status
+
+    if status in _RESILIENCE_SEVERITY:
+        severity = _RESILIENCE_SEVERITY[status]
+    else:
+        # strong / very_strong -- only surface a positive note when
+        # there's real confidence behind it, and never let it crowd
+        # out more important issues (see _MAX_RECOMMENDATIONS/severity
+        # ranking, which already sorts positives last).
+        if result.confidence_score < 45:
+            return None
+        severity = "positive"
+
+    runway_display = (
+        f"{result.runway_months} month(s)"
+        if result.runway_months is not None
+        else "no measurable spending"
+    )
+    coverage_noun = (
+        "essential-expense"
+        if result.essential_spending_source == "user_provided"
+        else "spending-pace"
+    )
+
+    return RecommendationOut(
+        id="financial-resilience",
+        category="resilience",
+        severity=severity,
+        priority=0,
+        title=result.headline,
+        summary=result.why,
+        why=result.why,
+        recommended_action=(
+            result.suggested_actions[0]
+            if result.suggested_actions
+            else "Review your financial resilience."
+        ),
+        impact=f"{runway_display} of {coverage_noun} runway",
+        confidence=result.confidence_score,
+        source_signals=[
+            _signal("Liquid cash", _currency(result.liquid_balance_cents)),
+            _signal(
+                result.spending_basis_label,
+                _currency(result.monthly_essential_cents),
+            ),
+            _signal("Runway", runway_display),
+        ],
+        deep_link="/forecast",
         evaluated_at=as_of,
     )
 
@@ -503,6 +612,9 @@ def evaluate_recommendations(
             )
         )
         candidates.append(_rule_safe_to_spend(db, user_id, calculation_date))
+        candidates.append(
+            _rule_financial_resilience(db, user_id, calculation_date)
+        )
         candidates.append(
             _rule_forecast_confidence(
                 db, user_id, current_user, calculation_date

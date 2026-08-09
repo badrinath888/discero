@@ -210,6 +210,16 @@ def extract_monthly_capacity_cents(text: str) -> tuple[bool, int | None]:
 
 _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
+        "get_financial_resilience",
+        re.compile(
+            r"\b(could i survive|how long would my savings last|how "
+            r"financially resilient|emergency runway|financial runway|"
+            r"income stops?|without income|cover \d+ days|essential "
+            r"spending (is|of|would be|were))\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "buy_now_vs_wait",
         re.compile(
             r"\b(now or wait|buy\w* (it |this )?now[^.?!]{0,20}\bwait\b|"
@@ -326,6 +336,45 @@ def _goal_intelligence_emphasis(text: str) -> str:
     return "overview"
 
 
+_ESSENTIAL_SPENDING_VERB_RE = re.compile(
+    r"\b(essential spending|my spending (is|were|would be))\b",
+    re.IGNORECASE,
+)
+_RESILIENCE_HORIZON_DAYS_RE = re.compile(r"(\d+)\s*days?\b", re.IGNORECASE)
+_RESILIENCE_HORIZON_MONTHS_RE = re.compile(
+    r"(\d+)\s*months?\b", re.IGNORECASE
+)
+_MONTHS_TO_HORIZON_DAYS = {1: 30, 2: 60, 3: 90}
+
+
+def extract_essential_spending_cents(text: str) -> tuple[bool, int | None]:
+    """Mirrors extract_monthly_capacity_cents for essential spending.
+
+    `stated` is True whenever the text reads as an essential-spending
+    statement, even with no parseable amount -- callers must ask for
+    clarification then rather than silently letting a derived figure
+    override what the user already said.
+    """
+    stated = bool(_ESSENTIAL_SPENDING_VERB_RE.search(text))
+    if not stated:
+        return False, None
+    return True, extract_amount_cents(text)
+
+
+def _resilience_emphasis(text: str) -> str | None:
+    days_match = _RESILIENCE_HORIZON_DAYS_RE.search(text)
+    if days_match and int(days_match.group(1)) in (30, 60, 90):
+        return f"horizon_{days_match.group(1)}"
+
+    months_match = _RESILIENCE_HORIZON_MONTHS_RE.search(text)
+    if months_match:
+        mapped = _MONTHS_TO_HORIZON_DAYS.get(int(months_match.group(1)))
+        if mapped:
+            return f"horizon_{mapped}"
+
+    return None
+
+
 def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
     if name in (
         "get_safe_to_spend",
@@ -355,6 +404,17 @@ def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
             "purchase_amount_cents": amount,
             "purchase_date": as_of.isoformat(),
         }
+
+    if name == "get_financial_resilience":
+        stated, amount = extract_essential_spending_cents(text)
+        if stated and amount is None:
+            return Clarify(
+                "What's your monthly essential spending? "
+                '(e.g. "$4,000 per month")'
+            )
+        if stated:
+            return {"essential_spending_cents": amount}
+        return {}
 
     if name == "get_goal_intelligence":
         # "How much should I save per month" is ASKING for the
@@ -491,11 +551,13 @@ def resolve_intent(
                 )
                 built = {**built, capacity_key: prior_capacity}
 
-        emphasize = (
-            _goal_intelligence_emphasis(current)
-            if name == "get_goal_intelligence"
-            else None
-        )
+        if name == "get_goal_intelligence":
+            emphasize = _goal_intelligence_emphasis(current)
+        elif name == "get_financial_resilience":
+            emphasize = _resilience_emphasis(current)
+        else:
+            emphasize = None
+
         return Resolution(name, built, emphasize)
 
     stripped = current.strip()
@@ -909,6 +971,45 @@ def _render_buy_now_vs_wait(result, emphasize):
     return answer, why, what_this_means, actions
 
 
+def _render_financial_resilience(result, emphasize):
+    runway_display = (
+        f"{result.runway_months} month(s)"
+        if result.runway_months is not None
+        else "no measurable spending"
+    )
+    answer = f"{result.headline} -- about {runway_display} of runway."
+    why = result.why
+    what_this_means = result.what_this_means
+    actions = result.suggested_actions[:2]
+
+    if emphasize and emphasize.startswith("horizon_"):
+        horizon_days = int(emphasize.split("_")[1])
+        horizon = next(
+            (h for h in result.horizons if h.horizon_days == horizon_days),
+            None,
+        )
+        if horizon:
+            spending_phrase = (
+                "your essential spending"
+                if result.essential_spending_source == "user_provided"
+                else "your recent spending pace"
+            )
+            if horizon.shortfall_cents > 0:
+                answer = (
+                    f"Over {horizon_days} days without income, you'd be "
+                    f"short {_currency(horizon.shortfall_cents)} against "
+                    f"{spending_phrase}."
+                )
+            else:
+                answer = (
+                    f"Over {horizon_days} days without income, you'd "
+                    f"still have {_currency(horizon.remaining_liquid_cents)} "
+                    f"left ({horizon.coverage_percent}% covered)."
+                )
+
+    return answer, why, what_this_means, actions
+
+
 _RENDERERS = {
     "get_safe_to_spend": _render_safe_to_spend,
     "simulate_major_purchase": _render_major_purchase,
@@ -920,6 +1021,7 @@ _RENDERERS = {
     "get_recommendations": _render_recommendations,
     "get_goal_intelligence": _render_goal_intelligence,
     "buy_now_vs_wait": _render_buy_now_vs_wait,
+    "get_financial_resilience": _render_financial_resilience,
 }
 
 

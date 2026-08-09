@@ -744,6 +744,16 @@ class ForecastConfidenceOut(BaseModel):
     monthly_confidence: list[MonthlyForecastConfidenceOut]
 
 
+class CashFlowHorizonOut(BaseModel):
+    horizon_days: int
+    through_date: date
+    expected_income_cents: int
+    known_obligations_cents: int
+    projected_balance_cents: int
+    shortfall_cents: int
+    confidence_score: float
+
+
 class CashFlowForecastOut(BaseModel):
     as_of: date
     month_end: date
@@ -756,6 +766,10 @@ class CashFlowForecastOut(BaseModel):
     low_balance_risk: bool
     upcoming_cash_flows: list[UpcomingCashFlowOut]
     confidence: ForecastConfidenceOut
+    # 30/60/90-day outlook, composed from safe_to_spend_service's
+    # existing horizon-bound obligation logic rather than a new
+    # formula -- see cash_flow_forecast()'s docstring for methodology.
+    horizon_outlook: list[CashFlowHorizonOut] = Field(default_factory=list)
 
 class SafeToSpendRequest(BaseModel):
     safety_reserve_cents: int = Field(
@@ -808,6 +822,55 @@ class SafeToSpendOut(BaseModel):
     breakdown: SafeToSpendBreakdownOut
     obligations: list[SafeToSpendObligationOut]
     warnings: list[str] = Field(default_factory=list)
+
+
+class FinancialResilienceRequest(BaseModel):
+    # None means "derive it from FinSight data"; an explicit value
+    # (including a legitimate $0) is always used as-is and labeled
+    # user-provided rather than estimated.
+    essential_spending_cents: int | None = Field(default=None, ge=0)
+
+
+class ResilienceHorizonOut(BaseModel):
+    horizon_days: int
+    required_essential_cents: int
+    remaining_liquid_cents: int
+    shortfall_cents: int
+    coverage_percent: float
+
+
+class FinancialResilienceOut(BaseModel):
+    as_of: date
+    liquid_balance_cents: int
+    liquid_account_count: int
+    monthly_essential_cents: int
+    essential_spending_source: Literal["user_provided", "derived"]
+    # Authoritative display label for `monthly_essential_cents`, so
+    # every consumer (Forecast UI, Copilot, Recommendations) shows the
+    # exact same wording rather than each re-deriving it: "Monthly
+    # essential spending" only when the user actually said so, else
+    # "Monthly spending baseline" -- never presented as if FinSight
+    # knows which transactions are essential.
+    spending_basis_label: str
+    months_of_spending_data: int
+    runway_months: float | None
+    runway_days: int | None
+    resilience_status: Literal[
+        "critical",
+        "weak",
+        "fair",
+        "strong",
+        "very_strong",
+    ]
+    horizons: list[ResilienceHorizonOut]
+    confidence_score: float
+    data_quality_note: str | None
+    headline: str
+    why: str
+    what_this_means: str
+    suggested_actions: list[str]
+    warnings: list[str] = Field(default_factory=list)
+
 
 class GoalImpactOut(BaseModel):
     goal_id: int
@@ -1248,6 +1311,7 @@ class RecommendationOut(BaseModel):
         "savings",
         "data_quality",
         "positive_progress",
+        "resilience",
     ]
     severity: Literal[
         "critical",

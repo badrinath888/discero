@@ -174,6 +174,7 @@ const cashFlow: CashFlowForecast = {
     recommendations: [],
     monthly_confidence: [],
   },
+  horizon_outlook: [],
 };
 
 function resolveEverythingSuccessfully() {

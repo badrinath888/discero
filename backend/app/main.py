@@ -13,6 +13,7 @@ from app.routers import (
     budgets,
     copilot,
     decisions,
+    financial_resilience,
     financial_stress_test,
     goal_conflict_detection,
     goals,
@@ -75,6 +76,7 @@ app.include_router(accounts.router)
 app.include_router(copilot.router)
 app.include_router(recommendations.router)
 app.include_router(decisions.router)
+app.include_router(financial_resilience.router)
 
 
 @app.get("/health", tags=["meta"])

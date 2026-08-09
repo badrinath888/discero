@@ -42,6 +42,9 @@ from app.schemas import (
     ScenarioComparisonRequest,
 )
 from app.services.buy_now_vs_wait_service import evaluate_buy_now_vs_wait
+from app.services.financial_resilience_service import (
+    evaluate_financial_resilience,
+)
 from app.services.financial_stress_test_service import (
     run_financial_stress_test,
 )
@@ -101,6 +104,10 @@ _STATUS_TONE = {
     "wait": "positive",
     "either": "neutral",
     "neither": "danger",
+    "weak": "warning",
+    "fair": "warning",
+    "strong": "positive",
+    "very_strong": "positive",
 }
 
 
@@ -317,12 +324,57 @@ _TOOLS = [
         "input_schema": _tool_schema(BuyNowVsWaitRequest),
     },
     {
+        "name": "get_financial_resilience",
+        "description": (
+            "Get the user's financial resilience / emergency runway: "
+            "how many months their liquid cash would cover, a "
+            "resilience status (critical/weak/fair/strong/"
+            "very_strong), and a 30/60/90-day outlook if income "
+            "stopped. Use for 'how many months could I survive "
+            "without income', 'how long would my savings last if I "
+            "lost my job', 'how financially resilient am I', 'what "
+            "is my emergency runway', 'what happens if my income "
+            "stops for N months', 'can I cover 90 days without "
+            "income', or 'what if my essential spending is $X/month' "
+            "questions. Omit essential_spending_cents if not stated "
+            "by the user; it will then be a SPENDING BASELINE "
+            "estimated from their recent total spending, NOT a true "
+            "essential-expense figure (FinSight does not yet classify "
+            "essential vs. discretionary transactions) -- if you "
+            "omit it, call the result 'your recent spending pace' or "
+            "a 'spending baseline', never 'essential expenses', and "
+            "tell the user they can state a specific essential-"
+            "spending amount instead. Only call it essential spending "
+            "when the user explicitly provided the amount. Never "
+            "describe the runway or 30/60/90-day figures as a "
+            "guaranteed forecast of future income or spending."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "essential_spending_cents": {
+                    "type": ["integer", "null"],
+                    "description": (
+                        "Monthly essential spending in cents, if "
+                        "stated by the user."
+                    ),
+                }
+            },
+        },
+    },
+    {
         "name": "get_cash_flow_forecast",
         "description": (
             "Get the projected month-end balance, expected income, "
-            "upcoming bills, and forecast confidence for the "
-            "current month. Use for 'monthly cash flow' or 'forecast "
-            "confidence' questions."
+            "upcoming bills, forecast confidence, and a 30/60/90-day "
+            "outlook. Use for 'monthly cash flow' or 'forecast "
+            "confidence' questions. All expected-income figures "
+            "(including horizon_outlook) are a PACE-BASED estimate "
+            "(recent income divided evenly across days), not a "
+            "guaranteed or precise income forecast -- it does not "
+            "model irregular or seasonal income. Never describe "
+            "these figures as guaranteed; if confidence is low, say "
+            "so explicitly rather than stating the numbers plainly."
         ),
         "input_schema": {
             "type": "object",
@@ -469,6 +521,7 @@ _TOOL_LABELS = {
     "check_goal_conflicts": "Goal Conflict Check",
     "get_goal_intelligence": "Goal Intelligence",
     "buy_now_vs_wait": "Buy Now vs Wait",
+    "get_financial_resilience": "Financial Resilience",
     "get_cash_flow_forecast": "Cash-Flow Forecast",
     "get_monthly_insights": "Monthly Insights",
     "get_recommendations": "Recommendations",
@@ -887,6 +940,98 @@ def _handle_buy_now_vs_wait(db, user_id, tool_input, as_of, current_user):
     )
 
 
+_SPENDING_BASELINE_ESTIMATED_NOTE = (
+    "Monthly spending baseline ({amount}) was estimated from your "
+    "recent total spending because FinSight does not yet classify "
+    "essential vs. discretionary expenses. Tell me a specific "
+    "essential-spending amount and I'll use that instead."
+)
+
+
+def _handle_financial_resilience(
+    db, user_id, tool_input, as_of, current_user
+):
+    essential_override = tool_input.get("essential_spending_cents")
+    result = evaluate_financial_resilience(
+        db,
+        user_id,
+        essential_spending_cents=essential_override,
+        as_of=as_of,
+    )
+
+    runway_display = (
+        f"{result.runway_months} mo"
+        if result.runway_months is not None
+        else "N/A"
+    )
+
+    chips = [
+        _chip(
+            "Resilience status",
+            result.resilience_status.replace("_", " ").title(),
+            kind="text",
+            tone=_tone(result.resilience_status),
+        ),
+        _chip("Runway", runway_display, kind="text", tone="neutral"),
+        _chip(
+            "Liquid cash",
+            _currency(result.liquid_balance_cents),
+            tone="neutral",
+        ),
+        _chip(
+            result.spending_basis_label,
+            _currency(result.monthly_essential_cents),
+            tone="neutral",
+        ),
+        _chip(
+            "Spending source",
+            "Your stated amount"
+            if result.essential_spending_source == "user_provided"
+            else "Estimated",
+            kind="text",
+            tone="neutral",
+        ),
+    ]
+
+    for horizon in result.horizons:
+        chips.append(
+            _chip(
+                f"{horizon.horizon_days}-day coverage",
+                f"{horizon.coverage_percent:.0f}%",
+                kind="percent",
+                tone="danger" if horizon.shortfall_cents else "positive",
+            )
+        )
+
+    chips.append(
+        _chip(
+            "Confidence",
+            f"{round(result.confidence_score)}%",
+            kind="score",
+            tone=_tone(_confidence_level(result.confidence_score)),
+        )
+    )
+
+    # Only the derived path needs a disclosure -- a user-provided
+    # figure needs no caveat, mirroring the savings-capacity
+    # transparency convention.
+    low_data_warning = result.data_quality_note
+    if result.essential_spending_source == "derived":
+        note = _SPENDING_BASELINE_ESTIMATED_NOTE.format(
+            amount=_currency(result.monthly_essential_cents)
+        )
+        low_data_warning = (
+            f"{note} {low_data_warning}" if low_data_warning else note
+        )
+
+    return (
+        result,
+        chips,
+        _confidence(result.confidence_score),
+        low_data_warning,
+    )
+
+
 def _handle_cash_flow_forecast(
     db, user_id, tool_input, as_of, current_user
 ):
@@ -1009,6 +1154,7 @@ _TOOL_HANDLERS = {
     "check_goal_conflicts": _handle_goal_conflicts,
     "get_goal_intelligence": _handle_goal_intelligence,
     "buy_now_vs_wait": _handle_buy_now_vs_wait,
+    "get_financial_resilience": _handle_financial_resilience,
     "get_cash_flow_forecast": _handle_cash_flow_forecast,
     "get_monthly_insights": _handle_monthly_insights,
     "get_recommendations": _handle_recommendations,

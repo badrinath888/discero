@@ -38,7 +38,11 @@ from app.services.goal_intelligence_service import evaluate_goal_intelligence
 from app.services.major_purchase_service import (
     _average_monthly_income_cents,
 )
+from app.services.recurring_intelligence_service import (
+    evaluate_recurring_intelligence,
+)
 from app.services.safe_to_spend_service import calculate_safe_to_spend
+from app.services.spending_anomaly_service import detect_spending_anomalies
 
 _MAX_RECOMMENDATIONS = 8
 
@@ -576,6 +580,239 @@ def _rule_spending_trend(
     return None
 
 
+# A recurring-amount change is already filtered by the recurring
+# intelligence service (>=10% and >=$1) before it's even a candidate --
+# this recommendation-level bar is deliberately higher so an ordinary
+# small increase never crowds out core financial-risk recommendations.
+_RECURRING_INCREASE_MIN_PERCENT = 15.0
+_RECURRING_INCREASE_MIN_CENTS = 500
+_RECURRING_BURDEN_INCOME_WARNING_PERCENT = 50.0
+_REPEATED_CHARGE_RECOMMENDATION_MIN_CENTS = 5000
+
+
+def _rule_recurring_bill_increase(
+    db: Session, user_id: int, as_of: date
+) -> RecommendationOut | None:
+    intelligence = evaluate_recurring_intelligence(db, user_id, as_of=as_of)
+
+    candidates = [
+        change
+        for change in intelligence.amount_changes
+        if change.status == "increased"
+        and (
+            change.change_percent >= _RECURRING_INCREASE_MIN_PERCENT
+            or change.change_cents >= _RECURRING_INCREASE_MIN_CENTS
+        )
+    ]
+
+    if not candidates:
+        return None
+
+    worst = max(candidates, key=lambda change: change.change_percent)
+
+    return RecommendationOut(
+        id="recurring-bill-increase",
+        category="recurring",
+        severity="warning",
+        priority=0,
+        title=f"{worst.merchant} increased by {_currency(worst.change_cents)}",
+        summary=(
+            f"{worst.merchant} now charges "
+            f"{_currency(worst.current_amount_cents)}, up from "
+            f"{_currency(worst.baseline_amount_cents)} "
+            f"({_percent(worst.change_percent)})."
+        ),
+        why=(
+            f"Based on {worst.occurrences_considered} recent charges "
+            f"from {worst.merchant}, the latest amount is meaningfully "
+            "higher than the established baseline."
+        ),
+        recommended_action=(
+            "Review this bill to confirm the increase is expected."
+        ),
+        impact=f"{_percent(worst.change_percent)} increase",
+        confidence=None,
+        source_signals=[
+            _signal(
+                "Current amount", _currency(worst.current_amount_cents)
+            ),
+            _signal(
+                "Previous amount", _currency(worst.baseline_amount_cents)
+            ),
+        ],
+        deep_link="/recurring",
+        evaluated_at=as_of,
+    )
+
+
+def _rule_duplicate_recurring(
+    db: Session, user_id: int, as_of: date
+) -> RecommendationOut | None:
+    intelligence = evaluate_recurring_intelligence(db, user_id, as_of=as_of)
+
+    if not intelligence.possible_duplicates:
+        return None
+
+    pair = max(
+        intelligence.possible_duplicates,
+        key=lambda p: max(p.amount_a_cents, p.amount_b_cents),
+    )
+    potential_savings_cents = min(pair.amount_a_cents, pair.amount_b_cents)
+
+    return RecommendationOut(
+        id="possible-duplicate-subscription",
+        category="recurring",
+        severity="opportunity",
+        priority=0,
+        title=f"Possible duplicate: {pair.merchant_a} and {pair.merchant_b}",
+        summary=pair.reason,
+        why=pair.reason,
+        recommended_action=(
+            f"Check whether you need both {pair.merchant_a} and "
+            f"{pair.merchant_b}, or if one can be cancelled."
+        ),
+        impact=f"Up to {_currency(potential_savings_cents)} potential savings",
+        confidence=None,
+        source_signals=[
+            _signal(pair.merchant_a, _currency(pair.amount_a_cents)),
+            _signal(pair.merchant_b, _currency(pair.amount_b_cents)),
+        ],
+        deep_link="/recurring",
+        evaluated_at=as_of,
+    )
+
+
+def _rule_severe_category_spike(
+    db: Session, user_id: int, as_of: date
+) -> RecommendationOut | None:
+    anomalies = detect_spending_anomalies(db, user_id, as_of=as_of, limit=50)
+
+    candidates = [
+        anomaly
+        for anomaly in anomalies.anomalies
+        if anomaly.type == "category_spike" and anomaly.severity == "high"
+    ]
+
+    if not candidates:
+        return None
+
+    worst = max(candidates, key=lambda a: a.percent_difference or 0)
+
+    return RecommendationOut(
+        id="severe-category-spike",
+        category="spending",
+        severity="warning",
+        priority=0,
+        title=f"{worst.category} spending spiked this month",
+        summary=worst.reason,
+        why=worst.reason,
+        recommended_action=(
+            f"Review recent {worst.category} transactions to confirm "
+            "this is expected."
+        ),
+        impact=f"{_percent(worst.percent_difference or 0)} above baseline",
+        confidence=None,
+        source_signals=[
+            _signal(
+                "This month (pace)",
+                _currency(worst.current_amount_cents),
+            ),
+            _signal(
+                "Recent average",
+                _currency(worst.baseline_amount_cents or 0),
+            ),
+        ],
+        deep_link="/recurring",
+        evaluated_at=as_of,
+    )
+
+
+def _rule_repeated_large_charge(
+    db: Session, user_id: int, as_of: date
+) -> RecommendationOut | None:
+    anomalies = detect_spending_anomalies(db, user_id, as_of=as_of, limit=50)
+
+    candidates = [
+        anomaly
+        for anomaly in anomalies.anomalies
+        if anomaly.type == "repeated_charge"
+        and anomaly.current_amount_cents
+        >= _REPEATED_CHARGE_RECOMMENDATION_MIN_CENTS
+    ]
+
+    if not candidates:
+        return None
+
+    worst = max(candidates, key=lambda a: a.current_amount_cents)
+
+    return RecommendationOut(
+        id="repeated-large-charge",
+        category="spending",
+        severity="warning",
+        priority=0,
+        title=f"Possible duplicate charge at {worst.merchant}",
+        summary=worst.reason,
+        why=worst.reason,
+        recommended_action=(
+            f"Check your {worst.merchant} statement for a duplicate "
+            "charge."
+        ),
+        impact=f"{_currency(worst.current_amount_cents)} charged twice",
+        confidence=None,
+        source_signals=[
+            _signal(
+                "First charge", _currency(worst.baseline_amount_cents or 0)
+            ),
+            _signal("Second charge", _currency(worst.current_amount_cents)),
+        ],
+        deep_link="/recurring",
+        evaluated_at=as_of,
+    )
+
+
+def _rule_high_recurring_burden(
+    db: Session, user_id: int, as_of: date
+) -> RecommendationOut | None:
+    intelligence = evaluate_recurring_intelligence(db, user_id, as_of=as_of)
+    percent = intelligence.burden.percent_of_income
+
+    if percent is None or percent < _RECURRING_BURDEN_INCOME_WARNING_PERCENT:
+        return None
+
+    return RecommendationOut(
+        id="high-recurring-burden",
+        category="recurring",
+        severity="warning",
+        priority=0,
+        title="Recurring bills are a large share of your income",
+        summary=(
+            "Recurring payments cost about "
+            f"{_currency(intelligence.burden.monthly_recurring_cents)}"
+            f"/month, {_percent(percent)} of your average monthly "
+            "income."
+        ),
+        why=(
+            "This is based on your active recurring items and recent "
+            "income history."
+        ),
+        recommended_action=(
+            "Review your recurring bills for anything you can reduce "
+            "or cancel."
+        ),
+        impact=f"{_percent(percent)} of income",
+        confidence=None,
+        source_signals=[
+            _signal(
+                "Monthly recurring",
+                _currency(intelligence.burden.monthly_recurring_cents),
+            ),
+            _signal("Share of income", _percent(percent)),
+        ],
+        deep_link="/recurring",
+        evaluated_at=as_of,
+    )
+
+
 def evaluate_recommendations(
     db: Session,
     user_id: int,
@@ -631,6 +868,21 @@ def evaluate_recommendations(
         )
         candidates.append(
             _rule_no_recurring_detected(db, user_id, calculation_date)
+        )
+        candidates.append(
+            _rule_recurring_bill_increase(db, user_id, calculation_date)
+        )
+        candidates.append(
+            _rule_duplicate_recurring(db, user_id, calculation_date)
+        )
+        candidates.append(
+            _rule_severe_category_spike(db, user_id, calculation_date)
+        )
+        candidates.append(
+            _rule_repeated_large_charge(db, user_id, calculation_date)
+        )
+        candidates.append(
+            _rule_high_recurring_burden(db, user_id, calculation_date)
         )
 
     recommendations = [c for c in candidates if c is not None]

@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+import { ArrowRight } from "lucide-react";
 import SafeToSpendCard from "../components/SafeToSpendCard";
 import { PageError } from "../components/PageFeedback";
 import {
@@ -17,6 +18,8 @@ import {
   CategoryTotal,
   formatCents,
   Overview,
+  Recommendation,
+  RecommendationSeverity,
   SavingsGoal,
   session,
   Transaction,
@@ -78,6 +81,12 @@ export default function Dashboard() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const [recommendations, setRecommendations] = useState<
+    Recommendation[]
+  >([]);
+  const [recommendationsLoading, setRecommendationsLoading] =
+    useState(true);
+
   const loadDashboard = useCallback(
     async (id: number) => {
       setLoading(true);
@@ -119,6 +128,22 @@ export default function Dashboard() {
     [budgetMonth]
   );
 
+  const loadRecommendations = useCallback(async (id: number) => {
+    setRecommendationsLoading(true);
+
+    try {
+      const result = await api.getRecommendations(id);
+      setRecommendations(result.recommendations);
+    } catch {
+      // Compact, secondary section -- a failure here should never
+      // block or clutter the rest of the dashboard with another error
+      // banner, it just quietly shows nothing.
+      setRecommendations([]);
+    } finally {
+      setRecommendationsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     async function initializeDashboard() {
       const id = session.getUserId();
@@ -141,6 +166,7 @@ export default function Dashboard() {
 
         setUserId(id);
         await loadDashboard(id);
+        void loadRecommendations(id);
       } catch {
         session.clear();
         router.replace("/");
@@ -148,7 +174,7 @@ export default function Dashboard() {
     }
 
     void initializeDashboard();
-  }, [router, loadDashboard]);
+  }, [router, loadDashboard, loadRecommendations]);
 
   const currentMonthCategories = useMemo(() => {
     const totals = new Map<
@@ -546,6 +572,12 @@ export default function Dashboard() {
               </button>
             </article>
           </section>
+
+          <NeedsAttentionSection
+            recommendations={recommendations}
+            loading={recommendationsLoading}
+            onSelect={(deepLink) => router.push(deepLink ?? "/recommendations")}
+          />
 
           <section className="mt-8 grid gap-5 sm:grid-cols-3">
             <SoftMetric
@@ -1101,6 +1133,98 @@ function DashboardSection({
 
       <div className="mt-7">{children}</div>
     </article>
+  );
+}
+
+const NEEDS_ATTENTION_STYLES: Record<
+  RecommendationSeverity,
+  { dot: string; label: string }
+> = {
+  critical: { dot: "bg-[#c9503f]", label: "Critical" },
+  warning: { dot: "bg-[#d9a022]", label: "Warning" },
+  opportunity: { dot: "bg-[#1c78ac]", label: "Opportunity" },
+  positive: { dot: "bg-[#3f8f52]", label: "Positive" },
+  informational: { dot: "bg-[#7b8781]", label: "Info" },
+};
+
+function NeedsAttentionSection({
+  recommendations,
+  loading,
+  onSelect,
+}: {
+  recommendations: Recommendation[];
+  loading: boolean;
+  onSelect: (deepLink: string | null) => void;
+}) {
+  if (loading) {
+    return (
+      <section className="mt-8">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div
+              key={index}
+              className="h-20 animate-pulse rounded-2xl border border-[#173128]/8 bg-white"
+            />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  // A compact, opportunistic section -- nothing to show simply means
+  // nothing needs attention, so it stays out of the way entirely
+  // rather than adding an empty-state box to an already busy page.
+  if (recommendations.length === 0) return null;
+
+  const topSignals = recommendations.slice(0, 3);
+
+  return (
+    <section className="mt-8">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7b8781]">
+          Needs attention
+        </p>
+        <button
+          type="button"
+          onClick={() => onSelect("/recommendations")}
+          className="text-xs font-semibold text-[#187a59] transition hover:opacity-65"
+        >
+          See all →
+        </button>
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        {topSignals.map((recommendation) => {
+          const style = NEEDS_ATTENTION_STYLES[recommendation.severity];
+
+          return (
+            <button
+              key={recommendation.id}
+              type="button"
+              onClick={() => onSelect(recommendation.deep_link)}
+              className="premium-hover flex items-start gap-3 rounded-2xl border border-[#173128]/8 bg-white p-4 text-left transition hover:border-[#173128]/20"
+            >
+              <span
+                className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${style.dot}`}
+                aria-hidden="true"
+              />
+              <span className="min-w-0">
+                <span className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-[#89938e]">
+                  {style.label}
+                </span>
+                <span className="mt-1 block truncate text-sm font-semibold text-[#173128]">
+                  {recommendation.title}
+                </span>
+                <span className="mt-1 flex items-center gap-1 text-xs text-[#7b8781]">
+                  {recommendation.impact ?? "View details"}
+                  <ArrowRight className="h-3 w-3" />
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

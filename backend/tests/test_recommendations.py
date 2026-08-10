@@ -109,6 +109,61 @@ def create_recurring_item(
     return item
 
 
+def create_matched_recurring_item(
+    db: Session,
+    user: User,
+    *,
+    merchant: str,
+    normalized_merchant: str,
+    amount_cents: int,
+    next_payment: date,
+    frequency: str = "Monthly",
+    category: str = "Bills",
+) -> RecurringItem:
+    """A recurring item whose normalized_merchant is chosen explicitly
+    (rather than a random-suffixed one) so it can be matched against
+    real transaction history for amount-change/duplicate detection."""
+    item = RecurringItem(
+        user_id=user.id,
+        merchant=merchant,
+        normalized_merchant=normalized_merchant,
+        category=category,
+        amount_cents=amount_cents,
+        frequency=frequency,
+        last_payment=next_payment - timedelta(days=30),
+        next_payment=next_payment,
+        status="active",
+        confidence_score=90.0,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def create_debit_transaction(
+    db: Session,
+    user: User,
+    *,
+    posted_on: date,
+    amount_cents: int,
+    merchant_name: str,
+    category: str = "Bills",
+) -> Transaction:
+    transaction = Transaction(
+        user_id=user.id,
+        posted_on=posted_on,
+        description=merchant_name,
+        merchant_name=merchant_name,
+        amount_cents=-amount_cents,
+        category=category,
+    )
+    db.add(transaction)
+    db.commit()
+    db.refresh(transaction)
+    return transaction
+
+
 def seed_income(db: Session, user: User, *, monthly_cents: int = 10_000) -> None:
     for month in (5, 6, 7):
         db.add(
@@ -585,3 +640,288 @@ def test_safe_to_spend_recommendation_reflects_corrected_obligations() -> (
             for signal in safe_rec.source_signals
         }
         assert signal_values["Safe to spend"] == "$4,750.00"
+
+
+# --- Recurring intelligence / spending anomaly integration -----------
+
+
+def test_recurring_bill_increase_recommendation_included() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_matched_recurring_item(
+            db,
+            user,
+            merchant="Netflix",
+            normalized_merchant="NETFLIX",
+            amount_cents=1_800,
+            next_payment=date(2026, 8, 15),
+        )
+        for month, amount in zip((4, 5, 6, 7), (1_500, 1_500, 1_500, 1_800)):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, month, 15),
+                amount_cents=amount,
+                merchant_name="Netflix",
+            )
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        rec = next(
+            (
+                r
+                for r in result.recommendations
+                if r.id == "recurring-bill-increase"
+            ),
+            None,
+        )
+        assert rec is not None
+        assert rec.severity == "warning"
+        assert rec.category == "recurring"
+        assert "Netflix" in rec.title
+
+
+def test_weak_recurring_increase_excluded_from_recommendations() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_matched_recurring_item(
+            db,
+            user,
+            merchant="Netflix",
+            normalized_merchant="NETFLIX",
+            amount_cents=1_650,
+            next_payment=date(2026, 8, 15),
+        )
+        # 10% / $1.50 increase -- clears the intelligence-service's own
+        # noise floor but must fall below the higher recommendation-
+        # level bar (15% / $5) so it never floods Recommendations.
+        for month, amount in zip((4, 5, 6, 7), (1_500, 1_500, 1_500, 1_650)):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, month, 15),
+                amount_cents=amount,
+                merchant_name="Netflix",
+            )
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        ids = [r.id for r in result.recommendations]
+        assert "recurring-bill-increase" not in ids
+
+
+def test_duplicate_subscription_recommendation_included() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_matched_recurring_item(
+            db,
+            user,
+            merchant="Netflix",
+            normalized_merchant="NETFLIX",
+            amount_cents=1_800,
+            next_payment=date(2026, 8, 15),
+        )
+        create_matched_recurring_item(
+            db,
+            user,
+            merchant="Netflix.com",
+            normalized_merchant="NETFLIX COM",
+            amount_cents=1_850,
+            next_payment=date(2026, 8, 20),
+        )
+        # evaluate_recommendations only runs recurring/anomaly rules
+        # when the user has transaction history.
+        create_debit_transaction(
+            db,
+            user,
+            posted_on=date(2026, 7, 1),
+            amount_cents=1_000,
+            merchant_name="Unrelated",
+        )
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        rec = next(
+            (
+                r
+                for r in result.recommendations
+                if r.id == "possible-duplicate-subscription"
+            ),
+            None,
+        )
+        assert rec is not None
+        assert rec.severity == "opportunity"
+        assert rec.category == "recurring"
+
+
+def test_severe_category_spike_recommendation_included() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        for month in (5, 6, 7):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, month, 3),
+                amount_cents=20_000,
+                merchant_name="Restaurant",
+                category="Dining",
+            )
+        # Two transactions (not one) so this clears the category-spike
+        # min-current-transactions guard.
+        create_debit_transaction(
+            db,
+            user,
+            posted_on=date(2026, 8, 3),
+            amount_cents=10_000,
+            merchant_name="Restaurant",
+            category="Dining",
+        )
+        create_debit_transaction(
+            db,
+            user,
+            posted_on=date(2026, 8, 5),
+            amount_cents=5_000,
+            merchant_name="Restaurant",
+            category="Dining",
+        )
+        for i in range(7):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, 2, 10) + timedelta(days=i * 3),
+                amount_cents=1_000,
+                merchant_name=f"Filler {i}",
+                category="Misc",
+            )
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        rec = next(
+            (
+                r
+                for r in result.recommendations
+                if r.id == "severe-category-spike"
+            ),
+            None,
+        )
+        assert rec is not None
+        assert rec.severity == "warning"
+        assert rec.category == "spending"
+
+
+def test_repeated_large_charge_recommendation_included() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        for posted_on in (
+            date(2026, 8, 6),
+            date(2026, 8, 6),
+        ):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=posted_on,
+                amount_cents=12_000,
+                merchant_name="Electronics Outlet",
+                category="Shopping",
+            )
+        for i in range(8):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, 2, 10) + timedelta(days=i * 3),
+                amount_cents=1_000,
+                merchant_name=f"Filler {i}",
+                category="Misc",
+            )
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        rec = next(
+            (
+                r
+                for r in result.recommendations
+                if r.id == "repeated-large-charge"
+            ),
+            None,
+        )
+        assert rec is not None
+        assert rec.severity == "warning"
+        assert rec.category == "spending"
+
+
+def test_high_recurring_burden_recommendation_included() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_matched_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            normalized_merchant="RENT",
+            amount_cents=180_000,
+            next_payment=date(2026, 8, 15),
+        )
+        for month in (5, 6, 7):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, month, 1),
+                amount_cents=-100_000,
+                merchant_name="Paycheck",
+                category="Income",
+            )
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        rec = next(
+            (
+                r
+                for r in result.recommendations
+                if r.id == "high-recurring-burden"
+            ),
+            None,
+        )
+        assert rec is not None
+        assert rec.severity == "warning"
+
+
+def test_critical_recommendation_not_displaced_by_recurring_signal() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        # Deep shortfall -> safe-to-spend goes "negative" (critical
+        # tier via _SEVERITY_WEIGHT ranking of "critical" recommendations
+        # elsewhere), which must still outrank a mere "warning" signal.
+        create_account(db, user, available_balance_cents=1_000)
+        seed_income(db, user, monthly_cents=10_000)
+        create_goal(db, user, target_cents=15_000, saved_cents=0)
+
+        create_matched_recurring_item(
+            db,
+            user,
+            merchant="Netflix",
+            normalized_merchant="NETFLIX",
+            amount_cents=1_800,
+            next_payment=date(2026, 8, 15),
+        )
+        for month, amount in zip((4, 5, 6, 7), (1_500, 1_500, 1_500, 1_800)):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, month, 15),
+                amount_cents=amount,
+                merchant_name="Netflix",
+            )
+
+        result = evaluate_recommendations(db, user.id, user, as_of=TEST_DATE)
+
+        assert result.recommendations
+        top = result.recommendations[0]
+        assert top.severity == "critical"
+        assert top.priority == 1

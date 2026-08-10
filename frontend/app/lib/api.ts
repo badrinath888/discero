@@ -984,6 +984,112 @@ export type RecurringItemUpdate = {
   status?: RecurringItemStatus;
 };
 
+export type RecurringUpcomingObligation = {
+  recurring_item_id: number;
+  merchant: string;
+  category: string | null;
+  amount_cents: number;
+  frequency: string;
+  next_payment: string;
+  days_until_due: number;
+};
+
+export type RecurringAmountChange = {
+  recurring_item_id: number;
+  merchant: string;
+  category: string | null;
+  status: "increased" | "decreased";
+  current_amount_cents: number;
+  baseline_amount_cents: number;
+  change_cents: number;
+  change_percent: number;
+  occurrences_considered: number;
+  last_payment: string;
+};
+
+export type NewRecurringPayment = {
+  recurring_item_id: number;
+  merchant: string;
+  category: string | null;
+  amount_cents: number;
+  frequency: string;
+  occurrences_seen: number;
+  last_payment: string;
+};
+
+export type MissingRecurringPayment = {
+  recurring_item_id: number;
+  merchant: string;
+  category: string | null;
+  amount_cents: number;
+  frequency: string;
+  expected_date: string;
+  days_overdue: number;
+  message: string;
+};
+
+export type DuplicateRecurringPair = {
+  recurring_item_id_a: number;
+  recurring_item_id_b: number;
+  merchant_a: string;
+  merchant_b: string;
+  amount_a_cents: number;
+  amount_b_cents: number;
+  frequency: string;
+  reason: string;
+};
+
+export type RecurringBurden = {
+  monthly_recurring_cents: number;
+  active_recurring_count: number;
+  percent_of_income: number | null;
+  percent_of_spending: number | null;
+  next_30_days_cents: number;
+  next_60_days_cents: number;
+  next_90_days_cents: number;
+};
+
+export type RecurringIntelligence = {
+  as_of: string;
+  burden: RecurringBurden;
+  upcoming: RecurringUpcomingObligation[];
+  amount_changes: RecurringAmountChange[];
+  new_recurring: NewRecurringPayment[];
+  possibly_missing: MissingRecurringPayment[];
+  possible_duplicates: DuplicateRecurringPair[];
+  data_quality_note: string | null;
+};
+
+export type SpendingAnomalyType =
+  | "merchant_unusual_spend"
+  | "category_spike"
+  | "large_transaction"
+  | "repeated_charge";
+
+export type SpendingAnomaly = {
+  id: string;
+  type: SpendingAnomalyType;
+  severity: "info" | "warning" | "high";
+  title: string;
+  merchant: string | null;
+  category: string | null;
+  transaction_id: number | null;
+  date: string;
+  current_amount_cents: number;
+  baseline_amount_cents: number | null;
+  difference_cents: number | null;
+  percent_difference: number | null;
+  reason: string;
+  confidence: "low" | "medium" | "high";
+};
+
+export type SpendingAnomalies = {
+  as_of: string;
+  lookback_months: number;
+  anomalies: SpendingAnomaly[];
+  data_quality_note: string | null;
+};
+
 export type PlaidLinkToken = {
   link_token: string;
 };
@@ -1360,6 +1466,41 @@ export const api = {
         headers: authHeaders(),
       }
     ).then(handleEmpty),
+
+  getRecurringIntelligence: (
+    userId: number
+  ): Promise<RecurringIntelligence> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/recurring-intelligence`,
+      {
+        headers: authHeaders(),
+      }
+    ).then((res) => handle<RecurringIntelligence>(res)),
+
+  getSpendingAnomalies: (
+    userId: number,
+    params?: { lookback_months?: number; limit?: number }
+  ): Promise<SpendingAnomalies> => {
+    const query = new URLSearchParams();
+
+    if (params?.lookback_months) {
+      query.set("lookback_months", String(params.lookback_months));
+    }
+    if (params?.limit) {
+      query.set("limit", String(params.limit));
+    }
+
+    const queryString = query.toString();
+
+    return fetchWithTimeout(
+      `${API_URL}/users/${userId}/spending-anomalies${
+        queryString ? `?${queryString}` : ""
+      }`,
+      {
+        headers: authHeaders(),
+      }
+    ).then((res) => handle<SpendingAnomalies>(res));
+  },
 
   getMonthlyInsights: (
     userId: number,

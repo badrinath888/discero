@@ -28,8 +28,9 @@ CAPABILITY_EXPLANATION = (
     "specific purchase, your monthly cash flow and savings insights, "
     "whether your savings goals are on track and which one is most "
     "urgent, whether you should buy something now or wait, cash-flow "
-    "forecasts, and stress-testing an income drop. Try asking one of "
-    "those."
+    "forecasts, stress-testing an income drop, changes in your "
+    "recurring bills, and unusual spending patterns. Try asking one "
+    "of those."
 )
 
 _GOAL_STATUS_RANK = {
@@ -210,6 +211,31 @@ def extract_monthly_capacity_cents(text: str) -> tuple[bool, int | None]:
 
 _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
+        "get_recurring_intelligence",
+        re.compile(
+            r"\bduplicate subscriptions?\b|"
+            r"\bwhat changed in my recurring\b|"
+            r"\bhow much (do|does)[^.?!]{0,30}\brecurring\b|"
+            r"\b(recurring (bills?|payments?|subscriptions?)|"
+            r"subscriptions?)\b[^.?!]{0,40}\b(chang\w*|increas\w*|"
+            r"decreas\w*|duplicate|coming up|due|upcoming|cost)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "get_spending_anomalies",
+        re.compile(
+            r"\bspend\w* unusual\w*\b|"
+            r"\bunusual spending\b|"
+            r"\bspending[^.?!]{0,20}unusual\b|"
+            r"\banything (unusual|weird)[^.?!]{0,20}spending\b|"
+            r"\bcharged (me )?twice\b|\bdouble charged\b|"
+            r"\bduplicate charge\b|"
+            r"\bwhy (was|is|did) my spending (higher|up|increas\w*)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "get_financial_resilience",
         re.compile(
             r"\b(could i survive|how long would my savings last|how "
@@ -375,12 +401,38 @@ def _resilience_emphasis(text: str) -> str | None:
     return None
 
 
+def _recurring_intelligence_emphasis(text: str) -> str:
+    lowered = text.lower()
+    if "duplicate" in lowered:
+        return "duplicates"
+    if "coming up" in lowered or "due" in lowered or "upcoming" in lowered:
+        return "upcoming"
+    if "cost" in lowered or "per month" in lowered or "how much" in lowered:
+        return "burden"
+    if "chang" in lowered or "increas" in lowered or "decreas" in lowered:
+        return "changes"
+    return "overview"
+
+
+def _spending_anomaly_emphasis(text: str) -> str:
+    lowered = text.lower()
+    if "twice" in lowered or "double" in lowered or "duplicate" in lowered:
+        return "repeated"
+    if "categor" in lowered:
+        return "category"
+    if "why" in lowered:
+        return "why"
+    return "overview"
+
+
 def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
     if name in (
         "get_safe_to_spend",
         "get_cash_flow_forecast",
         "get_monthly_insights",
         "get_recommendations",
+        "get_recurring_intelligence",
+        "get_spending_anomalies",
     ):
         return {}
 
@@ -555,6 +607,10 @@ def resolve_intent(
             emphasize = _goal_intelligence_emphasis(current)
         elif name == "get_financial_resilience":
             emphasize = _resilience_emphasis(current)
+        elif name == "get_recurring_intelligence":
+            emphasize = _recurring_intelligence_emphasis(current)
+        elif name == "get_spending_anomalies":
+            emphasize = _spending_anomaly_emphasis(current)
         else:
             emphasize = None
 
@@ -1010,6 +1066,156 @@ def _render_financial_resilience(result, emphasize):
     return answer, why, what_this_means, actions
 
 
+def _render_recurring_intelligence(result, emphasize):
+    burden = result.burden
+
+    if emphasize == "duplicates":
+        if not result.possible_duplicates:
+            return (
+                "I didn't find any likely duplicate subscriptions.",
+                None,
+                None,
+                [],
+            )
+        pair = result.possible_duplicates[0]
+        return (
+            f"{pair.merchant_a} and {pair.merchant_b} look like they "
+            "might be the same subscription tracked twice.",
+            pair.reason,
+            None,
+            ["What are my upcoming recurring payments?"],
+        )
+
+    if emphasize == "upcoming":
+        if not result.upcoming:
+            return (
+                "You don't have any active recurring payments.",
+                None,
+                None,
+                [],
+            )
+        lines = [
+            f"{o.merchant}: {_currency(o.amount_cents)} in "
+            f"{o.days_until_due} day(s)"
+            for o in result.upcoming[:5]
+        ]
+        return (
+            "Upcoming recurring payments -- " + "; ".join(lines),
+            None,
+            None,
+            [],
+        )
+
+    if emphasize == "burden":
+        percent_note = (
+            f" ({_percent(burden.percent_of_income)} of your average "
+            "income)"
+            if burden.percent_of_income is not None
+            else ""
+        )
+        return (
+            "Recurring bills cost about "
+            f"{_currency(burden.monthly_recurring_cents)} per month "
+            f"across {burden.active_recurring_count} active item(s)"
+            f"{percent_note}.",
+            None,
+            None,
+            [],
+        )
+
+    if emphasize == "changes":
+        if not result.amount_changes:
+            return (
+                "No recurring bill has changed meaningfully recently.",
+                None,
+                None,
+                [],
+            )
+        lines = [
+            f"{c.merchant} {c.status} to "
+            f"{_currency(c.current_amount_cents)} (from "
+            f"{_currency(c.baseline_amount_cents)})"
+            for c in result.amount_changes
+        ]
+        return (
+            "Recurring bill changes -- " + "; ".join(lines),
+            None,
+            None,
+            [],
+        )
+
+    answer = (
+        f"You have {burden.active_recurring_count} active recurring "
+        f"payment(s) costing about "
+        f"{_currency(burden.monthly_recurring_cents)}/month."
+    )
+    notes = []
+    if result.amount_changes:
+        notes.append(
+            f"{len(result.amount_changes)} bill(s) changed meaningfully"
+        )
+    if result.possible_duplicates:
+        notes.append(
+            f"{len(result.possible_duplicates)} possible duplicate(s)"
+        )
+    if result.possibly_missing:
+        notes.append(
+            f"{len(result.possibly_missing)} possibly missing payment(s)"
+        )
+    why = "; ".join(notes) if notes else None
+
+    return (answer, why, None, [])
+
+
+def _render_spending_anomalies(result, emphasize):
+    anomalies = result.anomalies
+
+    if emphasize == "repeated":
+        repeated = [a for a in anomalies if a.type == "repeated_charge"]
+        if not repeated:
+            return (
+                "I didn't find any repeated/duplicate charges recently.",
+                None,
+                None,
+                [],
+            )
+        top = repeated[0]
+        return (f"{top.title}.", top.reason, None, [])
+
+    if emphasize == "category":
+        spikes = [a for a in anomalies if a.type == "category_spike"]
+        if not spikes:
+            return (
+                "No category spending spike stood out this month.",
+                None,
+                None,
+                [],
+            )
+        top = spikes[0]
+        return (f"{top.title}.", top.reason, None, [])
+
+    if not anomalies:
+        return (
+            "No unusual spending patterns detected from the available "
+            "data.",
+            None,
+            None,
+            [],
+        )
+
+    top = anomalies[0]
+    answer = (
+        f"I found {len(anomalies)} unusual spending signal(s); the "
+        f"most notable is: {top.title.lower()}."
+    )
+    why = top.reason
+
+    if emphasize == "why":
+        answer, why = why, answer
+
+    return (answer, why, None, [])
+
+
 _RENDERERS = {
     "get_safe_to_spend": _render_safe_to_spend,
     "simulate_major_purchase": _render_major_purchase,
@@ -1022,6 +1228,8 @@ _RENDERERS = {
     "get_goal_intelligence": _render_goal_intelligence,
     "buy_now_vs_wait": _render_buy_now_vs_wait,
     "get_financial_resilience": _render_financial_resilience,
+    "get_recurring_intelligence": _render_recurring_intelligence,
+    "get_spending_anomalies": _render_spending_anomalies,
 }
 
 

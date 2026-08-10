@@ -7,6 +7,7 @@ import type {
   CashFlowForecast,
   CategoryTotal,
   Overview,
+  Recommendation,
   SavingsGoal,
   Transaction,
 } from "../lib/api";
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   getTransactions: vi.fn(),
   getSavingsGoals: vi.fn(),
   getCashFlowForecast: vi.fn(),
+  getRecommendations: vi.fn(),
   uploadTransactions: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
@@ -99,6 +101,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       getTransactions: mocks.getTransactions,
       getSavingsGoals: mocks.getSavingsGoals,
       getCashFlowForecast: mocks.getCashFlowForecast,
+      getRecommendations: mocks.getRecommendations,
       uploadTransactions: mocks.uploadTransactions,
     },
     session: {
@@ -184,6 +187,10 @@ function resolveEverythingSuccessfully() {
   mocks.getTransactions.mockResolvedValue(transactions);
   mocks.getSavingsGoals.mockResolvedValue(goals);
   mocks.getCashFlowForecast.mockResolvedValue(cashFlow);
+  mocks.getRecommendations.mockResolvedValue({
+    as_of: "2026-08-09",
+    recommendations: [],
+  });
 }
 
 beforeEach(() => {
@@ -193,6 +200,10 @@ beforeEach(() => {
     id: 1,
     email: "user@example.com",
     email_verified: true,
+  });
+  mocks.getRecommendations.mockResolvedValue({
+    as_of: "2026-08-09",
+    recommendations: [],
   });
 });
 
@@ -293,5 +304,62 @@ describe("dashboard load failure", () => {
     // an upload failure must not wipe out unrelated successful data.
     expect(screen.getByText("1 active goal")).toBeInTheDocument();
     expect(screen.getByText("$3,000.00")).toBeInTheDocument();
+  });
+});
+
+const recommendation: Recommendation = {
+  id: "recurring-bill-increase",
+  category: "recurring",
+  severity: "warning",
+  priority: 1,
+  title: "Netflix increased by $3.00",
+  summary: "Netflix now charges $18.00, up from $15.00 (20%).",
+  why: "Based on 4 recent charges, the latest amount is meaningfully higher.",
+  recommended_action: "Review this bill to confirm the increase is expected.",
+  impact: "20% increase",
+  confidence: null,
+  source_signals: [],
+  deep_link: "/recurring",
+  evaluated_at: "2026-08-09",
+};
+
+describe("dashboard needs-attention section", () => {
+  it("shows top recommendation signals when present", async () => {
+    resolveEverythingSuccessfully();
+    mocks.getRecommendations.mockResolvedValue({
+      as_of: "2026-08-09",
+      recommendations: [recommendation],
+    });
+
+    render(<Dashboard />);
+
+    await screen.findByText("Needs attention");
+    expect(
+      screen.getByText("Netflix increased by $3.00")
+    ).toBeInTheDocument();
+    expect(screen.getByText("20% increase")).toBeInTheDocument();
+  });
+
+  it("navigates to the signal's deep link when clicked", async () => {
+    resolveEverythingSuccessfully();
+    mocks.getRecommendations.mockResolvedValue({
+      as_of: "2026-08-09",
+      recommendations: [recommendation],
+    });
+
+    render(<Dashboard />);
+
+    fireEvent.click(await screen.findByText("Netflix increased by $3.00"));
+
+    expect(routerMock.push).toHaveBeenCalledWith("/recurring");
+  });
+
+  it("stays out of the way entirely when nothing needs attention", async () => {
+    resolveEverythingSuccessfully();
+
+    render(<Dashboard />);
+
+    await screen.findByText("$3,000.00");
+    expect(screen.queryByText("Needs attention")).not.toBeInTheDocument();
   });
 });

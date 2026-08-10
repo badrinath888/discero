@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
@@ -8,11 +14,14 @@ import {
   Check,
   ChevronRight,
   Clock3,
+  Copy,
+  HelpCircle,
   Pause,
   Play,
   Search,
   Sparkles,
   Trash2,
+  TrendingUp,
   X,
   XCircle,
 } from "lucide-react";
@@ -32,9 +41,12 @@ import {
 import {
   api,
   formatCents,
+  RecurringIntelligence,
   RecurringItem,
   RecurringItemStatus,
   RecurringPayment,
+  SpendingAnomaly,
+  SpendingAnomalies,
   session,
 } from "../lib/api";
 
@@ -104,6 +116,14 @@ export default function RecurringPage() {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
 
+  const [intelligence, setIntelligence] =
+    useState<RecurringIntelligence | null>(null);
+  const [anomalies, setAnomalies] = useState<SpendingAnomalies | null>(
+    null
+  );
+  const [insightsLoading, setInsightsLoading] = useState(true);
+  const [insightsError, setInsightsError] = useState("");
+
   const loadData = useCallback(async (id: number) => {
     setLoading(true);
     setError("");
@@ -124,6 +144,29 @@ export default function RecurringPage() {
       );
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const loadInsights = useCallback(async (id: number) => {
+    setInsightsLoading(true);
+    setInsightsError("");
+
+    try {
+      const [recurringIntelligence, spendingAnomalies] = await Promise.all([
+        api.getRecurringIntelligence(id),
+        api.getSpendingAnomalies(id),
+      ]);
+
+      setIntelligence(recurringIntelligence);
+      setAnomalies(spendingAnomalies);
+    } catch (err) {
+      setInsightsError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load recurring intelligence and spending anomalies"
+      );
+    } finally {
+      setInsightsLoading(false);
     }
   }, []);
 
@@ -149,6 +192,7 @@ export default function RecurringPage() {
 
         setUserId(id);
         await loadData(id);
+        void loadInsights(id);
       } catch {
         session.clear();
         router.replace("/");
@@ -156,7 +200,7 @@ export default function RecurringPage() {
     }
 
     void initialize();
-  }, [router, loadData]);
+  }, [router, loadData, loadInsights]);
 
   const savedByMerchant = useMemo(
     () =>
@@ -482,6 +526,28 @@ export default function RecurringPage() {
                     </div>
                   </article>
                 </section>
+              </Reveal>
+
+              <Reveal delay={0.08}>
+                <RecurringIntelligenceSection
+                  intelligence={intelligence}
+                  loading={insightsLoading}
+                  error={insightsError}
+                  onRetry={
+                    userId ? () => void loadInsights(userId) : undefined
+                  }
+                />
+              </Reveal>
+
+              <Reveal delay={0.1}>
+                <SpendingAnomaliesSection
+                  anomalies={anomalies}
+                  loading={insightsLoading}
+                  error={insightsError}
+                  onRetry={
+                    userId ? () => void loadInsights(userId) : undefined
+                  }
+                />
               </Reveal>
 
               {visibleDetected.length > 0 && (
@@ -1035,5 +1101,417 @@ function DrawerDetail({
       </dt>
       <dd className="text-sm font-medium sm:text-right">{value}</dd>
     </div>
+  );
+}
+function InsightsSkeleton() {
+  return (
+    <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div
+          key={index}
+          className="h-32 animate-pulse rounded-[24px] border border-[#14241e]/10 bg-white"
+        />
+      ))}
+    </div>
+  );
+}
+
+function SignalCard({
+  icon,
+  label,
+  tone,
+  children,
+}: {
+  icon: ReactNode;
+  label: string;
+  tone: "warning" | "neutral" | "positive";
+  children: ReactNode;
+}) {
+  const toneClass = {
+    warning: "bg-[#f7e8b5] text-[#8b6518]",
+    neutral: "bg-[#eef0ef] text-[#66746e]",
+    positive: "bg-[#edf5ee] text-[#167c5a]",
+  }[tone];
+
+  return (
+    <article className="rounded-[24px] border border-[#14241e]/10 bg-white p-5">
+      <div className="flex items-center gap-3">
+        <span
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${toneClass}`}
+        >
+          {icon}
+        </span>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7a8780]">
+          {label}
+        </p>
+      </div>
+      <div className="mt-4">{children}</div>
+    </article>
+  );
+}
+
+function RecurringIntelligenceSection({
+  intelligence,
+  loading,
+  error,
+  onRetry,
+}: {
+  intelligence: RecurringIntelligence | null;
+  loading: boolean;
+  error: string;
+  onRetry?: () => void;
+}) {
+  if (loading) {
+    return (
+      <section className="mt-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+          Recurring intelligence
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
+          What&apos;s changed
+        </h2>
+        <InsightsSkeleton />
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="mt-8">
+        <PageError message={error} onRetry={onRetry} />
+      </section>
+    );
+  }
+
+  if (!intelligence) return null;
+
+  const { burden } = intelligence;
+  const increased = intelligence.amount_changes.filter(
+    (change) => change.status === "increased"
+  );
+  const changesDetected =
+    intelligence.amount_changes.length +
+    intelligence.new_recurring.length +
+    intelligence.possibly_missing.length +
+    intelligence.possible_duplicates.length;
+
+  return (
+    <section className="mt-8">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+        Recurring intelligence
+      </p>
+      <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
+        What&apos;s changed
+      </h2>
+
+      {burden.active_recurring_count === 0 ? (
+        <p className="mt-4 text-sm text-[#66746e]">
+          {intelligence.data_quality_note ??
+            "No active recurring items yet -- confirm a detected suggestion below to start tracking intelligence on it."}
+        </p>
+      ) : (
+        <>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-[24px] border border-[#14241e]/10 bg-white p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7a8780]">
+                Monthly burden
+              </p>
+              <p className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
+                {formatCents(-burden.monthly_recurring_cents)}
+              </p>
+              {burden.percent_of_income !== null && (
+                <p className="mt-1 text-xs text-[#87928d]">
+                  {burden.percent_of_income.toFixed(0)}% of average income
+                </p>
+              )}
+            </div>
+            <div className="rounded-[24px] border border-[#14241e]/10 bg-white p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7a8780]">
+                Active recurring
+              </p>
+              <p className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
+                {burden.active_recurring_count}
+              </p>
+            </div>
+            <div className="rounded-[24px] border border-[#14241e]/10 bg-white p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7a8780]">
+                Next 30 days
+              </p>
+              <p className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
+                {formatCents(-burden.next_30_days_cents)}
+              </p>
+            </div>
+            <div className="rounded-[24px] border border-[#14241e]/10 bg-white p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7a8780]">
+                Changes detected
+              </p>
+              <p className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
+                {changesDetected}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <SignalCard
+              icon={<TrendingUp className="h-4 w-4" />}
+              label="Increased"
+              tone={increased.length > 0 ? "warning" : "positive"}
+            >
+              {increased.length === 0 ? (
+                <p className="text-sm text-[#66746e]">
+                  No recurring bills have increased recently.
+                </p>
+              ) : (
+                <div>
+                  <p className="text-sm font-semibold">
+                    {increased[0].merchant}
+                  </p>
+                  <p className="mt-1 text-xs text-[#a64b3d]">
+                    {formatCents(-increased[0].current_amount_cents)}, up{" "}
+                    {increased[0].change_percent.toFixed(0)}% from{" "}
+                    {formatCents(-increased[0].baseline_amount_cents)}
+                  </p>
+                  {increased.length > 1 && (
+                    <p className="mt-2 text-xs text-[#87928d]">
+                      +{increased.length - 1} more
+                    </p>
+                  )}
+                </div>
+              )}
+            </SignalCard>
+
+            <SignalCard
+              icon={<Sparkles className="h-4 w-4" />}
+              label="New"
+              tone={
+                intelligence.new_recurring.length > 0 ? "neutral" : "positive"
+              }
+            >
+              {intelligence.new_recurring.length === 0 ? (
+                <p className="text-sm text-[#66746e]">
+                  No newly established recurring payments.
+                </p>
+              ) : (
+                <div>
+                  <p className="text-sm font-semibold">
+                    {intelligence.new_recurring[0].merchant}
+                  </p>
+                  <p className="mt-1 text-xs text-[#87928d]">
+                    {formatCents(
+                      -intelligence.new_recurring[0].amount_cents
+                    )}{" "}
+                    · {intelligence.new_recurring[0].occurrences_seen} seen
+                    so far
+                  </p>
+                  {intelligence.new_recurring.length > 1 && (
+                    <p className="mt-2 text-xs text-[#87928d]">
+                      +{intelligence.new_recurring.length - 1} more
+                    </p>
+                  )}
+                </div>
+              )}
+            </SignalCard>
+
+            <SignalCard
+              icon={<HelpCircle className="h-4 w-4" />}
+              label="Possibly missing"
+              tone={
+                intelligence.possibly_missing.length > 0
+                  ? "warning"
+                  : "positive"
+              }
+            >
+              {intelligence.possibly_missing.length === 0 ? (
+                <p className="text-sm text-[#66746e]">
+                  Every active bill has arrived as expected.
+                </p>
+              ) : (
+                <div>
+                  <p className="text-sm font-semibold">
+                    {intelligence.possibly_missing[0].merchant}
+                  </p>
+                  <p className="mt-1 text-xs text-[#8b6518]">
+                    {intelligence.possibly_missing[0].days_overdue} days
+                    past expected
+                  </p>
+                  {intelligence.possibly_missing.length > 1 && (
+                    <p className="mt-2 text-xs text-[#87928d]">
+                      +{intelligence.possibly_missing.length - 1} more
+                    </p>
+                  )}
+                </div>
+              )}
+            </SignalCard>
+
+            <SignalCard
+              icon={<Copy className="h-4 w-4" />}
+              label="Possible duplicate"
+              tone={
+                intelligence.possible_duplicates.length > 0
+                  ? "warning"
+                  : "positive"
+              }
+            >
+              {intelligence.possible_duplicates.length === 0 ? (
+                <p className="text-sm text-[#66746e]">
+                  No possible duplicate subscriptions found.
+                </p>
+              ) : (
+                <div>
+                  <p className="text-sm font-semibold">
+                    {intelligence.possible_duplicates[0].merchant_a} &{" "}
+                    {intelligence.possible_duplicates[0].merchant_b}
+                  </p>
+                  <p className="mt-1 text-xs text-[#87928d]">
+                    Similar name, amount, and cadence
+                  </p>
+                  {intelligence.possible_duplicates.length > 1 && (
+                    <p className="mt-2 text-xs text-[#87928d]">
+                      +{intelligence.possible_duplicates.length - 1} more
+                    </p>
+                  )}
+                </div>
+              )}
+            </SignalCard>
+          </div>
+
+          {intelligence.possibly_missing.length > 0 && (
+            <p className="mt-4 text-xs leading-5 text-[#87928d]">
+              FinSight has not seen these expected payments yet -- this
+              does not necessarily mean a subscription was cancelled.
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function anomalySeverityClass(
+  severity: SpendingAnomaly["severity"]
+): string {
+  if (severity === "high") return "bg-[#f8ddd5] text-[#923f32]";
+  if (severity === "warning") return "bg-[#f7e8b5] text-[#8b6518]";
+  return "bg-[#eef0ef] text-[#66746e]";
+}
+
+function anomalySeverityLabel(
+  severity: SpendingAnomaly["severity"]
+): string {
+  if (severity === "high") return "High";
+  if (severity === "warning") return "Warning";
+  return "Info";
+}
+
+function anomalyTypeLabel(type: SpendingAnomaly["type"]): string {
+  return {
+    merchant_unusual_spend: "Unusual merchant charge",
+    category_spike: "Category spike",
+    large_transaction: "Large transaction",
+    repeated_charge: "Repeated charge",
+  }[type];
+}
+
+function SpendingAnomaliesSection({
+  anomalies,
+  loading,
+  error,
+  onRetry,
+}: {
+  anomalies: SpendingAnomalies | null;
+  loading: boolean;
+  error: string;
+  onRetry?: () => void;
+}) {
+  if (loading) {
+    return (
+      <section className="mt-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+          Spending anomalies
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
+          Unusual activity
+        </h2>
+        <InsightsSkeleton />
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="mt-8">
+        <PageError message={error} onRetry={onRetry} />
+      </section>
+    );
+  }
+
+  if (!anomalies) return null;
+
+  return (
+    <section className="mt-8">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+        Spending anomalies
+      </p>
+      <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
+        Unusual activity
+      </h2>
+
+      {anomalies.anomalies.length === 0 ? (
+        <div className="mt-5 rounded-[24px] border border-dashed border-[#14241e]/15 bg-white px-6 py-10 text-center">
+          <p className="text-sm font-semibold text-[#167c5a]">
+            No unusual spending patterns detected from the available data.
+          </p>
+          {anomalies.data_quality_note && (
+            <p className="mt-2 text-xs text-[#87928d]">
+              {anomalies.data_quality_note}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="mt-5 space-y-3">
+          {anomalies.anomalies.slice(0, 6).map((anomaly) => (
+            <article
+              key={anomaly.id}
+              className="rounded-[24px] border border-[#14241e]/10 bg-white p-5"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] ${anomalySeverityClass(
+                        anomaly.severity
+                      )}`}
+                    >
+                      {anomalySeverityLabel(anomaly.severity)}
+                    </span>
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#87928d]">
+                      {anomalyTypeLabel(anomaly.type)}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm font-semibold">
+                    {anomaly.title}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-[#66746e]">
+                    {anomaly.reason}
+                  </p>
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-semibold text-[#a64b3d]">
+                    {formatCents(-anomaly.current_amount_cents)}
+                  </p>
+                  {anomaly.baseline_amount_cents !== null && (
+                    <p className="mt-1 text-xs text-[#87928d]">
+                      vs {formatCents(-anomaly.baseline_amount_cents)}{" "}
+                      usual
+                    </p>
+                  )}
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

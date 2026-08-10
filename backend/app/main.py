@@ -21,7 +21,9 @@ from app.routers import (
     plaid,
     recommendations,
     recurring,
+    recurring_intelligence,
     safe_to_spend,
+    spending_anomalies,
     transactions,
     users,
 )
@@ -77,6 +79,8 @@ app.include_router(copilot.router)
 app.include_router(recommendations.router)
 app.include_router(decisions.router)
 app.include_router(financial_resilience.router)
+app.include_router(recurring_intelligence.router)
+app.include_router(spending_anomalies.router)
 
 
 @app.get("/health", tags=["meta"])

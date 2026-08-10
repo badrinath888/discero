@@ -693,3 +693,100 @@ def test_financial_resilience_ai_enhanced_labels_explicit_essential_spending() -
         )
         assert source_chip.value_display == "Your stated amount"
         assert "estimated" not in (result.low_data_warning or "").lower()
+
+
+def test_recurring_intelligence_tool_grounds_chips_in_real_calculation() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=date(2026, 8, 20),
+        )
+
+        client = CopilotClient(api_key="fake-key")
+        calls = {"n": 0}
+
+        def fake_call(**kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return _response(
+                    _tool_use_block(
+                        "tool_1", "get_recurring_intelligence", {}
+                    )
+                )
+            return _response(
+                _tool_use_block(
+                    "tool_2",
+                    "present_financial_answer",
+                    {
+                        "answer": "You have one active recurring bill.",
+                    },
+                )
+            )
+
+        client.call = fake_call  # type: ignore[method-assign]
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message("What changed in my recurring bills?"),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Recurring Intelligence"
+        monthly_chip = next(
+            c for c in result.key_numbers if c.label == "Monthly recurring"
+        )
+        assert monthly_chip.value_display == "$1,500.00"
+        assert calls["n"] == 2
+
+
+def test_spending_anomalies_tool_grounds_chips_in_real_calculation() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        client = CopilotClient(api_key="fake-key")
+        calls = {"n": 0}
+
+        def fake_call(**kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return _response(
+                    _tool_use_block("tool_1", "get_spending_anomalies", {})
+                )
+            return _response(
+                _tool_use_block(
+                    "tool_2",
+                    "present_financial_answer",
+                    {"answer": "Nothing unusual stood out."},
+                )
+            )
+
+        client.call = fake_call  # type: ignore[method-assign]
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message("Did I spend unusually this month?"),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Spending Anomalies"
+        anomalies_chip = next(
+            c for c in result.key_numbers if c.label == "Anomalies found"
+        )
+        assert anomalies_chip.value_display == "0"
+        assert calls["n"] == 2

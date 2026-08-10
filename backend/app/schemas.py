@@ -1381,3 +1381,114 @@ class DecisionRerunOut(BaseModel):
     decision_type: DecisionType
     evaluated_at: date
     result_snapshot: dict
+
+
+# --- Recurring-payment intelligence ----------------------------------
+
+
+class RecurringUpcomingObligationOut(BaseModel):
+    recurring_item_id: int
+    merchant: str
+    category: str | None
+    amount_cents: int
+    frequency: str
+    next_payment: date
+    days_until_due: int
+
+
+class RecurringAmountChangeOut(BaseModel):
+    recurring_item_id: int
+    merchant: str
+    category: str | None
+    status: Literal["increased", "decreased"]
+    current_amount_cents: int
+    baseline_amount_cents: int
+    change_cents: int
+    change_percent: float
+    occurrences_considered: int
+    last_payment: date
+
+
+class NewRecurringPaymentOut(BaseModel):
+    recurring_item_id: int
+    merchant: str
+    category: str | None
+    amount_cents: int
+    frequency: str
+    occurrences_seen: int
+    last_payment: date
+
+
+class MissingRecurringPaymentOut(BaseModel):
+    recurring_item_id: int
+    merchant: str
+    category: str | None
+    amount_cents: int
+    frequency: str
+    expected_date: date
+    days_overdue: int
+    message: str
+
+
+class DuplicateRecurringPairOut(BaseModel):
+    recurring_item_id_a: int
+    recurring_item_id_b: int
+    merchant_a: str
+    merchant_b: str
+    amount_a_cents: int
+    amount_b_cents: int
+    frequency: str
+    reason: str
+
+
+class RecurringBurdenOut(BaseModel):
+    monthly_recurring_cents: int
+    active_recurring_count: int
+    percent_of_income: float | None
+    percent_of_spending: float | None
+    next_30_days_cents: int
+    next_60_days_cents: int
+    next_90_days_cents: int
+
+
+class RecurringIntelligenceOut(BaseModel):
+    as_of: date
+    burden: RecurringBurdenOut
+    upcoming: list[RecurringUpcomingObligationOut]
+    amount_changes: list[RecurringAmountChangeOut]
+    new_recurring: list[NewRecurringPaymentOut]
+    possibly_missing: list[MissingRecurringPaymentOut]
+    possible_duplicates: list[DuplicateRecurringPairOut]
+    data_quality_note: str | None
+
+
+# --- Spending anomaly detection ----------------------------------------
+
+
+class SpendingAnomalyOut(BaseModel):
+    id: str
+    type: Literal[
+        "merchant_unusual_spend",
+        "category_spike",
+        "large_transaction",
+        "repeated_charge",
+    ]
+    severity: Literal["info", "warning", "high"]
+    title: str
+    merchant: str | None
+    category: str | None
+    transaction_id: int | None
+    date: date
+    current_amount_cents: int
+    baseline_amount_cents: int | None
+    difference_cents: int | None
+    percent_difference: float | None
+    reason: str
+    confidence: Literal["low", "medium", "high"]
+
+
+class SpendingAnomaliesOut(BaseModel):
+    as_of: date
+    lookback_months: int
+    anomalies: list[SpendingAnomalyOut]
+    data_quality_note: str | None

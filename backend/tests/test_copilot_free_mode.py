@@ -1,10 +1,17 @@
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
-from app.models import FinancialAccount, PlaidItem, SavingsGoal, Transaction, User
+from app.models import (
+    FinancialAccount,
+    PlaidItem,
+    RecurringItem,
+    SavingsGoal,
+    Transaction,
+    User,
+)
 from app.schemas import CopilotMessageIn
 from app.services import copilot_free_mode
 from app.services.copilot_service import CopilotClient, run_copilot_turn
@@ -102,6 +109,57 @@ def seed_spending(
             )
         )
     db.commit()
+
+
+def create_recurring_item(
+    db: Session,
+    user: User,
+    *,
+    merchant: str,
+    normalized_merchant: str,
+    amount_cents: int,
+    next_payment: date,
+    frequency: str = "Monthly",
+) -> RecurringItem:
+    item = RecurringItem(
+        user_id=user.id,
+        merchant=merchant,
+        normalized_merchant=normalized_merchant,
+        category="Bills",
+        amount_cents=amount_cents,
+        frequency=frequency,
+        last_payment=next_payment - timedelta(days=30),
+        next_payment=next_payment,
+        status="active",
+        confidence_score=90.0,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def create_debit_transaction(
+    db: Session,
+    user: User,
+    *,
+    posted_on: date,
+    amount_cents: int,
+    merchant_name: str,
+    category: str = "Bills",
+) -> Transaction:
+    transaction = Transaction(
+        user_id=user.id,
+        posted_on=posted_on,
+        description=merchant_name,
+        merchant_name=merchant_name,
+        amount_cents=-amount_cents,
+        category=category,
+    )
+    db.add(transaction)
+    db.commit()
+    db.refresh(transaction)
+    return transaction
 
 
 def _messages(*texts: str) -> list[CopilotMessageIn]:
@@ -1429,3 +1487,355 @@ def test_resilience_response_never_uses_forecast_certainty_language() -> (
         assert "guarantee" not in combined
         assert "guaranteed" not in combined
         assert "will happen" not in combined
+
+
+# --- Recurring intelligence / spending anomaly Copilot questions -----
+
+
+def test_recurring_bill_change_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Netflix",
+            normalized_merchant="NETFLIX",
+            amount_cents=1_800,
+            next_payment=date(2026, 8, 15),
+        )
+        for month, amount in zip((4, 5, 6, 7), (1_500, 1_500, 1_500, 1_800)):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, month, 15),
+                amount_cents=amount,
+                merchant_name="Netflix",
+            )
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What changed in my recurring bills?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Recurring Intelligence"
+        assert "Netflix" in result.answer
+        assert "increased" in result.answer.lower()
+
+
+def test_subscription_increase_question_alternate_phrasing() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Netflix",
+            normalized_merchant="NETFLIX",
+            amount_cents=1_800,
+            next_payment=date(2026, 8, 15),
+        )
+        for month, amount in zip((4, 5, 6, 7), (1_500, 1_500, 1_500, 1_800)):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, month, 15),
+                amount_cents=amount,
+                merchant_name="Netflix",
+            )
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Did any subscription increase?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.tool_used == "Recurring Intelligence"
+        assert "Netflix" in result.answer
+
+
+def test_upcoming_recurring_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            normalized_merchant="RENT",
+            amount_cents=150_000,
+            next_payment=date(2026, 8, 20),
+        )
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What recurring payments are coming up?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.tool_used == "Recurring Intelligence"
+        assert "Rent" in result.answer
+        assert "$1,500.00" in result.answer
+
+
+def test_recurring_burden_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            normalized_merchant="RENT",
+            amount_cents=150_000,
+            next_payment=date(2026, 8, 20),
+        )
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("How much do recurring bills cost me per month?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.tool_used == "Recurring Intelligence"
+        assert "$1,500.00" in result.answer
+
+
+def test_duplicate_subscription_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Netflix",
+            normalized_merchant="NETFLIX",
+            amount_cents=1_800,
+            next_payment=date(2026, 8, 15),
+        )
+        create_recurring_item(
+            db,
+            user,
+            merchant="Netflix.com",
+            normalized_merchant="NETFLIX COM",
+            amount_cents=1_850,
+            next_payment=date(2026, 8, 20),
+        )
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Do I have duplicate subscriptions?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.tool_used == "Recurring Intelligence"
+        assert "Netflix" in result.answer
+        assert "Netflix.com" in result.answer
+
+
+def test_duplicate_subscription_question_no_duplicate_found() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Netflix",
+            normalized_merchant="NETFLIX",
+            amount_cents=1_800,
+            next_payment=date(2026, 8, 15),
+        )
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Do I have duplicate subscriptions?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.answer == (
+            "I didn't find any likely duplicate subscriptions."
+        )
+
+
+def test_unusual_spending_question_reports_no_anomaly_without_fabricating() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        # Ordinary, unremarkable spending -- nothing anomalous.
+        for i, amount in enumerate([4_500, 5_000, 5_500, 4_800, 5_200]):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, 3, 1) + timedelta(days=i * 4),
+                amount_cents=amount,
+                merchant_name="Whole Foods",
+                category="Groceries",
+            )
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Did I spend unusually this month?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.tool_used == "Spending Anomalies"
+        assert result.answer == (
+            "No unusual spending patterns detected from the available "
+            "data."
+        )
+        anomalies_chip = next(
+            c for c in result.key_numbers if c.label == "Anomalies found"
+        )
+        assert anomalies_chip.value_display == "0"
+
+
+def test_what_spending_looks_unusual_alternate_phrasing() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What spending looks unusual?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.tool_used == "Spending Anomalies"
+        assert "no unusual spending" in result.answer.lower()
+
+
+def test_charged_twice_question_finds_repeated_charge() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        for posted_on in (date(2026, 8, 6), date(2026, 8, 6)):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=posted_on,
+                amount_cents=2_500,
+                merchant_name="Coffee Shop",
+                category="Dining",
+            )
+        for i in range(8):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, 2, 10) + timedelta(days=i * 3),
+                amount_cents=1_000,
+                merchant_name=f"Filler {i}",
+                category="Misc",
+            )
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Did I get charged twice?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.tool_used == "Spending Anomalies"
+        assert "Coffee Shop" in result.answer
+
+
+def test_charged_twice_question_no_repeated_charge_found() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Did I get charged twice?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.answer == (
+            "I didn't find any repeated/duplicate charges recently."
+        )
+
+
+def test_why_spending_higher_question_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        for month in (5, 6, 7):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, month, 3),
+                amount_cents=20_000,
+                merchant_name="Restaurant",
+                category="Dining",
+            )
+        # Two transactions (not one) so this clears the category-spike
+        # min-current-transactions guard.
+        create_debit_transaction(
+            db,
+            user,
+            posted_on=date(2026, 8, 3),
+            amount_cents=10_000,
+            merchant_name="Restaurant",
+            category="Dining",
+        )
+        create_debit_transaction(
+            db,
+            user,
+            posted_on=date(2026, 8, 5),
+            amount_cents=5_000,
+            merchant_name="Restaurant",
+            category="Dining",
+        )
+        for i in range(7):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, 2, 10) + timedelta(days=i * 3),
+                amount_cents=1_000,
+                merchant_name=f"Filler {i}",
+                category="Misc",
+            )
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Why was my spending higher this month?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.tool_used == "Spending Anomalies"
+        assert "Dining" in result.answer

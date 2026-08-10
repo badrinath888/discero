@@ -58,10 +58,14 @@ from app.services.major_purchase_service import (
 )
 from app.services import copilot_free_mode
 from app.services.recommendation_service import evaluate_recommendations
+from app.services.recurring_intelligence_service import (
+    evaluate_recurring_intelligence,
+)
 from app.services.safe_to_spend_service import calculate_safe_to_spend
 from app.services.scenario_comparison_service import (
     compare_major_purchase_scenarios,
 )
+from app.services.spending_anomaly_service import detect_spending_anomalies
 
 _MAX_HISTORY_MESSAGES = 20
 _UNAVAILABLE_ANSWER = (
@@ -421,6 +425,46 @@ _TOOLS = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
+        "name": "get_recurring_intelligence",
+        "description": (
+            "Get deterministic intelligence about the user's ACTIVE "
+            "recurring bills/subscriptions: upcoming payments with due "
+            "dates, meaningful amount changes (increased/decreased) "
+            "detected from real transaction history, newly established "
+            "recurring payments, payments FinSight expected but has not "
+            "seen yet (never call these 'cancelled' -- only say "
+            "FinSight hasn't seen the payment), possible duplicate "
+            "subscriptions, and the total monthly recurring burden "
+            "(with 30/60/90-day known obligations). Use for questions "
+            "like 'what changed in my recurring bills', 'did any "
+            "subscription increase', 'do I have duplicate "
+            "subscriptions', 'what recurring payments are coming up', "
+            "or 'how much do recurring bills cost me per month'. Never "
+            "report a change, duplicate, or missing payment that isn't "
+            "in this tool's result."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_spending_anomalies",
+        "description": (
+            "Get deterministic spending anomalies detected from the "
+            "user's real transaction history: unusually large charges "
+            "at a specific merchant relative to that merchant's own "
+            "history, category-level spending spikes this month versus "
+            "recent months, unusually large individual transactions, "
+            "and repeated near-identical charges from the same merchant "
+            "close together in time (a possible duplicate/double "
+            "charge). Use for 'did I spend unusually this month', "
+            "'what spending looks unusual', 'did I get charged twice', "
+            "or 'why was my spending higher this month' questions. If "
+            "the result has no anomalies, say so plainly -- never "
+            "invent a reason for a spending change that isn't in the "
+            "result."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "request_clarification",
         "description": (
             "Use when a required financial parameter (amount, "
@@ -525,6 +569,8 @@ _TOOL_LABELS = {
     "get_cash_flow_forecast": "Cash-Flow Forecast",
     "get_monthly_insights": "Monthly Insights",
     "get_recommendations": "Recommendations",
+    "get_recurring_intelligence": "Recurring Intelligence",
+    "get_spending_anomalies": "Spending Anomalies",
 }
 
 _RECOMMENDATION_SEVERITY_TONE = {
@@ -1146,6 +1192,94 @@ def _handle_recommendations(db, user_id, tool_input, as_of, current_user):
     return (result, chips, None, None)
 
 
+def _handle_recurring_intelligence(
+    db, user_id, tool_input, as_of, current_user
+):
+    result = evaluate_recurring_intelligence(db, user_id, as_of=as_of)
+    burden = result.burden
+
+    chips = [
+        _chip(
+            "Monthly recurring",
+            _currency(burden.monthly_recurring_cents),
+        ),
+        _chip(
+            "Active recurring items",
+            str(burden.active_recurring_count),
+            kind="text",
+        ),
+        _chip(
+            "Next 30 days",
+            _currency(burden.next_30_days_cents),
+        ),
+    ]
+
+    if result.amount_changes:
+        top_change = max(
+            result.amount_changes, key=lambda c: abs(c.change_percent)
+        )
+        chips.append(
+            _chip(
+                f"{top_change.merchant} {top_change.status}",
+                _percent(top_change.change_percent),
+                kind="percent",
+                tone=(
+                    "warning"
+                    if top_change.status == "increased"
+                    else "positive"
+                ),
+            )
+        )
+
+    if result.possible_duplicates:
+        chips.append(
+            _chip(
+                "Possible duplicates",
+                str(len(result.possible_duplicates)),
+                kind="text",
+                tone="warning",
+            )
+        )
+
+    if result.possibly_missing:
+        chips.append(
+            _chip(
+                "Possibly missing",
+                str(len(result.possibly_missing)),
+                kind="text",
+                tone="warning",
+            )
+        )
+
+    return (result, chips, None, result.data_quality_note)
+
+
+def _handle_spending_anomalies(
+    db, user_id, tool_input, as_of, current_user
+):
+    result = detect_spending_anomalies(db, user_id, as_of=as_of)
+
+    chips = [
+        _chip(
+            "Anomalies found",
+            str(len(result.anomalies)),
+            kind="text",
+            tone="warning" if result.anomalies else "positive",
+        ),
+    ]
+
+    for anomaly in result.anomalies[:3]:
+        chips.append(
+            _chip(
+                anomaly.title,
+                _currency(anomaly.current_amount_cents),
+                tone="danger" if anomaly.severity == "high" else "warning",
+            )
+        )
+
+    return (result, chips, None, result.data_quality_note)
+
+
 _TOOL_HANDLERS = {
     "get_safe_to_spend": _handle_safe_to_spend,
     "simulate_major_purchase": _handle_major_purchase,
@@ -1158,6 +1292,8 @@ _TOOL_HANDLERS = {
     "get_cash_flow_forecast": _handle_cash_flow_forecast,
     "get_monthly_insights": _handle_monthly_insights,
     "get_recommendations": _handle_recommendations,
+    "get_recurring_intelligence": _handle_recurring_intelligence,
+    "get_spending_anomalies": _handle_spending_anomalies,
 }
 
 
@@ -1218,6 +1354,12 @@ def _build_system_prompt(db: Session, user_id: int, as_of: date) -> str:
         "- If a tool's confidence score is low, or the facts below "
         "show little transaction/account history, say so "
         "explicitly.\n"
+        "- Never invent a recurring-bill change, duplicate "
+        "subscription, missing payment, or spending anomaly. Only "
+        "report ones present in a tool result -- if a tool returns no "
+        "anomalies, say clearly that nothing unusual was found.\n"
+        "- Never call a recurring payment 'cancelled' -- if it's "
+        "overdue, say FinSight hasn't seen the expected payment yet.\n"
         "- Keep prose short: a few sentences per section, no "
         "filler.\n\n"
         f"Today's date: {as_of.isoformat()}\n"

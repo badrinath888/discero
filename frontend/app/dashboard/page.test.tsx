@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,8 +6,11 @@ import type {
   Budget,
   CashFlowForecast,
   CategoryTotal,
+  FinancialAccount,
+  FinancialResilience,
   Overview,
   Recommendation,
+  SafeToSpendResult,
   SavingsGoal,
   Transaction,
 } from "../lib/api";
@@ -23,6 +26,9 @@ const mocks = vi.hoisted(() => ({
   getSavingsGoals: vi.fn(),
   getCashFlowForecast: vi.fn(),
   getRecommendations: vi.fn(),
+  getSafeToSpend: vi.fn(),
+  getFinancialResilience: vi.fn(),
+  getAccounts: vi.fn(),
   uploadTransactions: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
@@ -102,6 +108,9 @@ vi.mock("../lib/api", async (importOriginal) => {
       getSavingsGoals: mocks.getSavingsGoals,
       getCashFlowForecast: mocks.getCashFlowForecast,
       getRecommendations: mocks.getRecommendations,
+      getSafeToSpend: mocks.getSafeToSpend,
+      getFinancialResilience: mocks.getFinancialResilience,
+      getAccounts: mocks.getAccounts,
       uploadTransactions: mocks.uploadTransactions,
     },
     session: {
@@ -180,6 +189,45 @@ const cashFlow: CashFlowForecast = {
   horizon_outlook: [],
 };
 
+const safeToSpend: SafeToSpendResult = {
+  as_of: "2026-08-09",
+  through_date: "2026-09-08",
+  horizon_days: 30,
+  safe_to_spend_cents: 120_000,
+  shortfall_cents: 0,
+  status: "safe",
+  confidence_score: 82,
+  breakdown: {
+    liquid_balance_cents: 400_000,
+    upcoming_obligations_cents: 20_000,
+    essential_spending_cents: 0,
+    safety_reserve_cents: 0,
+  },
+  obligations: [],
+  warnings: [],
+};
+
+const resilience: FinancialResilience = {
+  as_of: "2026-08-09",
+  liquid_balance_cents: 400_000,
+  liquid_account_count: 2,
+  monthly_essential_cents: 150_000,
+  essential_spending_source: "derived",
+  spending_basis_label: "Recent spending pace",
+  months_of_spending_data: 3,
+  runway_months: 4,
+  runway_days: 122,
+  resilience_status: "strong",
+  horizons: [],
+  confidence_score: 70,
+  data_quality_note: null,
+  headline: "Your spending coverage is strong",
+  why: "Liquid balance comfortably exceeds recent spending pace.",
+  what_this_means: "You could cover several months of spending.",
+  suggested_actions: [],
+  warnings: [],
+};
+
 function resolveEverythingSuccessfully() {
   mocks.overview.mockResolvedValue(overview);
   mocks.byCategory.mockResolvedValue(categories);
@@ -191,6 +239,9 @@ function resolveEverythingSuccessfully() {
     as_of: "2026-08-09",
     recommendations: [],
   });
+  mocks.getSafeToSpend.mockResolvedValue(safeToSpend);
+  mocks.getFinancialResilience.mockResolvedValue(resilience);
+  mocks.getAccounts.mockResolvedValue([]);
 }
 
 beforeEach(() => {
@@ -205,6 +256,9 @@ beforeEach(() => {
     as_of: "2026-08-09",
     recommendations: [],
   });
+  mocks.getSafeToSpend.mockResolvedValue(safeToSpend);
+  mocks.getFinancialResilience.mockResolvedValue(resilience);
+  mocks.getAccounts.mockResolvedValue([]);
 });
 
 describe("dashboard loading vs empty distinction", () => {
@@ -333,11 +387,13 @@ describe("dashboard needs-attention section", () => {
 
     render(<Dashboard />);
 
-    await screen.findByText("Needs attention");
+    const heading = await screen.findByText("Needs attention");
+    const section = heading.closest("section") as HTMLElement;
+
     expect(
-      screen.getByText("Netflix increased by $3.00")
+      within(section).getByText("Netflix increased by $3.00")
     ).toBeInTheDocument();
-    expect(screen.getByText("20% increase")).toBeInTheDocument();
+    expect(within(section).getByText("20% increase")).toBeInTheDocument();
   });
 
   it("navigates to the signal's deep link when clicked", async () => {
@@ -349,7 +405,10 @@ describe("dashboard needs-attention section", () => {
 
     render(<Dashboard />);
 
-    fireEvent.click(await screen.findByText("Netflix increased by $3.00"));
+    const heading = await screen.findByText("Needs attention");
+    const section = heading.closest("section") as HTMLElement;
+
+    fireEvent.click(within(section).getByText("Netflix increased by $3.00"));
 
     expect(routerMock.push).toHaveBeenCalledWith("/recurring");
   });
@@ -361,5 +420,180 @@ describe("dashboard needs-attention section", () => {
 
     await screen.findByText("$3,000.00");
     expect(screen.queryByText("Needs attention")).not.toBeInTheDocument();
+  });
+});
+
+describe("dashboard executive intelligence", () => {
+  it("surfaces safe-to-spend, cash outlook, and resilience once loaded", async () => {
+    resolveEverythingSuccessfully();
+
+    render(<Dashboard />);
+
+    const summary = await screen.findByLabelText(
+      "Executive financial summary"
+    );
+
+    expect(within(summary).getByText("Safe to spend")).toBeInTheDocument();
+    expect(within(summary).getByText("$1,200.00")).toBeInTheDocument();
+    expect(within(summary).getByText("82% confidence")).toBeInTheDocument();
+
+    expect(within(summary).getByText("Cash outlook")).toBeInTheDocument();
+    expect(within(summary).getByText("$3,800.00")).toBeInTheDocument();
+
+    expect(
+      within(summary).getByText("Financial resilience")
+    ).toBeInTheDocument();
+    expect(within(summary).getByText("4 mo runway")).toBeInTheDocument();
+  });
+
+  it("shows a calm fallback for top action when no recommendations exist", async () => {
+    resolveEverythingSuccessfully();
+
+    render(<Dashboard />);
+
+    const summary = await screen.findByLabelText(
+      "Executive financial summary"
+    );
+
+    expect(
+      within(summary).getByText("You're all caught up")
+    ).toBeInTheDocument();
+  });
+
+  it("does not break the summary when a data source fails", async () => {
+    resolveEverythingSuccessfully();
+    mocks.getFinancialResilience.mockRejectedValue(
+      new Error("resilience unavailable")
+    );
+
+    render(<Dashboard />);
+
+    const summary = await screen.findByLabelText(
+      "Executive financial summary"
+    );
+
+    expect(within(summary).getByText("Safe to spend")).toBeInTheDocument();
+    expect(
+      within(summary).queryByText("Financial resilience")
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("dashboard data quality banner", () => {
+  it("warns when a large share of spending is uncategorized", async () => {
+    resolveEverythingSuccessfully();
+    mocks.byCategory.mockResolvedValue([
+      { category: "Groceries", total_cents: -50_000, count: 5 },
+      { category: "Uncategorized", total_cents: -50_000, count: 5 },
+    ]);
+
+    render(<Dashboard />);
+
+    expect(
+      await screen.findByText(
+        "50% of recorded spending ($500.00) is uncategorized."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Review transactions →" })
+    ).toBeInTheDocument();
+  });
+
+  it("stays quiet when uncategorized spending is a small share", async () => {
+    resolveEverythingSuccessfully();
+    mocks.byCategory.mockResolvedValue([
+      { category: "Groceries", total_cents: -90_000, count: 9 },
+      { category: "Uncategorized", total_cents: -5_000, count: 1 },
+    ]);
+
+    render(<Dashboard />);
+
+    await screen.findByText("$3,000.00");
+    expect(
+      screen.queryByText(/is uncategorized/)
+    ).not.toBeInTheDocument();
+  });
+});
+
+function makeAccount(
+  overrides: Partial<FinancialAccount>
+): FinancialAccount {
+  return {
+    id: 1,
+    plaid_item_id: 1,
+    institution_name: "Chase",
+    name: "Checking",
+    official_name: null,
+    account_type: "depository",
+    account_subtype: "checking",
+    mask: "1234",
+    current_balance_cents: 100_000,
+    available_balance_cents: 100_000,
+    currency: "USD",
+    connection_status: "active",
+    sync_status: "succeeded",
+    sync_error: null,
+    last_sync_attempted_at: null,
+    last_synced_at: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+describe("dashboard connection health", () => {
+  it("shows a healthy summary across connected institutions", async () => {
+    resolveEverythingSuccessfully();
+    mocks.getAccounts.mockResolvedValue([
+      makeAccount({ id: 1, plaid_item_id: 1, institution_name: "Chase" }),
+      makeAccount({ id: 2, plaid_item_id: 2, institution_name: "Ally" }),
+    ]);
+
+    render(<Dashboard />);
+
+    const banner = await screen.findByLabelText("Connection health");
+    expect(banner).toHaveTextContent(
+      "Connected — 2 accounts across 2 institutions. Synced recently."
+    );
+  });
+
+  it("flags institutions that need reconnecting", async () => {
+    resolveEverythingSuccessfully();
+    mocks.getAccounts.mockResolvedValue([
+      makeAccount({
+        id: 1,
+        connection_status: "reconnect_required",
+      }),
+    ]);
+
+    render(<Dashboard />);
+
+    const banner = await screen.findByLabelText("Connection health");
+    expect(banner).toHaveTextContent(
+      "Reconnect needed — 1 account across 1 institution. " +
+        "One or more institutions need reconnecting to keep data current."
+    );
+  });
+
+  it("flags a stale connection when the last sync is old", async () => {
+    resolveEverythingSuccessfully();
+    const fiveDaysAgo = new Date(
+      Date.now() - 5 * 24 * 60 * 60 * 1000
+    ).toISOString();
+    mocks.getAccounts.mockResolvedValue([
+      makeAccount({ last_synced_at: fiveDaysAgo }),
+    ]);
+
+    render(<Dashboard />);
+
+    const banner = await screen.findByLabelText("Connection health");
+    expect(banner).toHaveTextContent("Last successful sync was 5 days ago.");
+  });
+
+  it("stays silent when no accounts are connected", async () => {
+    resolveEverythingSuccessfully();
+
+    render(<Dashboard />);
+
+    await screen.findByText("$3,000.00");
+    expect(screen.queryByText("View accounts →")).not.toBeInTheDocument();
   });
 });

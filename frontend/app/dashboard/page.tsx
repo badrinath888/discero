@@ -16,10 +16,13 @@ import {
   Budget,
   CashFlowForecast,
   CategoryTotal,
+  FinancialAccount,
+  FinancialResilience,
   formatCents,
   Overview,
   Recommendation,
   RecommendationSeverity,
+  SafeToSpendResult,
   SavingsGoal,
   session,
   Transaction,
@@ -35,6 +38,10 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+
+// A connection is considered stale once its most recent successful
+// sync is this many days old.
+const STALE_SYNC_DAYS = 3;
 
 function getCurrentMonth(): string {
   const today = new Date();
@@ -86,6 +93,14 @@ export default function Dashboard() {
   >([]);
   const [recommendationsLoading, setRecommendationsLoading] =
     useState(true);
+
+  const [safeToSpend, setSafeToSpend] =
+    useState<SafeToSpendResult | null>(null);
+  const [resilience, setResilience] =
+    useState<FinancialResilience | null>(null);
+  const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
+  const [accountsAsOf, setAccountsAsOf] = useState<number | null>(null);
+  const [execIntelLoading, setExecIntelLoading] = useState(true);
 
   const loadDashboard = useCallback(
     async (id: number) => {
@@ -144,6 +159,43 @@ export default function Dashboard() {
     }
   }, []);
 
+  const loadExecutiveIntel = useCallback(async (id: number) => {
+    setExecIntelLoading(true);
+
+    // Each signal is independent -- one unavailable source (e.g. a
+    // resilience calculation with insufficient data) must never blank
+    // out the other, healthy signals in the executive summary.
+    const [safeToSpendResult, resilienceResult, accountsResult] =
+      await Promise.allSettled([
+        api.getSafeToSpend(id, {
+          safety_reserve_cents: 0,
+          essential_spending_cents: 0,
+          horizon_days: 30,
+        }),
+        api.getFinancialResilience(id),
+        api.getAccounts(id),
+      ]);
+
+    setSafeToSpend(
+      safeToSpendResult.status === "fulfilled"
+        ? safeToSpendResult.value
+        : null
+    );
+    setResilience(
+      resilienceResult.status === "fulfilled"
+        ? resilienceResult.value
+        : null
+    );
+    setAccounts(
+      accountsResult.status === "fulfilled" ? accountsResult.value : []
+    );
+    // Captured once, at fetch time, rather than read during render --
+    // render must stay pure, so "now" for staleness math is a value,
+    // not a live clock call.
+    setAccountsAsOf(Date.now());
+    setExecIntelLoading(false);
+  }, []);
+
   useEffect(() => {
     async function initializeDashboard() {
       const id = session.getUserId();
@@ -167,6 +219,7 @@ export default function Dashboard() {
         setUserId(id);
         await loadDashboard(id);
         void loadRecommendations(id);
+        void loadExecutiveIntel(id);
       } catch {
         session.clear();
         router.replace("/");
@@ -174,7 +227,7 @@ export default function Dashboard() {
     }
 
     void initializeDashboard();
-  }, [router, loadDashboard, loadRecommendations]);
+  }, [router, loadDashboard, loadRecommendations, loadExecutiveIntel]);
 
   const currentMonthCategories = useMemo(() => {
     const totals = new Map<
@@ -270,6 +323,114 @@ export default function Dashboard() {
   );
 
   const highestCategory = spendingData[0];
+
+  // Deterministic data-quality signal: what share of recorded spending
+  // has no real category. Computed from integer cents (never dollars)
+  // so the ratio is never distorted by floating-point accumulation.
+  const dataQuality = useMemo(() => {
+    let totalSpendingCents = 0;
+    let uncategorizedSpendingCents = 0;
+
+    for (const { category, total_cents } of categories) {
+      if (total_cents >= 0) continue;
+
+      totalSpendingCents += -total_cents;
+
+      if (category === "Uncategorized") {
+        uncategorizedSpendingCents += -total_cents;
+      }
+    }
+
+    if (totalSpendingCents === 0) return null;
+
+    const percent = Math.round(
+      (uncategorizedSpendingCents / totalSpendingCents) * 100
+    );
+
+    let tone: "informational" | "warning" | null = null;
+    if (percent > 50) tone = "warning";
+    else if (percent >= 25) tone = "warning";
+    else if (percent >= 10) tone = "informational";
+
+    if (!tone) return null;
+
+    return {
+      percent,
+      amountCents: uncategorizedSpendingCents,
+      tone,
+      strong: percent > 50,
+    };
+  }, [categories]);
+
+  // Connection health is derived entirely from persisted Plaid sync
+  // metadata (PlaidItem.sync_status / last_synced_at) -- nothing here
+  // is estimated or fabricated. No accounts connected yet is already
+  // covered by the "connect a bank account" recommendation, so this
+  // stays silent in that case rather than repeating it.
+  const connectionHealth = useMemo(() => {
+    if (accounts.length === 0) return null;
+
+    const institutionNames = new Set(
+      accounts.map((account) => account.institution_name ?? "Unknown")
+    );
+
+    const needsReconnect = accounts.some(
+      (account) => account.connection_status === "reconnect_required"
+    );
+    const failedSync = accounts.some(
+      (account) => account.sync_status === "failed"
+    );
+
+    const lastSyncedTimestamps = accounts
+      .map((account) =>
+        account.last_synced_at
+          ? new Date(account.last_synced_at).getTime()
+          : null
+      )
+      .filter((value): value is number => value !== null);
+
+    const mostRecentSync =
+      lastSyncedTimestamps.length > 0
+        ? Math.max(...lastSyncedTimestamps)
+        : null;
+
+    const staleDays =
+      mostRecentSync !== null && accountsAsOf !== null
+        ? Math.floor((accountsAsOf - mostRecentSync) / 86_400_000)
+        : null;
+
+    const isStale = staleDays !== null && staleDays >= STALE_SYNC_DAYS;
+
+    let tone: ExecutiveTone;
+    let headline: string;
+    let detail: string;
+
+    if (needsReconnect || failedSync) {
+      tone = "warning";
+      headline = "Reconnect needed";
+      detail = needsReconnect
+        ? "One or more institutions need reconnecting to keep data current."
+        : "The last sync attempt failed for one or more institutions.";
+    } else if (isStale) {
+      tone = "warning";
+      headline = "Data may be stale";
+      detail = `Last successful sync was ${staleDays} day${
+        staleDays === 1 ? "" : "s"
+      } ago.`;
+    } else {
+      tone = "positive";
+      headline = "Connected";
+      detail = mostRecentSync !== null ? "Synced recently." : "Connected.";
+    }
+
+    return {
+      tone,
+      headline,
+      detail,
+      accountCount: accounts.length,
+      institutionCount: institutionNames.size,
+    };
+  }, [accounts, accountsAsOf]);
 
   async function handleUpload(
     event: React.ChangeEvent<HTMLInputElement>
@@ -386,8 +547,9 @@ export default function Dashboard() {
 </h1>
 
               <p className="mt-4 max-w-2xl text-base leading-7 text-[#68766f]">
-                Review your balance, spending patterns, upcoming
-                cash flow, budgets, and goals in one place.
+                Your financial decision-intelligence briefing: where
+                you stand, what&apos;s ahead, and what deserves
+                attention.
               </p>
             </div>
 
@@ -405,6 +567,16 @@ export default function Dashboard() {
               />
             </label>
           </header>
+
+          <ExecutiveIntelligence
+            safeToSpend={safeToSpend}
+            cashFlow={cashFlow}
+            resilience={resilience}
+            topAction={recommendations[0] ?? null}
+            metricsLoading={showSkeleton || execIntelLoading}
+            actionLoading={recommendationsLoading}
+            onNavigate={(path) => router.push(path)}
+          />
 
           {message && !error && (
             <div
@@ -577,6 +749,16 @@ export default function Dashboard() {
             recommendations={recommendations}
             loading={recommendationsLoading}
             onSelect={(deepLink) => router.push(deepLink ?? "/recommendations")}
+          />
+
+          <DataQualityBanner
+            dataQuality={dataQuality}
+            onReview={() => router.push("/transactions")}
+          />
+
+          <ConnectionHealthBanner
+            health={connectionHealth}
+            onReview={() => router.push("/accounts")}
           />
 
           <section className="mt-8 grid gap-5 sm:grid-cols-3">
@@ -1136,6 +1318,272 @@ function DashboardSection({
   );
 }
 
+type ExecutiveTone = "critical" | "warning" | "positive" | "informational";
+
+const EXECUTIVE_TONE_STYLES: Record<
+  ExecutiveTone,
+  { dot: string; value: string }
+> = {
+  critical: { dot: "bg-[#c9503f]", value: "text-[#a5382a]" },
+  warning: { dot: "bg-[#d9a022]", value: "text-[#8a6410]" },
+  positive: { dot: "bg-[#3f8f52]", value: "text-[#173128]" },
+  informational: { dot: "bg-[#7b8781]", value: "text-[#173128]" },
+};
+
+const RECOMMENDATION_TONE: Record<RecommendationSeverity, ExecutiveTone> = {
+  critical: "critical",
+  warning: "warning",
+  opportunity: "informational",
+  positive: "positive",
+  informational: "informational",
+};
+
+type ExecutiveTile = {
+  key: string;
+  eyebrow: string;
+  value: string;
+  detail: string;
+  tone: ExecutiveTone;
+  onClick?: () => void;
+};
+
+function ExecutiveIntelligence({
+  safeToSpend,
+  cashFlow,
+  resilience,
+  topAction,
+  metricsLoading,
+  actionLoading,
+  onNavigate,
+}: {
+  safeToSpend: SafeToSpendResult | null;
+  cashFlow: CashFlowForecast | null;
+  resilience: FinancialResilience | null;
+  topAction: Recommendation | null;
+  metricsLoading: boolean;
+  actionLoading: boolean;
+  onNavigate: (path: string) => void;
+}) {
+  const tiles: ExecutiveTile[] = [];
+
+  if (safeToSpend) {
+    tiles.push({
+      key: "safe-to-spend",
+      eyebrow: "Safe to spend",
+      value: formatCents(safeToSpend.safe_to_spend_cents),
+      detail:
+        safeToSpend.status === "negative"
+          ? "Projected shortfall against your balance"
+          : `${Math.round(safeToSpend.confidence_score)}% confidence`,
+      tone:
+        safeToSpend.status === "negative"
+          ? "critical"
+          : safeToSpend.status === "limited"
+          ? "warning"
+          : "positive",
+      onClick: () => onNavigate("/decisions"),
+    });
+  }
+
+  if (cashFlow) {
+    tiles.push({
+      key: "cash-outlook",
+      eyebrow: "Cash outlook",
+      value: formatCents(cashFlow.projected_end_balance_cents),
+      detail: cashFlow.low_balance_risk
+        ? "May dip below a safe level"
+        : `Projected in ${cashFlow.days_remaining} days`,
+      tone: cashFlow.low_balance_risk ? "warning" : "positive",
+      onClick: () => onNavigate("/forecast"),
+    });
+  }
+
+  if (resilience) {
+    tiles.push({
+      key: "resilience",
+      eyebrow: "Financial resilience",
+      value:
+        resilience.runway_months != null
+          ? `${resilience.runway_months} mo runway`
+          : "Limited data",
+      detail: resilience.headline,
+      tone:
+        resilience.resilience_status === "critical"
+          ? "critical"
+          : resilience.resilience_status === "weak"
+          ? "warning"
+          : resilience.resilience_status === "fair"
+          ? "informational"
+          : "positive",
+      onClick: () => onNavigate("/forecast"),
+    });
+  }
+
+  if (!actionLoading) {
+    tiles.push({
+      key: "top-action",
+      eyebrow: "Top action",
+      value: topAction ? topAction.title : "You're all caught up",
+      detail: topAction
+        ? topAction.impact ?? topAction.recommended_action
+        : "No urgent recommendations right now.",
+      tone: topAction
+        ? RECOMMENDATION_TONE[topAction.severity]
+        : "positive",
+      onClick: () =>
+        onNavigate(topAction?.deep_link ?? "/recommendations"),
+    });
+  }
+
+  if (metricsLoading && tiles.length === 0) {
+    return (
+      <section className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div
+            key={index}
+            className="h-28 animate-pulse rounded-[22px] border border-[#173128]/8 bg-white"
+          />
+        ))}
+      </section>
+    );
+  }
+
+  if (tiles.length === 0) return null;
+
+  return (
+    <section
+      aria-label="Executive financial summary"
+      className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+    >
+      {tiles.map((tile) => {
+        const style = EXECUTIVE_TONE_STYLES[tile.tone];
+        const Wrapper = tile.onClick ? "button" : "div";
+
+        return (
+          <Wrapper
+            key={tile.key}
+            type={tile.onClick ? "button" : undefined}
+            onClick={tile.onClick}
+            className="premium-hover rounded-[22px] border border-[#173128]/8 bg-white p-5 text-left transition hover:border-[#173128]/20"
+          >
+            <span className="flex items-center gap-2">
+              <span
+                className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`}
+                aria-hidden="true"
+              />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#89938e]">
+                {tile.eyebrow}
+              </span>
+            </span>
+
+            <span
+              className={`mt-3 block truncate text-xl font-semibold tracking-[-0.03em] ${style.value}`}
+            >
+              {tile.value}
+            </span>
+
+            <span className="mt-1.5 block truncate text-xs text-[#7b8781]">
+              {tile.detail}
+            </span>
+          </Wrapper>
+        );
+      })}
+    </section>
+  );
+}
+
+function DataQualityBanner({
+  dataQuality,
+  onReview,
+}: {
+  dataQuality: {
+    percent: number;
+    amountCents: number;
+    strong: boolean;
+  } | null;
+  onReview: () => void;
+}) {
+  if (!dataQuality) return null;
+
+  return (
+    <section
+      role="status"
+      className={`mt-8 flex flex-col gap-3 rounded-2xl border px-5 py-4 sm:flex-row sm:items-center sm:justify-between ${
+        dataQuality.strong
+          ? "border-[#d9a022]/30 bg-[#fbeecb]"
+          : "border-[#173128]/10 bg-[#f8f5ee]"
+      }`}
+    >
+      <p className="text-sm leading-6 text-[#52645b]">
+        <span className="font-semibold text-[#173128]">
+          {dataQuality.percent}% of recorded spending (
+          {formatCents(dataQuality.amountCents)}) is uncategorized.
+        </span>{" "}
+        Categorizing these transactions will improve insights and
+        recommendations.
+      </p>
+
+      <button
+        type="button"
+        onClick={onReview}
+        className="shrink-0 text-sm font-semibold text-[#187a59] transition hover:opacity-65"
+      >
+        Review transactions →
+      </button>
+    </section>
+  );
+}
+
+function ConnectionHealthBanner({
+  health,
+  onReview,
+}: {
+  health: {
+    tone: ExecutiveTone;
+    headline: string;
+    detail: string;
+    accountCount: number;
+    institutionCount: number;
+  } | null;
+  onReview: () => void;
+}) {
+  if (!health) return null;
+
+  const style = EXECUTIVE_TONE_STYLES[health.tone];
+
+  return (
+    <section
+      role="status"
+      aria-label="Connection health"
+      className="mt-8 flex flex-col gap-3 rounded-2xl border border-[#173128]/10 bg-[#f8f5ee] px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <p className="flex items-center gap-3 text-sm leading-6 text-[#52645b]">
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`}
+          aria-hidden="true"
+        />
+        <span>
+          <span className="font-semibold text-[#173128]">
+            {health.headline}
+          </span>{" "}
+          — {health.accountCount} account
+          {health.accountCount === 1 ? "" : "s"} across{" "}
+          {health.institutionCount} institution
+          {health.institutionCount === 1 ? "" : "s"}. {health.detail}
+        </span>
+      </p>
+
+      <button
+        type="button"
+        onClick={onReview}
+        className="shrink-0 text-sm font-semibold text-[#187a59] transition hover:opacity-65"
+      >
+        View accounts →
+      </button>
+    </section>
+  );
+}
+
 const NEEDS_ATTENTION_STYLES: Record<
   RecommendationSeverity,
   { dot: string; label: string }
@@ -1146,6 +1594,41 @@ const NEEDS_ATTENTION_STYLES: Record<
   positive: { dot: "bg-[#3f8f52]", label: "Positive" },
   informational: { dot: "bg-[#7b8781]", label: "Info" },
 };
+
+const ACTIONABLE_SEVERITIES = new Set<RecommendationSeverity>([
+  "critical",
+  "warning",
+  "opportunity",
+]);
+
+// Recommendations already arrive ranked by severity from
+// recommendation_service (see backend evaluate_recommendations) --
+// this only chooses which 3 of that ranked list to surface, it never
+// re-scores or reorders them. When a real risk exists, at most one
+// positive card fills a remaining slot so good news never crowds out
+// what actually needs attention.
+function selectTopSignals(
+  recommendations: Recommendation[]
+): Recommendation[] {
+  const hasActionable = recommendations.some((recommendation) =>
+    ACTIONABLE_SEVERITIES.has(recommendation.severity)
+  );
+  const selected: Recommendation[] = [];
+  let positiveCount = 0;
+
+  for (const recommendation of recommendations) {
+    if (selected.length >= 3) break;
+
+    if (recommendation.severity === "positive") {
+      if (hasActionable && positiveCount >= 1) continue;
+      positiveCount += 1;
+    }
+
+    selected.push(recommendation);
+  }
+
+  return selected;
+}
 
 function NeedsAttentionSection({
   recommendations,
@@ -1176,7 +1659,7 @@ function NeedsAttentionSection({
   // rather than adding an empty-state box to an already busy page.
   if (recommendations.length === 0) return null;
 
-  const topSignals = recommendations.slice(0, 3);
+  const topSignals = selectTopSignals(recommendations);
 
   return (
     <section className="mt-8">

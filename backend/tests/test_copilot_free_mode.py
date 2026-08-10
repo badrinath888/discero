@@ -1732,6 +1732,58 @@ def test_what_spending_looks_unusual_alternate_phrasing() -> None:
         assert "no unusual spending" in result.answer.lower()
 
 
+def test_unusual_spending_question_key_cards_are_unique_in_free_mode() -> (
+    None
+):
+    # Production regression: "What spending looks unusual?" (free
+    # mode, provenance "deterministic") showed the same "Possible
+    # duplicate charge at Fun" card multiple times. A merchant
+    # charging near-daily produces several genuinely DISTINCT
+    # repeated-charge clusters (different transaction ids/dates) that
+    # all share the same title -- the full signal count must stay
+    # accurate, but the key cards must show each distinct title once.
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        for i in range(10):
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, 7, 25) + timedelta(days=i),
+                amount_cents=8_940,
+                merchant_name="Fun",
+                category="Entertainment",
+            )
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What spending looks unusual?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.provenance == "deterministic"
+        assert result.tool_used == "Spending Anomalies"
+
+        # Several distinct repeated-charge clusters really do exist --
+        # the accurate total count is preserved, not reduced.
+        anomalies_chip = next(
+            c for c in result.key_numbers if c.label == "Anomalies found"
+        )
+        assert int(anomalies_chip.value_display) > 1
+
+        signal_titles = [
+            c.label
+            for c in result.key_numbers
+            if c.label != "Anomalies found"
+        ]
+        assert signal_titles.count("Possible duplicate charge at Fun") == 1
+        assert len(signal_titles) == len(set(signal_titles))
+
+
 def test_charged_twice_question_finds_repeated_charge() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db)

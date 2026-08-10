@@ -790,3 +790,71 @@ def test_spending_anomalies_tool_grounds_chips_in_real_calculation() -> None:
         )
         assert anomalies_chip.value_display == "0"
         assert calls["n"] == 2
+
+
+def test_spending_anomalies_key_cards_do_not_repeat_the_same_signal() -> (
+    None
+):
+    # Production regression: a merchant charging near-daily (e.g. a
+    # broken retry loop) produces several genuinely DISTINCT
+    # repeated-charge clusters (different transaction ids/dates) that
+    # all share the same title/merchant/amount. The full signal list
+    # may legitimately contain all of them, but Copilot's key cards
+    # must not show the same-looking signal more than once.
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        for i in range(10):
+            db.add(
+                Transaction(
+                    user_id=user.id,
+                    posted_on=date(2026, 7, 25) + timedelta(days=i),
+                    description="Fun",
+                    merchant_name="Fun",
+                    amount_cents=-8_940,
+                    category="Entertainment",
+                )
+            )
+        db.commit()
+
+        client = CopilotClient(api_key="fake-key")
+        calls = {"n": 0}
+
+        def fake_call(**kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return _response(
+                    _tool_use_block("tool_1", "get_spending_anomalies", {})
+                )
+            return _response(
+                _tool_use_block(
+                    "tool_2",
+                    "present_financial_answer",
+                    {"answer": "Found some repeated charges."},
+                )
+            )
+
+        client.call = fake_call  # type: ignore[method-assign]
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message("What spending looks unusual?"),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        # Several distinct repeated-charge clusters really do exist
+        # (>1) -- the raw count is real, not itself the bug.
+        anomalies_chip = next(
+            c for c in result.key_numbers if c.label == "Anomalies found"
+        )
+        assert int(anomalies_chip.value_display) > 1
+
+        signal_titles = [
+            c.label for c in result.key_numbers if c.label != "Anomalies found"
+        ]
+        assert len(signal_titles) == len(set(signal_titles))

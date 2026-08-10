@@ -1499,13 +1499,19 @@ function SpendingAnomaliesSection({
                 <div className="shrink-0 text-right">
                   <p className="text-sm font-semibold text-[#a64b3d]">
                     {formatCents(-anomaly.current_amount_cents)}
+                    {anomaly.type === "repeated_charge" &&
+                    anomaly.occurrence_count &&
+                    anomaly.occurrence_count > 1
+                      ? ` × ${anomaly.occurrence_count}`
+                      : ""}
                   </p>
-                  {anomaly.baseline_amount_cents !== null && (
-                    <p className="mt-1 text-xs text-[#87928d]">
-                      vs {formatCents(-anomaly.baseline_amount_cents)}{" "}
-                      usual
-                    </p>
-                  )}
+                  {anomaly.type !== "repeated_charge" &&
+                    anomaly.baseline_amount_cents !== null && (
+                      <p className="mt-1 text-xs text-[#87928d]">
+                        vs {formatCents(-anomaly.baseline_amount_cents)}{" "}
+                        usual
+                      </p>
+                    )}
                 </div>
               </div>
             </article>

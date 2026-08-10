@@ -421,17 +421,164 @@ def test_repeated_similar_charge_flagged() -> None:
             merchant_name="Coffee Shop",
             category="Dining",
         )
-        _fill_baseline(db, user, count=8, start=date(2026, 2, 10))
 
-        result = detect_spending_anomalies(db, user.id, as_of=TEST_DATE)
+        _fill_baseline(
+            db,
+            user,
+            count=8,
+            start=date(2026, 2, 10),
+        )
 
-        repeated = [a for a in result.anomalies if a.type == "repeated_charge"]
+        result = detect_spending_anomalies(
+            db,
+            user.id,
+            as_of=TEST_DATE,
+        )
+
+        repeated = [
+            anomaly
+            for anomaly in result.anomalies
+            if anomaly.type == "repeated_charge"
+        ]
+
         assert len(repeated) == 1
+
         anomaly = repeated[0]
+
         assert anomaly.severity == "high"
         assert anomaly.current_amount_cents == 2_500
         assert anomaly.baseline_amount_cents == 2_500
         assert anomaly.confidence == "high"
+
+
+def test_multiple_repeated_charges_are_grouped_into_one_anomaly() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "grouped-repeated-charge")
+        create_account(db, user)
+
+        for _ in range(4):
+            create_transaction(
+                db,
+                user,
+                posted_on=TEST_DATE - timedelta(days=2),
+                amount_cents=-8_940,
+                merchant_name="Fun",
+                category="Entertainment",
+            )
+
+        _fill_baseline(db, user, count=8, start=date(2026, 2, 10))
+
+        result = detect_spending_anomalies(
+            db,
+            user.id,
+            as_of=TEST_DATE,
+        )
+
+        repeated = [
+            anomaly
+            for anomaly in result.anomalies
+            if anomaly.type == "repeated_charge"
+        ]
+
+        assert len(repeated) == 1
+
+        anomaly = repeated[0]
+
+        assert anomaly.merchant == "Fun"
+        assert anomaly.current_amount_cents == 8_940
+        assert anomaly.baseline_amount_cents == 8_940
+        assert anomaly.severity == "high"
+        assert anomaly.confidence == "high"
+        assert anomaly.occurrence_count == 4
+        assert anomaly.transaction_ids is not None
+        assert len(anomaly.transaction_ids) == 4
+        assert len(set(anomaly.transaction_ids)) == 4
+        assert "4 similar charges" in anomaly.reason
+        assert "$89.40" in anomaly.reason
+
+
+def test_repeated_charge_reversed_insertion_order_still_one_anomaly() -> (
+    None
+):
+    # The later-dated transaction is inserted into the DB FIRST --
+    # detection must sort by date internally, not rely on insertion/
+    # row order, so this still collapses into exactly one anomaly.
+    with TestingSessionLocal() as db:
+        user = create_user(db, "reversed-order")
+        create_account(db, user)
+
+        create_transaction(
+            db,
+            user,
+            posted_on=TEST_DATE - timedelta(days=1),
+            amount_cents=-8_940,
+            merchant_name="Fun",
+            category="Entertainment",
+        )
+        create_transaction(
+            db,
+            user,
+            posted_on=TEST_DATE - timedelta(days=2),
+            amount_cents=-8_940,
+            merchant_name="Fun",
+            category="Entertainment",
+        )
+        _fill_baseline(db, user, count=8, start=date(2026, 2, 10))
+
+        result = detect_spending_anomalies(db, user.id, as_of=TEST_DATE)
+
+        repeated = [
+            a for a in result.anomalies if a.type == "repeated_charge"
+        ]
+        assert len(repeated) == 1
+        assert repeated[0].occurrence_count == 2
+
+
+def test_distinct_repeated_charge_pairs_each_produce_their_own_anomaly() -> (
+    None
+):
+    # Two genuinely separate duplicate-charge incidents (different
+    # merchants) must each be reported -- deduplication must never
+    # collapse real, distinct signals into one.
+    with TestingSessionLocal() as db:
+        user = create_user(db, "distinct-pairs")
+        create_account(db, user)
+
+        for posted_on in (
+            TEST_DATE - timedelta(days=2),
+            TEST_DATE - timedelta(days=2),
+        ):
+            create_transaction(
+                db,
+                user,
+                posted_on=posted_on,
+                amount_cents=-8_940,
+                merchant_name="Fun",
+                category="Entertainment",
+            )
+        for posted_on in (
+            TEST_DATE - timedelta(days=5),
+            TEST_DATE - timedelta(days=5),
+        ):
+            create_transaction(
+                db,
+                user,
+                posted_on=posted_on,
+                amount_cents=-3_200,
+                merchant_name="Rideshare",
+                category="Transportation",
+            )
+        _fill_baseline(db, user, count=8, start=date(2026, 2, 10))
+
+        result = detect_spending_anomalies(db, user.id, as_of=TEST_DATE)
+
+        repeated = [
+            a for a in result.anomalies if a.type == "repeated_charge"
+        ]
+        assert len(repeated) == 2
+        merchants = {a.merchant for a in repeated}
+        assert merchants == {"Fun", "Rideshare"}
+        assert len({a.id for a in repeated}) == 2
 
 
 def test_repeated_charge_not_flagged_days_apart() -> None:

@@ -1268,7 +1268,20 @@ def _handle_spending_anomalies(
         ),
     ]
 
-    for anomaly in result.anomalies[:3]:
+    # Distinct anomalies (different transactions/dates) can share the
+    # same title -- e.g. several separate near-daily "possible
+    # duplicate charge" incidents for the same merchant. Each is a
+    # real, distinct signal in `result.anomalies` (nothing here hides
+    # or discards data), but showing more than one identically-titled
+    # card adds no new information and looks like the same signal
+    # repeated. Cap key cards to one per distinct title.
+    seen_titles: set[str] = set()
+
+    for anomaly in result.anomalies:
+        if anomaly.title in seen_titles:
+            continue
+
+        seen_titles.add(anomaly.title)
         chips.append(
             _chip(
                 anomaly.title,
@@ -1276,6 +1289,9 @@ def _handle_spending_anomalies(
                 tone="danger" if anomaly.severity == "high" else "warning",
             )
         )
+
+        if len(seen_titles) >= 3:
+            break
 
     return (result, chips, None, result.data_quality_note)
 

@@ -1074,6 +1074,8 @@ export type SpendingAnomaly = {
   merchant: string | null;
   category: string | null;
   transaction_id: number | null;
+  transaction_ids?: number[] | null;
+  occurrence_count?: number | null;
   date: string;
   current_amount_cents: number;
   baseline_amount_cents: number | null;

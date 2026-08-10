@@ -347,6 +347,47 @@ describe("recurring intelligence and spending anomalies", () => {
     expect(screen.getByText("-$400.00")).toBeInTheDocument();
   });
 
+  it("shows the occurrence count for grouped repeated charges", async () => {
+    mocks.getSpendingAnomalies.mockResolvedValue({
+      as_of: "2026-08-09",
+      lookback_months: 6,
+      anomalies: [
+        {
+          id: "repeated_charge:10:11:12:13",
+          type: "repeated_charge",
+          severity: "high",
+          title: "Possible duplicate charge at Fun",
+          merchant: "Fun",
+          category: "Entertainment",
+          transaction_id: 13,
+          transaction_ids: [10, 11, 12, 13],
+          occurrence_count: 4,
+          date: "2026-08-07",
+          current_amount_cents: 8_940,
+          baseline_amount_cents: 8_940,
+          difference_cents: 0,
+          percent_difference: 0,
+          reason:
+            "4 similar charges from Fun were posted within 0 days, ranging from $89.40 to $89.40 between 2026-08-07 and 2026-08-07.",
+          confidence: "high",
+        },
+      ],
+      data_quality_note: null,
+    });
+
+    render(<RecurringPage />);
+
+    expect(
+      await screen.findByText("Possible duplicate charge at Fun")
+    ).toBeInTheDocument();
+
+    expect(screen.getByText("-$89.40 × 4")).toBeInTheDocument();
+
+    expect(
+      screen.queryByText("vs -$89.40 usual")
+    ).not.toBeInTheDocument();
+  });
+
   it("shows a positive, non-alarming empty state when nothing unusual is found", async () => {
     render(<RecurringPage />);
 

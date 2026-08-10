@@ -1478,6 +1478,8 @@ class SpendingAnomalyOut(BaseModel):
     merchant: str | None
     category: str | None
     transaction_id: int | None
+    transaction_ids: list[int] | None = None
+    occurrence_count: int | None = None
     date: date
     current_amount_cents: int
     baseline_amount_cents: int | None

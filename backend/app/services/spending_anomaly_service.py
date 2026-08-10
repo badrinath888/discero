@@ -511,57 +511,134 @@ def _repeated_charges(
     anomalies: list[SpendingAnomalyOut] = []
 
     for merchant, items in groups.items():
-        items.sort(key=lambda t: t.posted_on)
+        items.sort(key=lambda t: (t.posted_on, t.id))
 
-        for previous, current in zip(items, items[1:]):
-            gap_days = (current.posted_on - previous.posted_on).days
+        consumed_ids: set[int] = set()
 
-            if gap_days > _REPEATED_CHARGE_WINDOW_DAYS:
+        for index, anchor in enumerate(items):
+            if anchor.id in consumed_ids:
                 continue
 
-            amount_a = abs(previous.amount_cents)
-            amount_b = abs(current.amount_cents)
-            tolerance_cents = max(
-                _REPEATED_CHARGE_TOLERANCE_MIN_CENTS,
-                round(
-                    max(amount_a, amount_b)
-                    * _REPEATED_CHARGE_TOLERANCE_PERCENT
-                ),
+            anchor_amount = abs(anchor.amount_cents)
+            matching_items = [anchor]
+
+            for candidate in items[index + 1 :]:
+                if candidate.id in consumed_ids:
+                    continue
+
+                gap_days = (candidate.posted_on - anchor.posted_on).days
+
+                if gap_days > _REPEATED_CHARGE_WINDOW_DAYS:
+                    break
+
+                candidate_amount = abs(candidate.amount_cents)
+
+                tolerance_cents = max(
+                    _REPEATED_CHARGE_TOLERANCE_MIN_CENTS,
+                    round(
+                        max(anchor_amount, candidate_amount)
+                        * _REPEATED_CHARGE_TOLERANCE_PERCENT
+                    ),
+                )
+
+                if abs(anchor_amount - candidate_amount) > tolerance_cents:
+                    continue
+
+                matching_items.append(candidate)
+
+            if len(matching_items) < 2:
+                continue
+
+            matching_items.sort(key=lambda t: (t.posted_on, t.id))
+
+            for transaction in matching_items:
+                consumed_ids.add(transaction.id)
+
+            first = matching_items[0]
+            last = matching_items[-1]
+
+            first_amount = abs(first.amount_cents)
+            last_amount = abs(last.amount_cents)
+
+            gap_days = (last.posted_on - first.posted_on).days
+
+            severity = (
+                "high"
+                if all(
+                    abs(item.amount_cents) == first_amount
+                    for item in matching_items
+                )
+                else "warning"
             )
 
-            if abs(amount_a - amount_b) > tolerance_cents:
-                continue
+            difference_cents = last_amount - first_amount
 
-            severity = "high" if amount_a == amount_b else "warning"
-            difference_cents = amount_b - amount_a
             percent_difference = (
-                round(difference_cents / amount_a * 100, 1)
-                if amount_a > 0
+                round(difference_cents / first_amount * 100, 1)
+                if first_amount > 0
                 else None
             )
+
+            count = len(matching_items)
             day_word = "day" if gap_days in (0, 1) else "days"
+
+            transaction_ids = sorted(
+                item.id for item in matching_items
+            )
+
+            group_id = ":".join(
+                str(transaction_id)
+                for transaction_id in transaction_ids
+            )
+
+            if count == 2:
+                reason = (
+                    f"Two charges of {_currency(first_amount)} and "
+                    f"{_currency(last_amount)} from {merchant.title()} "
+                    f"posted {gap_days} {day_word} apart "
+                    f"({first.posted_on.isoformat()} and "
+                    f"{last.posted_on.isoformat()})."
+                )
+            else:
+                min_amount = min(
+                    abs(item.amount_cents)
+                    for item in matching_items
+                )
+
+                max_amount = max(
+                    abs(item.amount_cents)
+                    for item in matching_items
+                )
+
+                reason = (
+                    f"{count} similar charges from {merchant.title()} "
+                    f"were posted within {gap_days} {day_word}, "
+                    f"ranging from {_currency(min_amount)} to "
+                    f"{_currency(max_amount)} between "
+                    f"{first.posted_on.isoformat()} and "
+                    f"{last.posted_on.isoformat()}."
+                )
 
             anomalies.append(
                 SpendingAnomalyOut(
-                    id=f"repeated_charge:{previous.id}:{current.id}",
+                    id=f"repeated_charge:{group_id}",
                     type="repeated_charge",
                     severity=severity,
-                    title=f"Possible duplicate charge at {merchant.title()}",
+                    title=(
+                        f"Possible duplicate charge at "
+                        f"{merchant.title()}"
+                    ),
                     merchant=merchant.title(),
-                    category=current.category,
-                    transaction_id=current.id,
-                    date=current.posted_on,
-                    current_amount_cents=amount_b,
-                    baseline_amount_cents=amount_a,
+                    category=last.category,
+                    transaction_id=last.id,
+                    transaction_ids=transaction_ids,
+                    occurrence_count=count,
+                    date=last.posted_on,
+                    current_amount_cents=last_amount,
+                    baseline_amount_cents=first_amount,
                     difference_cents=difference_cents,
                     percent_difference=percent_difference,
-                    reason=(
-                        f"Two charges of {_currency(amount_a)} and "
-                        f"{_currency(amount_b)} from {merchant.title()} "
-                        f"posted {gap_days} {day_word} apart "
-                        f"({previous.posted_on.isoformat()} and "
-                        f"{current.posted_on.isoformat()})."
-                    ),
+                    reason=reason,
                     confidence="high",
                 )
             )

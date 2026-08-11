@@ -326,7 +326,7 @@ describe("recurring intelligence and spending anomalies", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "FinSight has not seen these expected payments yet -- this does not necessarily mean a subscription was cancelled."
+        "Discero has not seen these expected payments yet -- this does not necessarily mean a subscription was cancelled."
       )
     ).toBeInTheDocument();
   });

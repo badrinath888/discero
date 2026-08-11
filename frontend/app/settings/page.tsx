@@ -239,7 +239,7 @@ export default function SettingsPage() {
       const csv = transactionsToCsv(transactions);
 
       downloadCsv(
-        `finsight-transactions-${
+        `discero-transactions-${
           new Date().toISOString().split("T")[0]
         }.csv`,
         csv
@@ -281,7 +281,7 @@ export default function SettingsPage() {
           </h1>
 
           <p className="mt-3 max-w-2xl text-sm leading-6 text-[#65736c]">
-            Review your FinSight profile, protect your account, and manage
+            Review your Discero profile, protect your account, and manage
             your active session.
           </p>
         </header>
@@ -466,7 +466,7 @@ export default function SettingsPage() {
                     Export transactions
                   </h2>
                   <p className="mt-2 max-w-2xl text-sm leading-6 text-[#65736c]">
-                    Download all of your FinSight transactions as a CSV file
+                    Download all of your Discero transactions as a CSV file
                     for spreadsheets, reporting, or personal backup.
                   </p>
                 </div>
@@ -490,7 +490,7 @@ export default function SettingsPage() {
                     Session
                   </p>
                   <h2 className="mt-2 text-xl font-semibold">
-                    Sign out of FinSight
+                    Sign out of Discero
                   </h2>
                   <p className="mt-2 text-sm text-[#65736c]">
                     This removes the current access token from this browser.

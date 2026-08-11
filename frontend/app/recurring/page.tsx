@@ -433,7 +433,7 @@ export default function RecurringPage() {
             <div className="mt-8">
               <EmptyState
                 title="No recurring bills detected"
-                description="Add more transaction history or synchronize your bank account so FinSight can identify repeating payments."
+                description="Add more transaction history or synchronize your bank account so Discero can identify repeating payments."
                 actionLabel="View transactions"
                 onAction={() => router.push("/transactions")}
               />
@@ -991,7 +991,7 @@ function RecurringDrawer({
                   Detection insight
                 </p>
                 <p className="mt-1 text-sm leading-6 text-[#66746e]">
-                  FinSight identified this pattern from repeated timing
+                  Discero identified this pattern from repeated timing
                   and similar transaction amounts.
                 </p>
               </div>
@@ -1377,7 +1377,7 @@ function RecurringIntelligenceSection({
 
           {intelligence.possibly_missing.length > 0 && (
             <p className="mt-4 text-xs leading-5 text-[#87928d]">
-              FinSight has not seen these expected payments yet -- this
+              Discero has not seen these expected payments yet -- this
               does not necessarily mean a subscription was cancelled.
             </p>
           )}

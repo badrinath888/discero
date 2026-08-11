@@ -20,10 +20,7 @@ export default function AuthFlowCard({
           href="/"
           className="inline-flex items-center gap-3 font-semibold"
         >
-          <span className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-[#167c5a] text-white">
-            F
-          </span>
-          FinSight
+          Discero
         </Link>
 
         <p className="mt-9 text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">

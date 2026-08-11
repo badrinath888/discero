@@ -460,7 +460,7 @@ describe("financial resilience section", () => {
 
     expect(
       screen.getByText(
-        "Monthly spending baseline: estimated from your recent total spending (FinSight doesn't yet classify essential vs. discretionary expenses)."
+        "Monthly spending baseline: estimated from your recent total spending (Discero doesn't yet classify essential vs. discretionary expenses)."
       )
     ).toBeInTheDocument();
     // The hero and section headers must not claim "essential" for an
@@ -504,7 +504,7 @@ describe("financial resilience section", () => {
     ).toBeInTheDocument();
     expect(
       screen.queryByText(
-        "Monthly spending baseline: estimated from your recent total spending (FinSight doesn't yet classify essential vs. discretionary expenses)."
+        "Monthly spending baseline: estimated from your recent total spending (Discero doesn't yet classify essential vs. discretionary expenses)."
       )
     ).not.toBeInTheDocument();
 

@@ -170,7 +170,7 @@ export default function HomePage() {
           <Reveal>
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
-              Personal finance intelligence
+              Discern before you decide.
             </p>
 
             <h1 className="mt-5 max-w-3xl text-[52px] font-semibold leading-[0.98] tracking-[-0.065em] text-[#10211b] sm:text-[68px] lg:text-[78px]">
@@ -181,7 +181,7 @@ export default function HomePage() {
             </h1>
 
             <p className="mt-7 max-w-xl text-lg leading-8 text-[#5d6d66]">
-              FinSight connects your financial
+              Discero connects your financial
               activity, explains your spending,
               tracks your progress, and forecasts
               what comes next.
@@ -287,7 +287,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl">
           <div className="text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
-              How FinSight works
+              How Discero works
             </p>
 
             <h2 className="mx-auto mt-5 max-w-3xl text-4xl font-semibold tracking-[-0.045em] sm:text-6xl">
@@ -305,7 +305,7 @@ export default function HomePage() {
 
             <ProcessStep
               number="2"
-              title="Let FinSight organize it"
+              title="Let Discero organize it"
               description="Transactions are categorized, recurring patterns are detected, and financial summaries are calculated."
             />
 
@@ -331,7 +331,7 @@ export default function HomePage() {
             </h2>
 
             <p className="mt-6 max-w-xl text-lg leading-8 text-[#53675d]">
-              FinSight turns raw activity into
+              Discero turns raw activity into
               understandable categories, trends,
               recurring patterns, and monthly
               observations.
@@ -374,7 +374,7 @@ export default function HomePage() {
             </h2>
 
             <p className="mt-6 max-w-xl text-lg leading-8 text-[#5d6d66]">
-              FinSight combines available balances,
+              Discero combines available balances,
               income pace, and predicted recurring
               bills to estimate your position at the
               end of the month.
@@ -458,7 +458,7 @@ export default function HomePage() {
 
             <p className="mt-6 max-w-xl text-lg leading-8 text-[#aebbb5]">
               Create an account to explore the full
-              FinSight experience, or sign in to
+              Discero experience, or sign in to
               continue where you left off.
             </p>
 
@@ -501,21 +501,19 @@ export default function HomePage() {
       <footer className="border-t border-[#14241e]/10 bg-[#f5f1e8] px-5 py-10 sm:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-8 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <BrandMark />
-
             <div>
               <p className="font-semibold">
-                FinSight
+                Discero
               </p>
 
               <p className="text-xs text-[#728078]">
-                Personal finance intelligence
+                Financial decision intelligence
               </p>
             </div>
           </div>
 
           <p className="max-w-xl text-sm leading-6 text-[#728078]">
-            FinSight is an educational portfolio
+            Discero is an educational portfolio
             project. Forecasts and insights are
             estimates and are not financial advice.
           </p>
@@ -540,10 +538,8 @@ function Navigation({
     <nav className="fixed inset-x-0 top-0 z-50 border-b border-[#14241e]/10 bg-[#f5f1e8]/90 px-5 backdrop-blur-xl sm:px-8">
       <div className="mx-auto flex h-20 max-w-7xl items-center justify-between">
         <div className="flex items-center gap-3">
-          <BrandMark />
-
           <span className="text-lg font-semibold tracking-[-0.02em]">
-            FinSight
+            Discero
           </span>
         </div>
 
@@ -582,14 +578,6 @@ function Navigation({
         </div>
       </div>
     </nav>
-  );
-}
-
-function BrandMark() {
-  return (
-    <span className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-[#167c5a] text-sm font-bold text-white">
-      F
-    </span>
   );
 }
 
@@ -979,7 +967,7 @@ function SpendingPreview() {
 
       <div className="mt-10 border-t border-white/[0.08] pt-6">
         <p className="text-xs uppercase tracking-[0.14em] text-slate-600">
-          FinSight observation
+          Discero observation
         </p>
 
         <p className="mt-3 leading-7 text-slate-300">
@@ -1280,7 +1268,7 @@ function AuthenticationCard({
       <h3 className="mt-7 text-2xl font-semibold tracking-[-0.03em]">
         {mode === "login"
           ? "Welcome back"
-          : "Start with FinSight"}
+          : "Start with Discero"}
       </h3>
 
       <p className="mt-2 text-sm leading-6 text-[#728078]">
@@ -1375,7 +1363,7 @@ function AuthenticationCard({
           {loading
             ? "Please wait..."
             : mode === "login"
-              ? "Sign in to FinSight"
+              ? "Sign in to Discero"
               : "Create my account"}
         </button>
       </form>

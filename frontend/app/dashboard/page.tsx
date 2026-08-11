@@ -918,7 +918,7 @@ export default function Dashboard() {
 
             <article className="rounded-[30px] bg-[#f5d66f] p-7 sm:p-8">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#735d15]">
-                FinSight observation
+                Discero observation
               </p>
 
               {showSkeleton ? (

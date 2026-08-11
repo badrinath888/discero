@@ -1,6 +1,8 @@
-# FinSight
+# Discero
 
-FinSight is a full-stack personal finance intelligence platform for securely importing transactions, connecting bank accounts, tracking budgets and savings goals, detecting recurring expenses, analyzing spending patterns, and forecasting cash flow.
+*Discern before you decide.*
+
+Discero is a full-stack financial decision-intelligence platform: it helps you understand how a financial decision affects your cash flow, goals, and financial resilience before you make it. It securely imports transactions, connects bank accounts, tracks budgets and savings goals, detects recurring expenses, analyzes spending patterns, and forecasts cash flow.
 
 ## Features
 
@@ -319,7 +321,7 @@ At minimum, production needs `DATABASE_URL` (PostgreSQL), `JWT_SECRET`, and `COR
 
 ## Disclaimer
 
-FinSight is a portfolio and educational project. Forecasts, insights, recurring-payment predictions, and categorizations are estimates and are not professional financial advice.
+Discero is a portfolio and educational project. Forecasts, insights, recurring-payment predictions, and categorizations are estimates and are not professional financial advice.
 
 ## Author
 

@@ -482,9 +482,9 @@ def test_cash_flow_forecast_detects_low_balance_risk(
         user_id,
         auth_headers,
         "date,description,amount,category\n"
-        "2026-01-20,Streaming Service,-25.00,Subscriptions\n"
-        "2026-01-27,Streaming Service,-25.00,Subscriptions\n"
-        "2026-02-03,Streaming Service,-25.00,Subscriptions\n",
+        "2026-01-20,Netflix Streaming,-25.00,Subscriptions\n"
+        "2026-01-27,Netflix Streaming,-25.00,Subscriptions\n"
+        "2026-02-03,Netflix Streaming,-25.00,Subscriptions\n",
     )
 
     response = client.get(
@@ -507,7 +507,7 @@ def test_cash_flow_forecast_detects_low_balance_risk(
 
     upcoming = body["upcoming_cash_flows"][0]
 
-    assert upcoming["merchant"] == "Streaming Service"
+    assert upcoming["merchant"] == "Netflix Streaming"
     assert upcoming["amount_cents"] == 2500
     assert upcoming["expected_date"] == "2026-02-10"
     assert upcoming["kind"] == "expense"

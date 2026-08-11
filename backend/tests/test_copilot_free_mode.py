@@ -1843,13 +1843,31 @@ def test_why_spending_higher_question_works_without_key() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db)
         create_account(db, user, available_balance_cents=500_000)
+        # Prior months spend $50 early (day 3) and another $150 later
+        # (day 20) -- their "through day 8" partial total is only $50,
+        # not their full $200/month, so this is a genuine same-point-
+        # in-time increase rather than a linear-projection artifact.
         for month in (5, 6, 7):
             create_debit_transaction(
                 db,
                 user,
                 posted_on=date(2026, month, 3),
-                amount_cents=20_000,
+                amount_cents=5_000,
                 merchant_name="Restaurant",
+                category="Dining",
+            )
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, month, 20),
+                amount_cents=15_000,
+                # A different merchant from the day-3 Restaurant
+                # charge -- keeps Restaurant's own history low-
+                # variance (below the 5-prior-charge minimum for the
+                # separate merchant-level detector) so this fixture
+                # exercises category_spike specifically, not also
+                # merchant_unusual_spend.
+                merchant_name="Cafe",
                 category="Dining",
             )
         # Two transactions (not one) so this clears the category-spike

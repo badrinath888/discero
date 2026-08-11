@@ -714,7 +714,7 @@ def _rule_severe_category_spike(
         confidence=None,
         source_signals=[
             _signal(
-                "This month (pace)",
+                "This month (so far)",
                 _currency(worst.current_amount_cents),
             ),
             _signal(

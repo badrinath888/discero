@@ -597,3 +597,124 @@ describe("dashboard connection health", () => {
     expect(screen.queryByText("View accounts →")).not.toBeInTheDocument();
   });
 });
+
+function makeTransaction(
+  overrides: Partial<Transaction> & Pick<Transaction, "id" | "posted_on" | "amount_cents">
+): Transaction {
+  return {
+    description: "Test transaction",
+    merchant_name: "Test Merchant",
+    category: "Shopping",
+    source: "manual",
+    pending: false,
+    financial_account_id: null,
+    account_name: null,
+    institution_name: null,
+    ...overrides,
+  };
+}
+
+describe("dashboard monthly card semantics", () => {
+  it("shows only the current calendar month's income/spending, not six months of history", async () => {
+    resolveEverythingSuccessfully();
+
+    // Six months of income (Mar-Aug) and spending (Mar-Aug), only one
+    // month (August) of which should ever land in the "this month"
+    // cards. overview.total_income_cents/total_spending_cents are the
+    // all-history sums of all of this -- if the monthly cards were
+    // still reading from overview, they'd show the six-month totals
+    // below instead of just August's.
+    const months = [
+      "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08",
+    ];
+    const sixMonthTransactions: Transaction[] = months.flatMap(
+      (month, index) => [
+        makeTransaction({
+          id: index * 2 + 1,
+          posted_on: `${month}-01`,
+          amount_cents: 300_000,
+          category: "Income",
+          description: "Payroll",
+        }),
+        makeTransaction({
+          id: index * 2 + 2,
+          posted_on: `${month}-05`,
+          amount_cents: -50_000,
+          category: "Dining",
+          description: "Restaurant",
+        }),
+      ]
+    );
+
+    mocks.getTransactions.mockResolvedValue(sixMonthTransactions);
+    mocks.overview.mockResolvedValue({
+      total_income_cents: 1_800_000, // six months x $3,000
+      total_spending_cents: 300_000, // six months x $500
+      net_cents: 1_500_000,
+      transaction_count: sixMonthTransactions.length,
+    });
+
+    render(<Dashboard />);
+
+    // Scoped to each SoftMetric card specifically -- with six months
+    // of identical $3,000/$500 entries, "Recent activity" further down
+    // the page legitimately repeats those same amounts, so a bare
+    // page-wide text query would be ambiguous for reasons unrelated to
+    // the bug under test.
+    const incomeCard = (
+      await screen.findByText("Income this month")
+    ).closest("article") as HTMLElement;
+    const spendingCard = screen
+      .getByText("Spending this month")
+      .closest("article") as HTMLElement;
+
+    expect(within(incomeCard).getByText("$3,000.00")).toBeInTheDocument();
+    expect(within(spendingCard).getByText("-$500.00")).toBeInTheDocument();
+    expect(
+      within(incomeCard).queryByText("$18,000.00")
+    ).not.toBeInTheDocument();
+    expect(
+      within(spendingCard).queryByText("-$3,000.00")
+    ).not.toBeInTheDocument();
+  });
+
+  it("still shows the all-history net financial position alongside the scoped monthly cards", async () => {
+    resolveEverythingSuccessfully();
+
+    const sixMonthTransactions: Transaction[] = [
+      makeTransaction({
+        id: 1,
+        posted_on: "2026-08-01",
+        amount_cents: 300_000,
+        category: "Income",
+      }),
+      makeTransaction({
+        id: 2,
+        posted_on: "2026-02-01",
+        amount_cents: 300_000,
+        category: "Income",
+      }),
+    ];
+
+    mocks.getTransactions.mockResolvedValue(sixMonthTransactions);
+    mocks.overview.mockResolvedValue({
+      total_income_cents: 600_000,
+      total_spending_cents: 100_000,
+      net_cents: 500_000,
+      transaction_count: 2,
+    });
+
+    render(<Dashboard />);
+
+    // Net financial position is intentionally all-history (its own
+    // copy says "Income minus total recorded spending", not "this
+    // month") and must keep showing the full six-month net -- distinct
+    // from the all-time income/spending shown right underneath it.
+    const netCard = (
+      await screen.findByText("Net financial position")
+    ).closest("article") as HTMLElement;
+    expect(within(netCard).getByText("$5,000.00")).toBeInTheDocument();
+    expect(within(netCard).getByText("$6,000.00")).toBeInTheDocument();
+    expect(within(netCard).getByText("-$1,000.00")).toBeInTheDocument();
+  });
+});

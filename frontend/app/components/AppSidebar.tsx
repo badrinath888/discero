@@ -103,10 +103,6 @@ export default function AppSidebar() {
             onClick={closeMobileMenu}
             className="focus-ring flex min-w-0 items-center gap-3 rounded-xl text-left"
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#1b9a70] text-sm font-bold text-white shadow-sm">
-              F
-            </span>
-
             <span className="min-w-0">
               <span className="block truncate text-[15px] font-semibold tracking-[-0.02em] text-white">
                 FinSight

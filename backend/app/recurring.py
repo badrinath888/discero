@@ -6,6 +6,18 @@ from statistics import median
 
 from app.models import Transaction
 
+# A recurring SUGGESTION should represent a predictable obligation --
+# a bill or subscription -- not merely a merchant a user happens to
+# visit at a statistically regular interval and amount (e.g. a
+# monthly restaurant habit or a gas station fill-up). Interval and
+# amount consistency alone can't tell those apart: ordinary repeat
+# spending can look just as "regular" over a few months of history as
+# a real bill does. Category is the one signal that reliably can,
+# reusing the app's existing, already-relied-upon category vocabulary
+# (app.categorization.CATEGORY_RULES) rather than inventing a new one
+# or hardcoding merchant names.
+_OBLIGATION_CATEGORIES = {"Housing", "Utilities", "Subscriptions"}
+
 
 def _merchant(transaction: Transaction) -> str:
     raw_name = (
@@ -197,6 +209,12 @@ def detect_recurring(
         items.sort(key=lambda item: item.posted_on)
 
         if len(items) < 3:
+            continue
+
+        # Gate on the category of the most recent occurrence -- the
+        # same "latest" item several other fields below (amount,
+        # posted_on) already treat as authoritative.
+        if items[-1].category not in _OBLIGATION_CATEGORIES:
             continue
 
         intervals = [

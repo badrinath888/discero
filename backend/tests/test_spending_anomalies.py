@@ -4,7 +4,14 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import FinancialAccount, PlaidItem, Transaction, User
+from app.models import (
+    FinancialAccount,
+    PlaidItem,
+    RecurringItem,
+    Transaction,
+    User,
+)
+from app.recurring import _merchant
 from app.services.spending_anomaly_service import detect_spending_anomalies
 from tests.conftest import TestingSessionLocal
 
@@ -201,19 +208,28 @@ def test_category_spike_flagged() -> None:
         user = create_user(db, "category-spike")
         create_account(db, user)
 
+        # Prior months spend $50 early (day 3) and another $100 later
+        # (day 20) -- so their "through day 9" partial total is only
+        # $50, not their full $150/month. Current month already spent
+        # $150 by day 9, genuinely far above what prior months had
+        # spent by that same point.
         for month in (5, 6, 7):
             create_transaction(
                 db,
                 user,
                 posted_on=date(2026, month, 3),
-                amount_cents=-20_000,
+                amount_cents=-5_000,
                 merchant_name="Restaurant",
                 category="Dining",
             )
-        # Current month (August) already at $150 by day 9 across two
-        # transactions -- paced out across the full month that's well
-        # above the $200 baseline. Two transactions (not one) so this
-        # clears the min-current-transactions guard.
+            create_transaction(
+                db,
+                user,
+                posted_on=date(2026, month, 20),
+                amount_cents=-10_000,
+                merchant_name="Restaurant",
+                category="Dining",
+            )
         create_transaction(
             db,
             user,
@@ -238,15 +254,14 @@ def test_category_spike_flagged() -> None:
         assert len(spikes) == 1
         spike = spikes[0]
         assert spike.category == "Dining"
-        assert spike.baseline_amount_cents == 20_000
+        assert spike.baseline_amount_cents == 5_000
+        assert spike.current_amount_cents == 15_000
         assert spike.severity == "high"
         assert spike.percent_difference is not None
         assert spike.percent_difference >= 100.0
 
 
-def test_category_spike_wording_is_pace_based_and_distinguishes_actual() -> (
-    None
-):
+def test_category_spike_wording_compares_actual_same_day_totals() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db, "category-spike-wording")
         create_account(db, user)
@@ -256,7 +271,15 @@ def test_category_spike_wording_is_pace_based_and_distinguishes_actual() -> (
                 db,
                 user,
                 posted_on=date(2026, month, 3),
-                amount_cents=-20_000,
+                amount_cents=-5_000,
+                merchant_name="Restaurant",
+                category="Dining",
+            )
+            create_transaction(
+                db,
+                user,
+                posted_on=date(2026, month, 20),
+                amount_cents=-10_000,
                 merchant_name="Restaurant",
                 category="Dining",
             )
@@ -284,21 +307,50 @@ def test_category_spike_wording_is_pace_based_and_distinguishes_actual() -> (
             a for a in result.anomalies if a.type == "category_spike"
         )
 
-        # Explicit pace/projection language, never a bare "you spent
-        # X% more this month" claim built from the prorated figure.
-        assert "current pace" in spike.title.lower()
-        assert "current pace" in spike.reason.lower()
-        assert "projec" in spike.reason.lower()
-        assert "you spent x%" not in spike.reason.lower()
-        assert "you spent 158% more" not in spike.reason.lower()
-
-        # Actual spend-to-date ($150.00) and the projected month-end
-        # total ($516.67-ish) must both appear, and be distinct.
+        # No more pace/projection language -- current_amount_cents is
+        # now the real amount spent so far, matching the reason text
+        # exactly (no separate, larger "projected" figure).
+        assert "pace" not in spike.title.lower()
+        assert "pace" not in spike.reason.lower()
+        assert "projec" not in spike.reason.lower()
+        assert spike.current_amount_cents == 15_000
         assert "$150.00" in spike.reason
-        assert "$150.00" != f"{spike.current_amount_cents / 100:,.2f}"
-        projected_display = f"${spike.current_amount_cents / 100:,.2f}"
-        assert projected_display in spike.reason
-        assert "$150.00" not in projected_display
+        assert f"${spike.current_amount_cents / 100:,.2f}" in spike.reason
+        assert "day 9" in spike.reason
+
+
+def test_category_spike_not_triggered_by_early_recurring_bill_clustering() -> (
+    None
+):
+    # The exact demo-dashboard scenario: several fixed bills (rent,
+    # utilities, insurance) post in the first third of every month,
+    # identically each month. A naive linear month-end projection from
+    # a handful of early days used to multiply this into a huge false
+    # "spike"; a fair same-day-of-month comparison must not.
+    with TestingSessionLocal() as db:
+        user = create_user(db, "category-spike-early-clustering")
+        create_account(db, user)
+
+        bill_days = [1, 3, 5, 6, 7, 8]
+        bill_amounts = [18_500, 4_500, 8_900, 7_000, 6_500, 14_200]
+
+        for month in (5, 6, 7, 8):
+            for day, amount in zip(bill_days, bill_amounts):
+                create_transaction(
+                    db,
+                    user,
+                    posted_on=date(2026, month, day),
+                    amount_cents=-amount,
+                    merchant_name=f"Bill day {day}",
+                    category="Utilities",
+                )
+        _fill_baseline(db, user, count=7, start=date(2026, 2, 10))
+
+        result = detect_spending_anomalies(db, user.id, as_of=TEST_DATE)
+
+        assert [
+            a for a in result.anomalies if a.type == "category_spike"
+        ] == []
 
 
 def test_category_spike_not_triggered_too_early_in_month() -> None:
@@ -398,6 +450,189 @@ def test_large_individual_transaction_flagged() -> None:
         assert len(large) == 1
         assert large[0].current_amount_cents == 60_000
         assert large[0].merchant == "Electronics Outlet"
+
+
+def _create_active_recurring_item(
+    db: Session,
+    user: User,
+    *,
+    merchant: str,
+    amount_cents: int,
+    next_payment: date,
+) -> RecurringItem:
+    item = RecurringItem(
+        user_id=user.id,
+        merchant=merchant,
+        normalized_merchant=_merchant(
+            Transaction(merchant_name=merchant, description=merchant)
+        ),
+        category="Housing",
+        amount_cents=amount_cents,
+        frequency="Monthly",
+        last_payment=next_payment - timedelta(days=30),
+        next_payment=next_payment,
+        status="active",
+        confidence_score=95.0,
+    )
+    db.add(item)
+    db.commit()
+    return item
+
+
+def test_known_recurring_rent_not_flagged_as_large_transaction() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "known-rent")
+        create_account(db, user)
+
+        _create_active_recurring_item(
+            db,
+            user,
+            merchant="Skyline Ridge Apartments",
+            amount_cents=185_000,
+            next_payment=TEST_DATE + timedelta(days=20),
+        )
+
+        for i in range(10):
+            create_transaction(
+                db,
+                user,
+                posted_on=date(2026, 3, 1) + timedelta(days=i * 5),
+                amount_cents=-(2_000 + i * 50),
+                merchant_name=f"Everyday Merchant {i}",
+                category="Shopping",
+            )
+        # The known monthly rent amount, posting as expected.
+        create_transaction(
+            db,
+            user,
+            posted_on=TEST_DATE - timedelta(days=1),
+            amount_cents=-185_000,
+            merchant_name="Skyline Ridge Apartments",
+            category="Housing",
+        )
+
+        result = detect_spending_anomalies(db, user.id, as_of=TEST_DATE)
+
+        large = [a for a in result.anomalies if a.type == "large_transaction"]
+        assert large == []
+
+
+def test_abnormal_rent_like_charge_still_flagged_as_large_transaction() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db, "abnormal-rent")
+        create_account(db, user)
+
+        _create_active_recurring_item(
+            db,
+            user,
+            merchant="Skyline Ridge Apartments",
+            amount_cents=185_000,
+            next_payment=TEST_DATE + timedelta(days=20),
+        )
+
+        for i in range(10):
+            create_transaction(
+                db,
+                user,
+                posted_on=date(2026, 3, 1) + timedelta(days=i * 5),
+                amount_cents=-(2_000 + i * 50),
+                merchant_name=f"Everyday Merchant {i}",
+                category="Shopping",
+            )
+        # Double the known monthly rent -- materially different from
+        # the expected $1,850, so it must NOT be excluded.
+        create_transaction(
+            db,
+            user,
+            posted_on=TEST_DATE - timedelta(days=1),
+            amount_cents=-370_000,
+            merchant_name="Skyline Ridge Apartments",
+            category="Housing",
+        )
+
+        result = detect_spending_anomalies(db, user.id, as_of=TEST_DATE)
+
+        large = [a for a in result.anomalies if a.type == "large_transaction"]
+        assert len(large) == 1
+        assert large[0].current_amount_cents == 370_000
+        assert large[0].merchant == "Skyline Ridge Apartments"
+
+
+def test_repeated_charge_still_flagged_alongside_known_recurring_payment() -> (
+    None
+):
+    # Excluding a known recurring payment from the large-transaction
+    # detector must not touch the separate repeated-charge detector --
+    # a genuine same-merchant double charge is still an anomaly even
+    # when that merchant is also a known active recurring payment.
+    with TestingSessionLocal() as db:
+        user = create_user(db, "rent-and-duplicate")
+        create_account(db, user)
+
+        _create_active_recurring_item(
+            db,
+            user,
+            merchant="Skyline Ridge Apartments",
+            amount_cents=185_000,
+            next_payment=TEST_DATE + timedelta(days=20),
+        )
+
+        for i in range(10):
+            create_transaction(
+                db,
+                user,
+                posted_on=date(2026, 3, 1) + timedelta(days=i * 5),
+                amount_cents=-(2_000 + i * 50),
+                merchant_name=f"Everyday Merchant {i}",
+                category="Shopping",
+            )
+        create_transaction(
+            db,
+            user,
+            posted_on=TEST_DATE - timedelta(days=10),
+            amount_cents=-185_000,
+            merchant_name="Skyline Ridge Apartments",
+            category="Housing",
+        )
+        # An unrelated merchant charged twice, one day apart.
+        create_transaction(
+            db,
+            user,
+            posted_on=TEST_DATE - timedelta(days=2),
+            amount_cents=-6_430,
+            merchant_name="REI",
+            category="Shopping",
+        )
+        create_transaction(
+            db,
+            user,
+            posted_on=TEST_DATE - timedelta(days=1),
+            amount_cents=-6_430,
+            merchant_name="REI",
+            category="Shopping",
+        )
+
+        result = detect_spending_anomalies(db, user.id, as_of=TEST_DATE)
+
+        # The known rent payment specifically must not be excluded --
+        # whether REI's own (much smaller, unrelated) charge also
+        # independently clears the large-transaction bar isn't what
+        # this test is about.
+        large_rent = [
+            a
+            for a in result.anomalies
+            if a.type == "large_transaction"
+            and a.merchant == "Skyline Ridge Apartments"
+        ]
+        assert large_rent == []
+
+        repeated = [
+            a for a in result.anomalies if a.type == "repeated_charge"
+        ]
+        assert len(repeated) == 1
+        assert repeated[0].merchant == "Rei"
 
 
 def test_repeated_similar_charge_flagged() -> None:

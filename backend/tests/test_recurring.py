@@ -12,6 +12,7 @@ def transaction(
     amount_cents: int = -1599,
     merchant: str = "Netflix",
     *,
+    category: str = "Subscriptions",
     pending: bool = False,
 ) -> Transaction:
     return Transaction(
@@ -20,7 +21,7 @@ def transaction(
         description=merchant,
         merchant_name=merchant,
         amount_cents=amount_cents,
-        category="Subscriptions",
+        category=category,
         pending=pending,
     )
 
@@ -106,6 +107,106 @@ def test_normalizes_changing_reference_numbers() -> None:
 
     assert len(result) == 1
     assert result[0]["merchant"] == "Spotify"
+
+
+def test_ordinary_monthly_dining_habit_is_not_suggested_as_recurring() -> (
+    None
+):
+    # Same interval/amount regularity a genuine bill has -- the only
+    # thing that should stop this from being suggested is that Dining
+    # isn't a predictable-obligation category.
+    result = detect_recurring(
+        [
+            transaction(
+                date(2026, 5, 12),
+                -3400,
+                merchant="Sweetgreen",
+                category="Dining",
+            ),
+            transaction(
+                date(2026, 6, 12),
+                -3400,
+                merchant="Sweetgreen",
+                category="Dining",
+            ),
+            transaction(
+                date(2026, 7, 12),
+                -3400,
+                merchant="Sweetgreen",
+                category="Dining",
+            ),
+        ],
+        as_of=date(2026, 7, 13),
+    )
+
+    assert result == []
+
+
+def test_ordinary_monthly_shopping_habit_is_not_suggested_as_recurring() -> (
+    None
+):
+    result = detect_recurring(
+        [
+            transaction(
+                date(2026, 5, 25),
+                -4230,
+                merchant="Target",
+                category="Shopping",
+            ),
+            transaction(
+                date(2026, 6, 25),
+                -4230,
+                merchant="Target",
+                category="Shopping",
+            ),
+            transaction(
+                date(2026, 7, 25),
+                -4230,
+                merchant="Target",
+                category="Shopping",
+            ),
+        ],
+        as_of=date(2026, 7, 26),
+    )
+
+    assert result == []
+
+
+def test_genuine_bill_categories_still_detected_as_recurring() -> None:
+    # Housing, Utilities, and Subscriptions -- the obligation-eligible
+    # categories -- must still clear detection with the same strong
+    # evidence a real bill has.
+    for category, merchant in (
+        ("Housing", "Skyline Ridge Apartments"),
+        ("Utilities", "Geico"),
+        ("Subscriptions", "Netflix"),
+    ):
+        result = detect_recurring(
+            [
+                transaction(
+                    date(2026, 5, 8),
+                    -14200,
+                    merchant=merchant,
+                    category=category,
+                ),
+                transaction(
+                    date(2026, 6, 8),
+                    -14200,
+                    merchant=merchant,
+                    category=category,
+                ),
+                transaction(
+                    date(2026, 7, 8),
+                    -14200,
+                    merchant=merchant,
+                    category=category,
+                ),
+            ],
+            as_of=date(2026, 7, 9),
+        )
+
+        assert len(result) == 1, category
+        assert result[0]["merchant"] == merchant.title()
 
 
 def test_detects_price_increase_warning() -> None:

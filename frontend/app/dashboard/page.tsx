@@ -272,6 +272,28 @@ export default function Dashboard() {
       );
   }, [transactions, budgetMonth]);
 
+  // overview.total_income_cents/total_spending_cents are all-history
+  // sums (correct for the all-time "Net financial position" card
+  // below) -- anything actually labeled "this month" needs to be
+  // scoped to budgetMonth the same way currentMonthCategories already
+  // is, not pulled from those all-time overview totals.
+  const currentMonthIncome = useMemo(() => {
+    let total = 0;
+
+    for (const transaction of transactions) {
+      if (
+        !transaction.posted_on.startsWith(budgetMonth) ||
+        transaction.amount_cents <= 0
+      ) {
+        continue;
+      }
+
+      total += transaction.amount_cents;
+    }
+
+    return total;
+  }, [transactions, budgetMonth]);
+
   const goalSummary = useMemo(
     () =>
       goals.reduce(
@@ -765,9 +787,7 @@ export default function Dashboard() {
             <SoftMetric
               label="Income this month"
               loading={showSkeleton}
-              value={formatCents(
-                overview?.total_income_cents ?? 0
-              )}
+              value={formatCents(currentMonthIncome)}
               description="Money received"
               background="bg-[#fffdf8]"
             />
@@ -775,9 +795,7 @@ export default function Dashboard() {
             <SoftMetric
               label="Spending this month"
               loading={showSkeleton}
-              value={formatCents(
-                -(overview?.total_spending_cents ?? 0)
-              )}
+              value={formatCents(-currentMonthSpending)}
               description="Recorded expenses"
               background="bg-[#f0b8a8]"
             />

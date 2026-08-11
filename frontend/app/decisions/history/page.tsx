@@ -47,73 +47,132 @@ function formatDate(iso: string): string {
   });
 }
 
+// result_snapshot is a free-form JSON blob (see SavedDecision) -- it
+// should always match the decision type's real output schema, but a
+// decision saved under a different/older shape must never crash the
+// history page. Every chip is built from one of these guarded reads,
+// and simply omitted (never a made-up placeholder) when its field is
+// missing or the wrong type.
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function asNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function humanize(value: string): string {
+  return value.replace(/_/g, " ");
+}
+
 function summaryChips(
   decision: SavedDecision
 ): { label: string; value: string }[] {
   const r = decision.result_snapshot as Record<string, unknown>;
+  const chips: { label: string; value: string }[] = [];
 
   if (decision.decision_type === "major_purchase") {
-    return [
-      {
-        label: "Amount",
-        value: formatCents(r.purchase_amount_cents as number),
-      },
-      {
+    const amount = asNumber(r.purchase_amount_cents);
+    if (amount !== undefined) {
+      chips.push({ label: "Amount", value: formatCents(amount) });
+    }
+
+    const safeAfter = asNumber(r.safe_to_spend_after_purchase_cents);
+    if (safeAfter !== undefined) {
+      chips.push({
         label: "Safe to spend after",
-        value: formatCents(
-          r.safe_to_spend_after_purchase_cents as number
-        ),
-      },
-      {
+        value: formatCents(safeAfter),
+      });
+    }
+
+    const confidence = asNumber(r.confidence_score);
+    if (confidence !== undefined) {
+      chips.push({
         label: "Confidence",
-        value: `${Math.round(r.confidence_score as number)}%`,
-      },
-    ];
+        value: `${Math.round(confidence)}%`,
+      });
+    }
+
+    return chips;
   }
 
   if (decision.decision_type === "scenario_comparison") {
-    const recommended = r.recommended_option as string;
+    const recommended = asNonEmptyString(r.recommended_option);
     const label =
       recommended === "option_a"
         ? "Option A"
         : recommended === "option_b"
           ? "Option B"
-          : "Tie";
-    return [{ label: "Recommended", value: label }];
+          : recommended === "tie"
+            ? "Tie"
+            : undefined;
+
+    if (label !== undefined) {
+      chips.push({ label: "Recommended", value: label });
+    }
+
+    return chips;
   }
 
   if (decision.decision_type === "buy_now_vs_wait") {
-    return [
-      {
-        label: "Recommendation",
-        value: (r.recommended_timing as string).replace(/_/g, " "),
-      },
-      {
+    const timing = asNonEmptyString(r.recommended_timing);
+    if (timing !== undefined) {
+      chips.push({ label: "Recommendation", value: humanize(timing) });
+    }
+
+    const buffer = asNumber(r.buffer_difference_cents);
+    if (buffer !== undefined) {
+      chips.push({
         label: "Buffer difference",
-        value: formatCents(r.buffer_difference_cents as number),
-      },
-    ];
+        value: formatCents(buffer),
+      });
+    }
+
+    const confidenceDifference = asNumber(r.confidence_difference);
+    if (confidenceDifference !== undefined) {
+      chips.push({
+        label: "Confidence difference",
+        value: `${Math.round(confidenceDifference)} pts`,
+      });
+    }
+
+    const assumption = asNonEmptyString(r.assumption);
+    if (assumption !== undefined) {
+      chips.push({ label: "Assumption", value: assumption });
+    }
+
+    return chips;
   }
 
-  return [
-    {
+  // stress_test (and any other/future decision type)
+  const resilience = asNumber(r.resilience_score);
+  if (resilience !== undefined) {
+    chips.push({
       label: "Resilience score",
-      value: `${Math.round(r.resilience_score as number)}`,
-    },
-    {
+      value: `${Math.round(resilience)}`,
+    });
+  }
+
+  const confidence = asNumber(r.confidence_score);
+  if (confidence !== undefined) {
+    chips.push({
       label: "Confidence",
-      value: `${Math.round(r.confidence_score as number)}%`,
-    },
-  ];
+      value: `${Math.round(confidence)}%`,
+    });
+  }
+
+  return chips;
 }
 
 function statusLabel(decision: SavedDecision): string | null {
   const r = decision.result_snapshot as Record<string, unknown>;
   const status =
-    (r.affordability_status as string | undefined) ??
-    (r.risk_level as string | undefined) ??
-    (r.recommended_timing as string | undefined);
-  return status ? status.replace(/_/g, " ") : null;
+    asNonEmptyString(r.affordability_status) ??
+    asNonEmptyString(r.risk_level) ??
+    asNonEmptyString(r.recommended_timing);
+  return status ? humanize(status) : null;
 }
 
 export default function DecisionHistoryPage() {

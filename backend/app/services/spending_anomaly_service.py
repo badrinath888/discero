@@ -28,6 +28,10 @@ from app.models import Transaction
 from app.recurring import _merchant
 from app.schemas import SpendingAnomalyOut, SpendingAnomaliesOut
 from app.services.goal_impact_service import _add_months
+from app.services.recurring_intelligence_service import (
+    _active_recurring_items,
+    _matches_expected_amount,
+)
 
 # Nothing runs until there's at least this much overall transaction
 # history -- below this, any "anomaly" would just be noise.
@@ -112,7 +116,9 @@ def detect_spending_anomalies(
     anomalies.extend(
         _category_spike(db, user_id, calculation_date, lookback_months)
     )
-    anomalies.extend(_large_transactions(transactions, calculation_date))
+    anomalies.extend(
+        _large_transactions(db, user_id, transactions, calculation_date)
+    )
     anomalies.extend(_repeated_charges(transactions))
 
     anomalies.sort(
@@ -288,8 +294,6 @@ def _category_spike(
     as_of: date,
     lookback_months: int,
 ) -> list[SpendingAnomalyOut]:
-    from calendar import monthrange
-
     history_start = _add_months(
         as_of, -max(lookback_months, _CATEGORY_TRAILING_MONTHS)
     )
@@ -307,8 +311,25 @@ def _category_spike(
     )
 
     current_month = f"{as_of.year:04d}-{as_of.month:02d}"
+    days_elapsed = as_of.day
+
+    # Too early in the month for a same-day-of-month comparison to
+    # mean anything -- a day or two of data is noise either way.
+    if days_elapsed < _CATEGORY_MIN_ELAPSED_DAYS:
+        return []
+
     by_month_category: dict[tuple[str, str], int] = defaultdict(int)
     count_by_month_category: dict[tuple[str, str], int] = defaultdict(int)
+    # Same-day-of-month partial total: for a prior month this is its
+    # spend through day `days_elapsed`, directly comparable to the
+    # current (necessarily partial) month -- NOT a linear day-count
+    # projection to month-end. Recurring bills (rent, utilities,
+    # insurance) routinely post in the first few days of every month;
+    # projecting that early cluster's rate across the rest of the
+    # month multiplies it into a false "spike" that a fair same-point-
+    # in-time comparison never sees, because the prior months' own
+    # early clustering is baked into their own partial totals too.
+    partial_by_month_category: dict[tuple[str, str], int] = defaultdict(int)
 
     for transaction in transactions:
         month = (
@@ -318,20 +339,18 @@ def _category_spike(
         key = (month, transaction.category)
         by_month_category[key] += abs(transaction.amount_cents)
         count_by_month_category[key] += 1
+        if transaction.posted_on.day <= days_elapsed:
+            partial_by_month_category[key] += abs(transaction.amount_cents)
 
     categories = {category for _, category in by_month_category}
-    days_elapsed = as_of.day
-    days_in_month = monthrange(as_of.year, as_of.month)[1]
-
-    # Too early in the month for a pace-based projection to mean
-    # anything -- a day or two of data can multiply into a wildly
-    # overstated "projected" total.
-    if days_elapsed < _CATEGORY_MIN_ELAPSED_DAYS:
-        return []
 
     anomalies: list[SpendingAnomalyOut] = []
 
     for category in categories:
+        # by_month_category already excludes anything after `as_of`,
+        # so for the current month it's identical to the partial
+        # (through-days_elapsed) total -- both read the real amount
+        # spent so far, never a projection.
         current_total = by_month_category.get(
             (current_month, category), 0
         )
@@ -342,15 +361,11 @@ def _category_spike(
         if current_total <= 0:
             continue
 
-        # A single early transaction shouldn't be prorated into a
-        # month-end projection on its own -- wait for at least a
-        # second data point in the category this month.
+        # A single early transaction shouldn't drive a spike signal on
+        # its own -- wait for at least a second data point in the
+        # category this month.
         if current_count < _CATEGORY_MIN_CURRENT_TRANSACTIONS:
             continue
-
-        projected_total = round(
-            current_total / days_elapsed * days_in_month
-        )
 
         prior_months = sorted(
             month
@@ -362,14 +377,15 @@ def _category_spike(
             continue
 
         prior_totals = [
-            by_month_category[(month, category)] for month in prior_months
+            partial_by_month_category.get((month, category), 0)
+            for month in prior_months
         ]
         baseline_avg = round(sum(prior_totals) / len(prior_totals))
 
         if baseline_avg <= 0:
             continue
 
-        difference_cents = projected_total - baseline_avg
+        difference_cents = current_total - baseline_avg
         percent_difference = round(
             difference_cents / baseline_avg * 100, 1
         )
@@ -388,32 +404,25 @@ def _category_spike(
                 type="category_spike",
                 severity=severity,
                 title=(
-                    f"At your current pace, {category} is tracking "
-                    "above your recent monthly baseline"
+                    f"{category} spending is running well above normal "
+                    "so far this month"
                 ),
                 merchant=None,
                 category=category,
                 transaction_id=None,
                 date=as_of,
-                # A pace-based PROJECTION, not the actual amount spent
-                # so far -- kept distinct from `current_total` (real,
-                # actual spend-to-date) below, which only appears in
-                # the reason text and is never claimed as "spent".
-                current_amount_cents=projected_total,
+                current_amount_cents=current_total,
                 baseline_amount_cents=baseline_avg,
                 difference_cents=difference_cents,
                 percent_difference=percent_difference,
                 reason=(
-                    f"At your current pace, {category} is tracking "
-                    "above your recent monthly baseline. You've spent "
-                    f"{_currency(current_total)} so far this month "
-                    f"({current_count} transactions over {days_elapsed} "
-                    "day(s)), which projects to about "
-                    f"{_currency(projected_total)} by month-end -- "
-                    f"roughly {percent_difference:.0f}% above your "
-                    f"{_currency(baseline_avg)}/month average over the "
-                    f"last {len(prior_months)} completed month(s). This "
-                    "is a projection, not a final total."
+                    f"Through day {days_elapsed} of this month, "
+                    f"{category} spending is {_currency(current_total)} "
+                    f"({current_count} transactions) -- compared to a "
+                    f"typical {_currency(baseline_avg)} through the same "
+                    f"point over the last {len(prior_months)} completed "
+                    f"month(s), roughly {percent_difference:.0f}% above "
+                    "that baseline."
                 ),
                 confidence=_confidence_for_sample(len(prior_months) * 4),
             )
@@ -426,8 +435,23 @@ def _category_spike(
 
 
 def _large_transactions(
-    transactions: list[Transaction], as_of: date
+    db: Session,
+    user_id: int,
+    transactions: list[Transaction],
+    as_of: date,
 ) -> list[SpendingAnomalyOut]:
+    # A transaction that matches an already-known active recurring
+    # payment (merchant + expected amount, using the same matching
+    # helper recurring-intelligence uses to recognize an expected
+    # payment) isn't "unusually large" -- it's the known obligation
+    # showing up on schedule. A materially different amount from that
+    # same merchant does NOT match and still falls through to the
+    # normal baseline check below.
+    expected_amount_by_merchant = {
+        item.normalized_merchant: item.amount_cents
+        for item in _active_recurring_items(db, user_id)
+    }
+
     ordered = sorted(transactions, key=lambda t: t.posted_on)
     recent_cutoff = as_of - timedelta(days=_RECENT_WINDOW_DAYS)
     anomalies: list[SpendingAnomalyOut] = []
@@ -438,6 +462,14 @@ def _large_transactions(
 
         current_amount = abs(candidate.amount_cents)
         if current_amount < _LARGE_TXN_MIN_FLOOR_CENTS:
+            continue
+
+        expected_amount = expected_amount_by_merchant.get(
+            _merchant(candidate)
+        )
+        if expected_amount is not None and _matches_expected_amount(
+            current_amount, expected_amount
+        ):
             continue
 
         baseline_transactions = ordered[:index]

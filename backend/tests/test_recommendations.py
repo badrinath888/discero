@@ -762,12 +762,25 @@ def test_severe_category_spike_recommendation_included() -> None:
         user = create_user(db)
         create_account(db, user, available_balance_cents=500_000)
 
+        # Prior months spend $50 early (day 3) and another $150 later
+        # (day 20) -- their "through day 8" partial total is only $50,
+        # not their full $200/month, so the fixture reflects a genuine
+        # same-point-in-time increase rather than a linear-projection
+        # artifact.
         for month in (5, 6, 7):
             create_debit_transaction(
                 db,
                 user,
                 posted_on=date(2026, month, 3),
-                amount_cents=20_000,
+                amount_cents=5_000,
+                merchant_name="Restaurant",
+                category="Dining",
+            )
+            create_debit_transaction(
+                db,
+                user,
+                posted_on=date(2026, month, 20),
+                amount_cents=15_000,
                 merchant_name="Restaurant",
                 category="Dining",
             )

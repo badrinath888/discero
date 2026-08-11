@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FinSight",
-  description: "Personal finance intelligence platform",
+  title: "Discero",
+  description:
+    "Discero is a financial decision-intelligence platform that helps you understand how a decision affects your cash flow, goals, and financial resilience before you make it.",
 };
 
 export default function RootLayout({

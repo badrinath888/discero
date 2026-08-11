@@ -983,7 +983,7 @@ function ResilienceSection({
                 <p className="mt-3 text-xs font-medium text-[#87928d]">
                   {resilience.essential_spending_source === "user_provided"
                     ? `${resilience.spending_basis_label}: your stated amount.`
-                    : `${resilience.spending_basis_label}: estimated from your recent total spending (FinSight doesn't yet classify essential vs. discretionary expenses).`}
+                    : `${resilience.spending_basis_label}: estimated from your recent total spending (Discero doesn't yet classify essential vs. discretionary expenses).`}
                   {resilience.data_quality_note
                     ? ` ${resilience.data_quality_note}`
                     : ""}

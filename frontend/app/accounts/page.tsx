@@ -558,7 +558,7 @@ export default function AccountsPage() {
             <div className="mt-6">
               <EmptyState
                 title="No bank accounts connected"
-                description="Connect a Sandbox institution to securely import balances and transaction activity into FinSight."
+                description="Connect a Sandbox institution to securely import balances and transaction activity into Discero."
               >
                 {userId && (
                   <ConnectBankButton
@@ -634,7 +634,7 @@ export default function AccountsPage() {
             title={`Disconnect ${
               pendingDisconnect.institutionName ?? "this institution"
             }?`}
-            description="FinSight will stop syncing accounts from this institution. Your previously imported transactions will remain available."
+            description="Discero will stop syncing accounts from this institution. Your previously imported transactions will remain available."
             cancelLabel="Keep connected"
             confirmLabel="Disconnect institution"
             busyLabel="Disconnecting..."

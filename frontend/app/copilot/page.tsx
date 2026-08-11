@@ -266,7 +266,7 @@ export default function CopilotPage() {
               </p>
 
               <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                Ask FinSight anything
+                Ask Discero anything
               </h1>
 
               <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66746e]">
@@ -525,8 +525,8 @@ function ProvenanceBadge({
 }) {
   const label =
     provenance === "ai_enhanced"
-      ? "AI-enhanced FinSight analysis"
-      : "FinSight analysis";
+      ? "AI-enhanced Discero analysis"
+      : "Discero analysis";
 
   return (
     <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[#8a978f]">

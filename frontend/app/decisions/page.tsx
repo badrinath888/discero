@@ -556,7 +556,7 @@ export default function DecisionsPage() {
                   ? "Model how an emergency expense, income loss, delayed paycheck, or bill increase would affect your safe-to-spend position."
                   : mode === "buy_now_wait"
                     ? "Compare buying a purchase today against waiting until a later date, and see which timing leaves you better off."
-                    : "Test a purchase before making it. FinSight compares the cost with your liquid balance, active obligations, safety reserve, and essential spending."}
+                    : "Test a purchase before making it. Discero compares the cost with your liquid balance, active obligations, safety reserve, and essential spending."}
               </p>
 
               <div
@@ -624,7 +624,7 @@ export default function DecisionsPage() {
                       {mode === "single"
                         ? "What are you planning to buy?"
                         : mode === "compare"
-                          ? "Which options should FinSight compare?"
+                          ? "Which options should Discero compare?"
                           : mode === "buy_now_wait"
                             ? "Should you buy now or wait?"
                             : "What financial shock do you want to test?"}
@@ -813,7 +813,7 @@ export default function DecisionsPage() {
                       {scenarioType === "recurring_bill_increase" && (
                         <p className="-mt-3 text-xs leading-5 text-[#66746e]">
                           Enter the total added cost for this scenario.
-                          FinSight uses this amount as-is and does not
+                          Discero uses this amount as-is and does not
                           multiply it by month.
                         </p>
                       )}
@@ -823,7 +823,7 @@ export default function DecisionsPage() {
                         scenarioType === "combined") && (
                         <p className="-mt-3 text-xs leading-5 text-[#66746e]">
                           Percentages are applied to your recent income or
-                          current recurring obligations from FinSight data.
+                          current recurring obligations from Discero data.
                         </p>
                       )}
 
@@ -1300,7 +1300,7 @@ function SinglePurchaseResult({
           <div className="flex items-start gap-3">
             <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#83dcb9]" />
             <div>
-              <p className="text-sm font-semibold">FinSight explanation</p>
+              <p className="text-sm font-semibold">Discero explanation</p>
               <p className="mt-2 text-sm leading-6 text-white/58">
                 {result.explanation}
               </p>
@@ -2096,7 +2096,7 @@ function StressTestResult({
           <div className="flex items-start gap-3">
             <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#83dcb9]" />
             <div>
-              <p className="text-sm font-semibold">FinSight explanation</p>
+              <p className="text-sm font-semibold">Discero explanation</p>
               <p className="mt-2 text-sm leading-6 text-white/58">
                 {result.explanation}
               </p>

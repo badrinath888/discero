@@ -4,7 +4,7 @@ Updated: 2026-08-05.
 
 ## Integrated scope
 
-Since the previous audit, FinSight has added:
+Since the previous audit, Discero has added:
 
 - Persisted recurring items (`RecurringItem`) with a dedicated CRUD API and UI, alongside the existing algorithmic recurring detection
 - Savings-goal contribution/withdrawal history (`GoalContribution`) replacing direct balance edits

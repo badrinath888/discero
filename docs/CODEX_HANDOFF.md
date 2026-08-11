@@ -1,10 +1,10 @@
-# FinSight Codex handoff
+# Discero Codex handoff
 
 Last audited: 2026-08-03. Repository: `~/Desktop/finance-platform`; remote: `https://github.com/badrinath888/finsigh.git`; primary branch: `main`. Production URLs supplied by the owner are `https://finsigh.vercel.app` and `https://finsigh.onrender.com` (not live-probed in this repository-only audit).
 
 ## Start here
 
-FinSight is a personal-finance web app. A Next.js 16/React 19 browser client calls a FastAPI/SQLAlchemy API with bearer JWTs. SQLite is the local/test default; configuration and `psycopg2-binary` support PostgreSQL. Plaid Sandbox connection/sync and optional Anthropic categorization are server integrations.
+Discero is a financial decision-intelligence web app. A Next.js 16/React 19 browser client calls a FastAPI/SQLAlchemy API with bearer JWTs. SQLite is the local/test default; configuration and `psycopg2-binary` support PostgreSQL. Plaid Sandbox connection/sync and optional Anthropic categorization are server integrations.
 
 At audit time, `HEAD == origin/main == 6633c2f` and the checked-out branch is `main`. The application baseline validates: **136 backend tests pass**, frontend lint passes, frontend production build passes, and Alembic reports the database at its single head `568820dfb45d`. Two pre-existing modified files contain an incomplete Potential Duplicates experiment; see [CURRENT_WORK.md](CURRENT_WORK.md). The eight files in `docs/` are audit-only additions.
 

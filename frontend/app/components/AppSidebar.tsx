@@ -105,10 +105,10 @@ export default function AppSidebar() {
           >
             <span className="min-w-0">
               <span className="block truncate text-[15px] font-semibold tracking-[-0.02em] text-white">
-                FinSight
+                Discero
               </span>
               <span className="block truncate text-[11px] text-[#a9b8b0]">
-                Financial intelligence
+                Financial decision intelligence
               </span>
             </span>
           </Link>

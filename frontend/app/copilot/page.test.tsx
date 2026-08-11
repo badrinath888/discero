@@ -240,7 +240,7 @@ describe("Copilot page", () => {
       screen.queryByLabelText("Copilot is thinking")
     ).not.toBeInTheDocument();
     expect(
-      screen.getByText("AI-enhanced FinSight analysis")
+      screen.getByText("AI-enhanced Discero analysis")
     ).toBeInTheDocument();
   });
 
@@ -260,9 +260,9 @@ describe("Copilot page", () => {
       ).toBeInTheDocument()
     );
 
-    expect(screen.getByText("FinSight analysis")).toBeInTheDocument();
+    expect(screen.getByText("Discero analysis")).toBeInTheDocument();
     expect(
-      screen.queryByText("AI-enhanced FinSight analysis")
+      screen.queryByText("AI-enhanced Discero analysis")
     ).not.toBeInTheDocument();
     expect(screen.getByText("$5,000.00")).toBeInTheDocument();
     expect(screen.queryByText(/provider key/i)).not.toBeInTheDocument();

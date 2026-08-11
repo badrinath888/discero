@@ -950,7 +950,7 @@ export default function TransactionsPage() {
       const csv = transactionsToCsv(items);
 
       downloadCsv(
-        `finsight-transactions-${
+        `discero-transactions-${
           new Date().toISOString().split("T")[0]
         }.csv`,
         csv
@@ -1551,8 +1551,8 @@ export default function TransactionsPage() {
             }
             description={
               pendingDelete.type === "single"
-                ? "This transaction will be permanently removed from FinSight."
-                : "All selected transactions will be permanently removed from FinSight."
+                ? "This transaction will be permanently removed from Discero."
+                : "All selected transactions will be permanently removed from Discero."
             }
             cancelLabel={
               pendingDelete.type === "single"

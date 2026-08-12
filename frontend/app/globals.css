@@ -1,24 +1,24 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f5f1e8;
-  --foreground: #14241e;
-  --surface-1: #ffffff;
-  --surface-2: #faf8f3;
-  --surface-3: #edf5ee;
-  --border: rgba(20, 36, 30, 0.1);
-  --border-strong: rgba(20, 36, 30, 0.18);
-  --muted: #728078;
-  --muted-strong: #52635b;
-  --brand: #167c5a;
-  --brand-strong: #0f6448;
-  --brand-soft: rgba(22, 124, 90, 0.1);
-  --danger: #a64b3d;
-  --warning: #b17b1d;
-  --success: #167c5a;
-  --shadow-sm: 0 8px 24px rgba(20, 36, 30, 0.06);
-  --shadow-md: 0 18px 50px rgba(20, 36, 30, 0.1);
-  --shadow-lg: 0 30px 90px rgba(20, 36, 30, 0.14);
+  --background: #f5f1ea;
+  --foreground: #181713;
+  --surface-1: #fffcf7;
+  --surface-2: #f8f4ee;
+  --surface-3: #ede7e1;
+  --border: rgba(24, 23, 19, 0.1);
+  --border-strong: rgba(24, 23, 19, 0.18);
+  --muted: #8a8178;
+  --muted-strong: #5f5751;
+  --brand: #6e4b63;
+  --brand-strong: #583b50;
+  --brand-soft: rgba(110, 75, 99, 0.1);
+  --danger: #a25543;
+  --warning: #a87522;
+  --success: #58715a;
+  --shadow-sm: 0 8px 24px rgba(60, 43, 35, 0.06);
+  --shadow-md: 0 18px 50px rgba(60, 43, 35, 0.1);
+  --shadow-lg: 0 30px 90px rgba(60, 43, 35, 0.14);
   --ease-premium: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -44,7 +44,7 @@ body {
   margin: 0;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at 78% 0%, rgba(22, 124, 90, 0.08), transparent 28rem),
+    radial-gradient(circle at 78% 0%, rgba(110, 75, 99, 0.08), transparent 28rem),
     radial-gradient(circle at 12% 42%, rgba(247, 232, 181, 0.3), transparent 30rem),
     linear-gradient(180deg, #f8f5ee 0%, var(--background) 42%);
   color: var(--foreground);
@@ -61,8 +61,8 @@ body::before {
   content: "";
   opacity: 0.22;
   background-image:
-    linear-gradient(rgba(20, 36, 30, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(20, 36, 30, 0.035) 1px, transparent 1px);
+    linear-gradient(rgba(24, 23, 19, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(24, 23, 19, 0.035) 1px, transparent 1px);
   background-size: 48px 48px;
   mask-image: linear-gradient(to bottom, black, transparent 78%);
 }
@@ -90,7 +90,7 @@ a {
 
 ::selection {
   color: #ffffff;
-  background: rgba(22, 124, 90, 0.78);
+  background: rgba(110, 75, 99, 0.82);
 }
 
 ::-webkit-scrollbar {
@@ -105,12 +105,12 @@ a {
 ::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 999px;
-  background: rgba(20, 36, 30, 0.22);
+  background: rgba(24, 23, 19, 0.22);
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(20, 36, 30, 0.34);
+  background: rgba(24, 23, 19, 0.34);
   background-clip: padding-box;
 }
 
@@ -139,7 +139,73 @@ a {
 .focus-ring:focus-visible {
   box-shadow:
     0 0 0 2px var(--background),
-    0 0 0 4px rgba(22, 124, 90, 0.45);
+    0 0 0 4px rgba(110, 75, 99, 0.42);
+}
+
+.discero-button-primary,
+.discero-button-secondary,
+.discero-button-tertiary,
+.discero-button-destructive {
+  outline: none;
+}
+
+.discero-button-primary {
+  border-color: transparent;
+  background: var(--brand);
+  color: var(--surface-1);
+}
+
+.discero-button-primary:hover:not(:disabled) {
+  background: var(--brand-strong);
+}
+
+.discero-button-primary:active:not(:disabled) {
+  background: #4f3447;
+}
+
+.discero-button-primary:disabled {
+  background: #b7aab3;
+  color: var(--surface-1);
+  opacity: 1;
+}
+
+.discero-button-secondary {
+  border-color: #ded8cf;
+  background: var(--surface-1);
+  color: var(--foreground);
+}
+
+.discero-button-secondary:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.discero-button-tertiary {
+  border-color: transparent;
+  background: transparent;
+  color: var(--brand);
+}
+
+.discero-button-tertiary:hover:not(:disabled) {
+  background: var(--brand-soft);
+}
+
+.discero-button-destructive {
+  border-color: rgba(183, 92, 80, 0.28);
+  background: var(--surface-1);
+  color: #b75c50;
+}
+
+.discero-button-destructive:hover:not(:disabled) {
+  background: #f8e6e1;
+}
+
+.discero-button-primary:focus-visible,
+.discero-button-secondary:focus-visible,
+.discero-button-tertiary:focus-visible,
+.discero-button-destructive:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px rgba(110, 75, 99, 0.42);
 }
 
 .premium-hover {

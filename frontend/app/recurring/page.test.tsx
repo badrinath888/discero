@@ -254,7 +254,7 @@ const populatedIntelligence: RecurringIntelligence = {
       expected_date: "2026-07-15",
       days_overdue: 20,
       message:
-        "FinSight has not seen the expected Gym payment yet -- it was due 2026-07-15.",
+        "Discero has not seen the expected Gym payment yet -- it was due 2026-07-15.",
     },
   ],
   possible_duplicates: [

@@ -232,6 +232,64 @@ beforeEach(() => {
   });
 });
 
+describe("TransactionsPage state styling", () => {
+  it("keeps sync in the primary button family and reports success separately", async () => {
+    await renderPage();
+    let resolveSync: (value: {
+      added: number;
+      modified: number;
+      removed: number;
+      items_synced: number;
+      synced_at: string;
+    }) => void = () => {};
+    mocks.syncPlaidTransactions.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSync = resolve;
+      })
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Sync transactions" })
+    );
+
+    const syncingButton = screen.getByRole("button", { name: "Syncing…" });
+    expect(syncingButton).toHaveAttribute("aria-busy", "true");
+    expect(syncingButton.className).toContain("discero-button-primary");
+
+    await act(async () => {
+      resolveSync({
+        added: 2,
+        modified: 1,
+        removed: 0,
+        items_synced: 3,
+        synced_at: "2026-08-03T00:00:00Z",
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Sync transactions" })
+      ).toHaveAttribute("aria-busy", "false");
+      expect(screen.getByText(/Sync complete: 2 added/)).toBeVisible();
+    });
+  });
+
+  it("renders the duplicate-empty state as a compact neutral surface", async () => {
+    await renderPage();
+    mocks.searchTransactions.mockResolvedValueOnce(page([]));
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Potential duplicates" })
+    );
+
+    const heading = await screen.findByText("No potential duplicates found");
+    const emptyState = heading.parentElement;
+    expect(emptyState?.className).toContain("bg-[#FFFCF7]");
+    expect(emptyState?.className).toContain("py-8");
+    expect(emptyState?.className).not.toContain("bg-[#101916]");
+  });
+});
+
 describe("TransactionsPage bulk workflows", () => {
   it("applies one bulk category request and offers Undo", async () => {
     const items = await renderPage();

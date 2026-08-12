@@ -215,7 +215,7 @@ const resilienceResult: FinancialResilience = {
   confidence_score: 95,
   data_quality_note: null,
   headline: "Your spending coverage is fair",
-  why: "Your liquid cash ($4,800.00) covers approximately 4.0 month(s) at your recent spending pace of $1,200.00/month, estimated from your total spending because FinSight does not yet classify essential vs. discretionary expenses.",
+  why: "Your liquid cash ($4,800.00) covers approximately 4.0 month(s) at your recent spending pace of $1,200.00/month, estimated from your total spending because Discero does not yet classify essential vs. discretionary expenses.",
   what_this_means:
     "You have a moderate buffer at your recent spending pace, but it would not comfortably cover an extended income gap.",
   suggested_actions: [
@@ -372,7 +372,9 @@ describe("existing forecast behavior", () => {
     expect(
       screen.getAllByText("$6,500.00").length
     ).toBeGreaterThan(0);
-    expect(screen.getByText("$5,000.00")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("$5,000.00").length
+    ).toBeGreaterThan(0);
     expect(screen.getByText("Positive outlook")).toBeInTheDocument();
     expect(screen.getByText("Netflix")).toBeInTheDocument();
     expect(screen.getByText("1 expected")).toBeInTheDocument();

@@ -259,37 +259,37 @@ export default function DecisionHistoryPage() {
 
   if (initializing) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8]">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#167c5a] border-t-transparent" />
+      <main className="flex min-h-screen items-center justify-center bg-[#F5F1EA]">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#6E4B63] border-t-transparent" />
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
+    <main className="min-h-screen bg-[#F5F1EA] text-[#181713]">
       <AppSidebar />
 
-      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-9">
+      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto max-w-[900px]">
           <Reveal>
-            <header className="border-b border-[#14241e]/10 pb-6">
-              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
+            <header className="border-b border-[#181713]/10 pb-7">
+              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
                 <Clock className="h-3.5 w-3.5" />
                 Decision history
               </p>
 
               <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                Saved decisions
+                Your decision record.
               </h1>
 
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66746e]">
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#706961]">
                 Purchases, comparisons, and stress tests you saved --
                 with the exact deterministic result at the time.
               </p>
 
               <Link
                 href="/decisions"
-                className="focus-ring mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#167c5a]"
+                className="focus-ring mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#6E4B63]"
               >
                 Run a new analysis
                 <ArrowRight className="h-3.5 w-3.5" />
@@ -311,12 +311,12 @@ export default function DecisionHistoryPage() {
               <Reveal>
                 <div
                   data-testid="decisions-history-empty"
-                  className="rounded-[26px] border border-[#14241e]/10 bg-white px-6 py-10 text-center shadow-[0_14px_40px_rgba(20,36,30,0.06)]"
+                  className="rounded-[26px] border border-[#181713]/10 bg-white px-6 py-10 text-center shadow-[0_14px_40px_rgba(60,43,35,0.06)]"
                 >
                   <p className="text-lg font-semibold tracking-[-0.02em]">
                     No saved decisions yet
                   </p>
-                  <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[#66746e]">
+                  <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[#706961]">
                     Save a major purchase, comparison, or stress test to
                     revisit it later.
                   </p>
@@ -325,7 +325,7 @@ export default function DecisionHistoryPage() {
             )}
 
             {decisions !== null && decisions.length > 0 && (
-              <Stagger className="space-y-4">
+              <Stagger className="divide-y divide-[#181713]/10 border-y border-[#181713]/10">
                 {decisions.map((decision) => {
                   const status = statusLabel(decision);
                   const rerun = rerunResults[decision.id];
@@ -334,10 +334,10 @@ export default function DecisionHistoryPage() {
                     <Reveal key={decision.id}>
                       <article
                         data-testid="decision-history-card"
-                        className="rounded-[26px] border border-[#14241e]/10 bg-white p-5 shadow-[0_14px_40px_rgba(20,36,30,0.07)] sm:p-6"
+                        className="py-6 sm:py-7"
                       >
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="inline-flex items-center rounded-full bg-[#eef1ec] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#4d5a53]">
+                          <span className="inline-flex items-center rounded-full bg-[#eef1ec] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#5F5751]">
                             {TYPE_LABEL[decision.decision_type]}
                           </span>
 
@@ -345,7 +345,7 @@ export default function DecisionHistoryPage() {
                             <span
                               className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] ${
                                 STATUS_TONE[status.replace(/ /g, "_")] ??
-                                "bg-[#eef1ec] text-[#4d5a53]"
+                                "bg-[#eef1ec] text-[#5F5751]"
                               }`}
                             >
                               {status}
@@ -357,20 +357,20 @@ export default function DecisionHistoryPage() {
                           </span>
                         </div>
 
-                        <h2 className="mt-3 text-lg font-semibold tracking-[-0.02em] text-[#182b23]">
+                        <h2 className="mt-3 text-lg font-semibold tracking-[-0.02em] text-[#2F2930]">
                           {decision.title}
                         </h2>
 
-                        <div className="mt-4 flex flex-wrap gap-2.5">
+                        <div className="mt-5 grid gap-px overflow-hidden bg-[#181713]/10 sm:grid-cols-3">
                           {summaryChips(decision).map((chip) => (
                             <div
                               key={chip.label}
-                              className="rounded-2xl bg-[#f7fbf5] px-3.5 py-2.5"
+                              className="bg-[#FFFCF7] px-4 py-3"
                             >
                               <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
                                 {chip.label}
                               </p>
-                              <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#182b23]">
+                              <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#2F2930]">
                                 {chip.value}
                               </p>
                             </div>
@@ -380,9 +380,9 @@ export default function DecisionHistoryPage() {
                         {rerun && (
                           <div
                             data-testid="decision-rerun-result"
-                            className="mt-4 rounded-2xl border border-[#167c5a]/25 bg-[#f2f9f0] px-4 py-3"
+                            className="mt-5 border-l-2 border-[#6E4B63] bg-[#F0E9EE]/55 px-5 py-4"
                           >
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
                               Now (re-run with current data)
                             </p>
                             <div className="mt-2 flex flex-wrap gap-2.5">
@@ -397,7 +397,7 @@ export default function DecisionHistoryPage() {
                                   <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
                                     {chip.label}
                                   </p>
-                                  <p className="mt-0.5 text-sm font-semibold text-[#182b23]">
+                                  <p className="mt-0.5 text-sm font-semibold text-[#2F2930]">
                                     {chip.value}
                                   </p>
                                 </div>
@@ -406,12 +406,12 @@ export default function DecisionHistoryPage() {
                           </div>
                         )}
 
-                        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#14241e]/8 pt-4">
+                        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#181713]/8 pt-4">
                           <button
                             type="button"
                             disabled={busyId === decision.id}
                             onClick={() => handleRerun(decision.id)}
-                            className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#167c5a]/25 bg-[#f7fbf5] px-3.5 py-1.5 text-xs font-semibold text-[#167c5a] transition hover:bg-[#dff6c7] disabled:opacity-50"
+                            className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#6E4B63]/25 bg-[#F8F4EE] px-3.5 py-1.5 text-xs font-semibold text-[#6E4B63] transition hover:bg-[#dff6c7] disabled:opacity-50"
                           >
                             <RotateCcw className="h-3.5 w-3.5" />
                             Run again

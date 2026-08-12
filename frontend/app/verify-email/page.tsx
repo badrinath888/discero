@@ -82,7 +82,7 @@ export default function VerifyEmailPage() {
         </form>
       )}
 
-      <Link href="/" className="mt-5 block text-center text-sm font-semibold text-[#167c5a]">
+      <Link href="/" className="mt-5 block text-center text-sm font-semibold text-[#6E4B63]">
         Continue to sign in
       </Link>
     </AuthFlowCard>

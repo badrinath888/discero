@@ -91,7 +91,7 @@ export default function MerchantAvatar({
   return (
     <span
       aria-label={`${merchant} merchant`}
-      className={`flex shrink-0 items-center justify-center border border-[#14241e]/8 bg-[#edf5ee] font-semibold text-[#167c5a] ${dimensions}`}
+      className={`flex shrink-0 items-center justify-center border border-[#181713]/8 bg-[#EDE7E1] font-semibold text-[#6E4B63] ${dimensions}`}
     >
       {fallback === "?" ? <CategoryIcon category={category} /> : fallback}
     </span>

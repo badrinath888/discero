@@ -120,7 +120,7 @@ export default function ConnectBankButton({
         type="button"
         onClick={startConnection}
         disabled={loading || connecting}
-        className="rounded-xl bg-[#45d7a4] px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-[#5de3b3] disabled:cursor-not-allowed disabled:opacity-50"
+        className="discero-button-primary rounded-xl px-5 py-3 text-sm font-semibold transition disabled:cursor-not-allowed"
       >
         {connecting
           ? "Connecting account..."
@@ -130,7 +130,7 @@ export default function ConnectBankButton({
       </button>
 
       {displayedError && (
-        <p className="mt-3 text-sm text-rose-300">
+        <p className="mt-3 text-sm text-[#A25543]">
           {displayedError}
         </p>
       )}

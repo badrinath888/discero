@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
-  AlertTriangle,
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
   CalendarClock,
   ChevronRight,
   CircleDollarSign,
@@ -57,18 +65,18 @@ const RESILIENCE_STATUS_CONTENT: Record<
   },
   fair: {
     label: "Fair",
-    className: "bg-[#f7e8b5] text-[#8b6518]",
+    className: "bg-[#EFE6D2] text-[#8B6518]",
     barClassName: "bg-[#c9a13f]",
   },
   strong: {
     label: "Strong",
-    className: "bg-[#dff6c7] text-[#315d31]",
+    className: "bg-[#E3EBE1] text-[#48634B]",
     barClassName: "bg-[#4d9a5a]",
   },
   very_strong: {
     label: "Very strong",
-    className: "bg-[#dff6c7] text-[#315d31]",
-    barClassName: "bg-[#167c5a]",
+    className: "bg-[#E3EBE1] text-[#48634B]",
+    barClassName: "bg-[#6E4B63]",
   },
 };
 
@@ -99,7 +107,7 @@ const CONFIDENCE_LEVEL_CONTENT: Record<
 > = {
   high: {
     label: "High confidence",
-    className: "bg-[#dff6c7] text-[#315d31]",
+    className: "bg-[#E3EBE1] text-[#48634B]",
   },
   medium: {
     label: "Medium confidence",
@@ -117,11 +125,11 @@ const FACTOR_IMPACT_CONTENT: Record<
 > = {
   positive: {
     label: "Strength",
-    className: "bg-[#dff6c7] text-[#315d31]",
+    className: "bg-[#E3EBE1] text-[#48634B]",
   },
   neutral: {
     label: "Neutral",
-    className: "bg-[#f1eee7] text-[#66746e]",
+    className: "bg-[#f1eee7] text-[#706961]",
   },
   negative: {
     label: "Weak spot",
@@ -131,6 +139,7 @@ const FACTOR_IMPACT_CONTENT: Record<
 
 export default function ForecastPage() {
   const router = useRouter();
+  const reduceMotion = useReducedMotion();
   const [userId, setUserId] = useState<number | null>(null);
   const [forecast, setForecast] = useState<CashFlowForecast | null>(null);
   const [activeItem, setActiveItem] = useState<ForecastItem | null>(null);
@@ -268,24 +277,35 @@ export default function ForecastPage() {
     return forecast.projected_end_balance_cents;
   }, [forecast]);
 
+  const trajectoryData = useMemo(() => {
+    if (!forecast) return [];
+    return [
+      { label: "Current", balance: forecast.liquid_balance_cents / 100 },
+      ...forecast.horizon_outlook.map((point) => ({
+        label: `${point.horizon_days} days`,
+        balance: point.projected_balance_cents / 100,
+      })),
+    ];
+  }, [forecast]);
+
   return (
-    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
+    <main className="min-h-screen bg-[#F5F1EA] text-[#181713]">
       <AppSidebar />
 
-      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-9">
+      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto max-w-[1500px]">
           <Reveal>
-            <header className="flex flex-col gap-6 border-b border-[#14241e]/10 pb-7 lg:flex-row lg:items-end lg:justify-between">
+            <header className="flex flex-col gap-6 border-b border-[#181713]/10 pb-7 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
-                  Forward projection
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
+                  Forecast
                 </p>
 
                 <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                  Forecast
+                  Where is your cash heading?
                 </h1>
 
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66746e]">
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#706961]">
                   Project month-end cash, review expected outflows, and spot
                   low-balance risk before it becomes urgent.
                 </p>
@@ -313,131 +333,113 @@ export default function ForecastPage() {
           ) : forecast ? (
             <>
               <Reveal delay={0.06}>
-                <section className="mt-6 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-                  <article className="premium-hover relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.18)] sm:p-9">
-                    <div className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full bg-[#76dfbd]/15 blur-3xl" />
-
-                    <div className="relative">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+                <section className="mt-6 border-y border-[#181713]/10 bg-[#FFFCF7] px-5 py-7 sm:px-8 sm:py-8">
+                  <div className="grid gap-7 xl:grid-cols-[minmax(280px,0.9fr)_minmax(520px,1.35fr)] xl:items-end">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
                         Projected month-end balance
                       </p>
-
                       <AnimatedNumber
                         value={forecast.projected_end_balance_cents}
                         format={formatCents}
-                        className="mt-4 block text-5xl font-semibold tracking-[-0.06em] sm:text-6xl"
+                        className="mt-4 block text-5xl font-semibold tracking-[-0.06em] text-[#2F2930] sm:text-6xl"
                       />
-
-                      <p className="mt-3 text-sm text-white/55">
-                        Estimated through {formatDate(forecast.month_end)}.
-                      </p>
-
-                      <span
-                        className={`mt-4 inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${
-                          CONFIDENCE_LEVEL_CONTENT[
-                            forecast.confidence.level
-                          ].className
-                        }`}
-                      >
+                      <span className={`mt-3 inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${CONFIDENCE_LEVEL_CONTENT[forecast.confidence.level].className}`}>
                         <Gauge className="h-3.5 w-3.5" aria-hidden="true" />
-                        {Math.round(forecast.confidence.score)}% ·{" "}
-                        {
-                          CONFIDENCE_LEVEL_CONTENT[
-                            forecast.confidence.level
-                          ].label
-                        }
-                      </span>
-
-                      <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
-                        <ForecastMetric
-                          label="Liquid balance"
-                          value={formatCents(
-                            forecast.liquid_balance_cents
-                          )}
-                          tone="neutral"
-                        />
-                        <ForecastMetric
-                          label="Expected income"
-                          value={formatCents(
-                            forecast.expected_income_cents
-                          )}
-                          tone="positive"
-                        />
-                        <ForecastMetric
-                          label="Upcoming bills"
-                          value={formatCents(
-                            -forecast.upcoming_bills_cents
-                          )}
-                          tone="negative"
-                        />
-                      </div>
-                    </div>
-                  </article>
-
-                  <article
-                    className={`premium-hover rounded-[30px] p-7 sm:p-8 ${
-                      forecast.low_balance_risk
-                        ? "bg-[#f8ddd5]"
-                        : "bg-[#dff6c7]"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#52635b]">
-                          Forecast outlook
-                        </p>
-                        <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
-                          {forecast.low_balance_risk
-                            ? "Low-balance risk"
-                            : "Positive outlook"}
-                        </h2>
-                      </div>
-
-                      <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#14241e] text-white">
-                        {forecast.low_balance_risk ? (
-                          <AlertTriangle className="h-5 w-5" />
-                        ) : (
-                          <TrendingUp className="h-5 w-5" />
-                        )}
+                        {Math.round(forecast.confidence.score)}% · {CONFIDENCE_LEVEL_CONTENT[forecast.confidence.level].label}
                       </span>
                     </div>
 
-                    <p className="mt-4 text-sm leading-6 text-[#66746e]">
-                      {forecast.low_balance_risk
-                        ? "Expected bills may exceed available cash and incoming funds."
-                        : "Available cash and expected income currently cover predicted bills."}
+                    <dl className="grid grid-cols-2 gap-y-5 sm:grid-cols-3 sm:divide-x sm:divide-[#181713]/10">
+                      {[
+                        ["Liquid balance", formatCents(forecast.liquid_balance_cents)],
+                        ["Expected income", formatCents(forecast.expected_income_cents)],
+                        ["Upcoming bills", formatCents(-forecast.upcoming_bills_cents)],
+                      ].map(([label, value]) => (
+                        <div key={label} className="sm:px-5 first:sm:pl-0 last:sm:pr-0">
+                          <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">{label}</dt>
+                          <dd className="mt-2 text-lg font-semibold tabular-nums text-[#2F2930] [overflow-wrap:anywhere]">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+
+                  <div className="mt-7 border-t border-[#181713]/10 pt-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#706961]">
+                      <span className="font-semibold text-[#2F2930]">Balance movement</span>
+                      <span className={`inline-flex items-center gap-2 font-semibold ${forecast.low_balance_risk ? "text-[#A25543]" : "text-[#58715A]"}`}>
+                        <span className={`h-2 w-2 rounded-full ${forecast.low_balance_risk ? "bg-[#A25543]" : "bg-[#58715A]"}`} />
+                        {forecast.low_balance_risk ? "Low-balance risk" : "Positive outlook"}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-[minmax(0,auto)_minmax(60px,1fr)_minmax(0,auto)] items-center gap-3 text-sm font-semibold tabular-nums">
+                      <span className="max-w-[38vw] [overflow-wrap:anywhere]">{formatCents(forecast.liquid_balance_cents)}</span>
+                      <div className="relative h-2">
+                        <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[#181713]/15" />
+                        <motion.div
+                          initial={reduceMotion ? false : { scaleX: 0 }}
+                          animate={{ scaleX: 1 }}
+                          transition={{ duration: reduceMotion ? 0 : 0.65, delay: reduceMotion ? 0 : 0.35, ease: [0.22, 1, 0.36, 1] }}
+                          className={`absolute inset-x-0 top-1/2 h-0.5 origin-left -translate-y-1/2 ${forecast.low_balance_risk ? "bg-[#A25543]" : "bg-[#6E4B63]"}`}
+                        />
+                        <span className={`absolute right-0 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full ${forecast.low_balance_risk ? "bg-[#A25543]" : "bg-[#6E4B63]"}`} />
+                      </div>
+                      <span className="max-w-[38vw] text-right [overflow-wrap:anywhere]">{formatCents(forecast.projected_end_balance_cents)}</span>
+                    </div>
+
+                    <p className="mt-2 text-xs text-[#8A8178]">
+                      Through {formatDate(forecast.month_end)} · {forecast.days_remaining} days · {forecast.upcoming_cash_flows.length} predicted bill{forecast.upcoming_cash_flows.length === 1 ? "" : "s"}
                     </p>
-
-                    <div className="mt-8 grid grid-cols-2 gap-3">
-                      <OutlookStat
-                        label="Days remaining"
-                        value={String(forecast.days_remaining)}
-                      />
-                      <OutlookStat
-                        label="Predicted bills"
-                        value={String(
-                          forecast.upcoming_cash_flows.length
-                        )}
-                      />
-                    </div>
-                  </article>
+                  </div>
                 </section>
               </Reveal>
+
+              {trajectoryData.length > 1 && (
+                <Reveal delay={0.08}>
+                  <section className="mt-6 border-y border-[#181713]/10 bg-[#FFFCF7] px-5 py-6 sm:px-8">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Cash trajectory</p>
+                        <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">Current balance to projected horizons</h2>
+                      </div>
+                      <p className="text-sm text-[#8A8178]">Based on existing forecast assumptions</p>
+                    </div>
+                    <div className="mt-6 h-[300px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={trajectoryData} margin={{ top: 10, right: 12, left: -8, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="forecastTrajectoryFill" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#6E4B63" stopOpacity={0.2} />
+                              <stop offset="100%" stopColor="#6E4B63" stopOpacity={0.01} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid vertical={false} stroke="rgba(24,23,19,0.08)" />
+                          <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#8A8178", fontSize: 11 }} dy={10} />
+                          <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8A8178", fontSize: 11 }} tickFormatter={(value) => `$${Number(value).toLocaleString("en-US", { notation: "compact" })}`} />
+                          <Tooltip formatter={(value) => Number(value).toLocaleString("en-US", { style: "currency", currency: "USD" })} contentStyle={{ border: "1px solid rgba(24,23,19,0.1)", background: "#FFFCF7", borderRadius: 12 }} />
+                          <Area type="monotone" dataKey="balance" stroke="#6E4B63" strokeWidth={3} fill="url(#forecastTrajectoryFill)" dot={{ r: 4, fill: "#FFFCF7", stroke: "#6E4B63", strokeWidth: 2 }} isAnimationActive={!reduceMotion} animationDuration={900} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </section>
+                </Reveal>
+              )}
 
               {forecast.horizon_outlook.length > 0 && (
                 <Reveal delay={0.08}>
                   <section className="mt-6">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
                       30 / 60 / 90-day outlook
                     </p>
-                    <p className="mt-1 max-w-2xl text-xs leading-5 text-[#87928d]">
+                    <p className="mt-1 max-w-2xl text-xs leading-5 text-[#8A8178]">
                       Expected income is a pace-based estimate from your
                       recent income spread evenly across each day -- not a
                       guaranteed forecast. It assumes your recent pace
                       continues and does not model irregular or seasonal
                       income; confidence falls when recent data is thin.
                     </p>
-                    <div className="mt-3 grid gap-4 sm:grid-cols-3">
+                    <div className="mt-4 grid gap-px overflow-hidden border-y border-[#181713]/10 bg-[#181713]/10 sm:grid-cols-3">
                       {forecast.horizon_outlook.map((horizon) => (
                         <HorizonOutlookCard
                           key={horizon.horizon_days}
@@ -450,7 +452,7 @@ export default function ForecastPage() {
               )}
 
               <Reveal>
-                <section className="mt-6 grid gap-4 md:grid-cols-3">
+                <section className="mt-6 grid gap-px overflow-hidden border-y border-[#181713]/10 bg-[#181713]/10 md:grid-cols-3">
                   <ScenarioCard
                     label="Best case"
                     value={formatCents(bestCaseBalance)}
@@ -481,13 +483,13 @@ export default function ForecastPage() {
 
               <Reveal>
                 <section className="mt-6">
-                  <article className="rounded-[30px] border border-[#14241e]/10 bg-white p-6 shadow-[0_18px_50px_rgba(20,36,30,0.08)] sm:p-8">
+                  <article className="rounded-[30px] border border-[#181713]/10 bg-white p-6 shadow-[0_18px_50px_rgba(60,43,35,0.08)] sm:p-8">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
                           Forecast confidence
                         </p>
-                        <p className="mt-3 max-w-xl text-sm leading-6 text-[#66746e]">
+                        <p className="mt-3 max-w-xl text-sm leading-6 text-[#706961]">
                           How reliable this forecast is, based on your
                           connected accounts and transaction history.
                         </p>
@@ -499,7 +501,7 @@ export default function ForecastPage() {
                           setConfidenceExpanded((value) => !value)
                         }
                         aria-expanded={confidenceExpanded}
-                        className="flex shrink-0 items-center gap-2 rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 py-2.5 text-sm font-semibold text-[#167c5a] transition hover:bg-[#f1eee7]"
+                        className="flex shrink-0 items-center gap-2 rounded-xl border border-[#181713]/10 bg-[#FFFCF7] px-4 py-2.5 text-sm font-semibold text-[#6E4B63] transition hover:bg-[#f1eee7]"
                       >
                         {confidenceExpanded
                           ? "Hide details ↑"
@@ -508,8 +510,8 @@ export default function ForecastPage() {
                     </div>
 
                     {confidenceExpanded && (
-                      <div className="mt-6 border-t border-[#14241e]/10 pt-6">
-                        <div className="divide-y divide-[#14241e]/8 overflow-hidden rounded-2xl border border-[#14241e]/8">
+                      <div className="mt-6 border-t border-[#181713]/10 pt-6">
+                        <div className="divide-y divide-[#181713]/8 overflow-hidden rounded-2xl border border-[#181713]/8">
                           {forecast.confidence.factors.map((factor) => (
                             <ConfidenceFactorRow
                               key={factor.key}
@@ -524,7 +526,7 @@ export default function ForecastPage() {
                             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8b6518]">
                               Recommendations
                             </p>
-                            <ul className="mt-3 space-y-2 text-sm leading-6 text-[#66746e]">
+                            <ul className="mt-3 space-y-2 text-sm leading-6 text-[#706961]">
                               {forecast.confidence.recommendations.map(
                                 (recommendation) => (
                                   <li
@@ -543,32 +545,32 @@ export default function ForecastPage() {
                         {forecast.confidence.monthly_confidence.length >
                           0 && (
                           <div className="mt-6">
-                            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#167c5a]">
+                            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#6E4B63]">
                               Monthly confidence
                             </p>
-                            <p className="mt-1 text-xs text-[#7b8781]">
+                            <p className="mt-1 text-xs text-[#8A8178]">
                               Data quality for each recent month with
                               enough transaction history to measure.
                             </p>
 
-                            <div className="mt-3 divide-y divide-[#14241e]/8 rounded-2xl border border-[#14241e]/8">
+                            <div className="mt-3 divide-y divide-[#181713]/8 rounded-2xl border border-[#181713]/8">
                               {forecast.confidence.monthly_confidence.map(
                                 (entry) => (
                                   <div
                                     key={entry.month}
                                     className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-3"
                                   >
-                                    <span className="text-sm font-medium text-[#14241e]">
+                                    <span className="text-sm font-medium text-[#181713]">
                                       {formatMonth(entry.month)}
                                     </span>
-                                    <span className="text-xs text-[#7b8781]">
+                                    <span className="text-xs text-[#8A8178]">
                                       {entry.transaction_count}{" "}
                                       transaction
                                       {entry.transaction_count === 1
                                         ? ""
                                         : "s"}
                                     </span>
-                                    <span className="text-sm font-semibold text-[#14241e]">
+                                    <span className="text-sm font-semibold text-[#181713]">
                                       {Math.round(entry.score)}%
                                     </span>
                                   </div>
@@ -587,7 +589,7 @@ export default function ForecastPage() {
                 <section className="mt-8">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
                         Upcoming timeline
                       </p>
                       <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
@@ -595,14 +597,14 @@ export default function ForecastPage() {
                       </h2>
                     </div>
 
-                    <p className="text-sm text-[#7b8781]">
+                    <p className="text-sm text-[#8A8178]">
                       {forecast.upcoming_cash_flows.length} expected
                     </p>
                   </div>
 
                   {forecast.upcoming_cash_flows.length > 0 ? (
-                    <div className="mt-5 overflow-hidden rounded-[24px] border border-[#14241e]/10 bg-white">
-                      <header className="hidden border-b border-[#14241e]/10 bg-[#faf8f3] px-5 py-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780] md:grid md:grid-cols-[minmax(220px,1.4fr)_160px_150px_150px_40px] md:items-center">
+                    <div className="mt-5 overflow-hidden rounded-[24px] border border-[#181713]/10 bg-white">
+                      <header className="hidden border-b border-[#181713]/10 bg-[#faf8f3] px-5 py-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780] xl:grid xl:grid-cols-[minmax(220px,1.4fr)_160px_150px_150px_40px] xl:items-center">
                         <span>Merchant</span>
                         <span>Expected date</span>
                         <span>Amount</span>
@@ -610,7 +612,7 @@ export default function ForecastPage() {
                         <span />
                       </header>
 
-                      <div className="divide-y divide-[#14241e]/8">
+                      <div className="divide-y divide-[#181713]/8">
                         {forecast.upcoming_cash_flows.map((item) => (
                           <ForecastRow
                             key={`${item.merchant}-${item.expected_date}`}
@@ -621,11 +623,11 @@ export default function ForecastPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="mt-5 rounded-[30px] border border-dashed border-[#14241e]/15 bg-white px-6 py-14 text-center">
+                    <div className="mt-5 rounded-[30px] border border-dashed border-[#181713]/15 bg-white px-6 py-14 text-center">
                       <p className="text-lg font-semibold">
                         No predicted bills
                       </p>
-                      <p className="mt-2 text-sm text-[#728078]">
+                      <p className="mt-2 text-sm text-[#777168]">
                         No recurring bills are currently expected before
                         month-end.
                       </p>
@@ -634,7 +636,7 @@ export default function ForecastPage() {
                 </section>
               </Reveal>
 
-              <p className="mt-6 text-xs leading-5 text-[#7b8781]">
+              <p className="mt-6 text-xs leading-5 text-[#8A8178]">
                 Forecasts are estimates based on connected balances,
                 expected income, and recurring-payment patterns.
               </p>
@@ -688,50 +690,6 @@ export default function ForecastPage() {
   );
 }
 
-function ForecastMetric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "positive" | "negative" | "neutral";
-}) {
-  const toneClass = {
-    positive: "text-[#83dcb9]",
-    negative: "text-[#f4a594]",
-    neutral: "text-white",
-  };
-
-  return (
-    <div className="bg-white/[0.045] p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-        {label}
-      </p>
-      <p className={`mt-2 text-lg font-semibold ${toneClass[tone]}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function OutlookStat({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl bg-white/45 p-4">
-      <p className="text-[10px] uppercase tracking-[0.1em] text-[#66746e]">
-        {label}
-      </p>
-      <p className="mt-1 text-xl font-semibold">{value}</p>
-    </div>
-  );
-}
-
 function ScenarioCard({
   label,
   value,
@@ -747,13 +705,13 @@ function ScenarioCard({
 }) {
   return (
     <article
-      className={`premium-hover rounded-[24px] border border-[#14241e]/10 p-5 ${
-        warning ? "bg-[#f8ddd5]" : "bg-white"
+      className={`p-5 sm:p-6 ${
+        warning ? "bg-[#f8ddd5]" : "bg-[#FFFCF7]"
       }`}
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7b8781]">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#8A8178]">
             {label}
           </p>
           <p className="mt-3 text-2xl font-semibold tracking-[-0.04em]">
@@ -761,7 +719,7 @@ function ScenarioCard({
           </p>
         </div>
 
-        <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#edf5ee] text-[#167c5a]">
+        <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#edf5ee] text-[#6E4B63]">
           {icon === "up" ? (
             <TrendingUp className="h-4 w-4" />
           ) : icon === "down" ? (
@@ -772,7 +730,7 @@ function ScenarioCard({
         </span>
       </div>
 
-      <p className="mt-3 text-sm text-[#66746e]">{description}</p>
+      <p className="mt-3 text-sm text-[#706961]">{description}</p>
     </article>
   );
 }
@@ -786,33 +744,33 @@ function HorizonOutlookCard({
 
   return (
     <article
-      className={`rounded-[24px] border p-5 ${
+      className={`p-5 sm:p-6 ${
         shortfall
-          ? "border-[#923f32]/20 bg-[#fdf4f1]"
-          : "border-[#14241e]/10 bg-white"
+          ? "bg-[#fdf4f1]"
+          : "bg-[#FFFCF7]"
       }`}
     >
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold">{horizon.horizon_days} days</p>
-        <span className="text-xs text-[#87928d]">
+        <span className="text-xs text-[#8A8178]">
           through {formatDate(horizon.through_date)}
         </span>
       </div>
 
       <p
         className={`mt-3 text-2xl font-semibold tracking-[-0.04em] ${
-          shortfall ? "text-[#923f32]" : "text-[#14241e]"
+          shortfall ? "text-[#923f32]" : "text-[#181713]"
         }`}
       >
         {formatCents(horizon.projected_balance_cents)}
       </p>
-      <p className="mt-1 text-xs text-[#87928d]">
+      <p className="mt-1 text-xs text-[#8A8178]">
         {shortfall
           ? `${formatCents(horizon.shortfall_cents)} projected shortfall`
           : "Projected balance"}
       </p>
 
-      <div className="mt-4 flex items-center justify-between text-xs text-[#66746e]">
+      <div className="mt-4 flex items-center justify-between text-xs text-[#706961]">
         <span>
           Known bills{" "}
           {formatCents(-horizon.known_obligations_cents)}
@@ -849,12 +807,12 @@ function ResilienceSection({
   return (
     <section className="mt-10">
       <div className="flex items-center gap-3">
-        <ShieldCheck className="h-5 w-5 text-[#167c5a]" aria-hidden="true" />
+        <ShieldCheck className="h-5 w-5 text-[#6E4B63]" aria-hidden="true" />
         <h2 className="text-2xl font-semibold tracking-[-0.03em]">
           Financial resilience
         </h2>
       </div>
-      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#66746e]">
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#706961]">
         How long your liquid cash would last if income stopped today, at
         your recent spending pace or a specific essential-spending amount
         you provide.
@@ -873,8 +831,8 @@ function ResilienceSection({
           <ResilienceHero resilience={resilience} />
 
           <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-            <article className="rounded-[24px] border border-[#14241e]/10 bg-white p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+            <article className="rounded-[24px] border border-[#181713]/10 bg-white p-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
                 30 / 60 / 90-day{" "}
                 {resilience.essential_spending_source === "user_provided"
                   ? "essential-expense"
@@ -895,22 +853,22 @@ function ResilienceSection({
               </div>
             </article>
 
-            <article className="rounded-[24px] border border-[#14241e]/10 bg-white p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+            <article className="rounded-[24px] border border-[#181713]/10 bg-white p-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
                 What if essential spending changes?
               </p>
-              <p className="mt-2 text-xs leading-5 text-[#66746e]">
+              <p className="mt-2 text-xs leading-5 text-[#706961]">
                 Enter a monthly essential-spending amount to see how your
                 runway would change.
               </p>
 
               <div className="mt-4 flex flex-wrap items-end gap-3">
                 <label className="block">
-                  <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[#66746e]">
+                  <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[#706961]">
                     Monthly essential spending
                   </span>
                   <div className="relative mt-2">
-                    <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#728078]">
+                    <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#777168]">
                       $
                     </span>
                     <input
@@ -922,7 +880,7 @@ function ResilienceSection({
                         onEssentialOverrideChange(event.target.value)
                       }
                       placeholder="4000.00"
-                      className="h-11 w-40 rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] pl-8 pr-3 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+                      className="h-11 w-40 rounded-xl border border-[#181713]/10 bg-[#FFFCF7] pl-8 pr-3 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
                     />
                   </div>
                 </label>
@@ -931,7 +889,7 @@ function ResilienceSection({
                   type="button"
                   onClick={onSimulate}
                   disabled={simulating}
-                  className="h-11 rounded-xl bg-[#14241e] px-4 text-sm font-semibold text-white transition hover:bg-[#25443a] disabled:cursor-not-allowed disabled:opacity-55"
+                  className="h-11 rounded-xl bg-[#181713] px-4 text-sm font-semibold text-white transition hover:bg-[#2A2723] disabled:cursor-not-allowed disabled:opacity-55"
                 >
                   {simulating ? "Simulating..." : "Simulate"}
                 </button>
@@ -941,7 +899,7 @@ function ResilienceSection({
                     type="button"
                     onClick={onReset}
                     disabled={simulating}
-                    className="h-11 rounded-xl border border-[#14241e]/10 px-4 text-sm font-semibold text-[#66746e] transition hover:bg-[#f1eee7] disabled:opacity-55"
+                    className="h-11 rounded-xl border border-[#181713]/10 px-4 text-sm font-semibold text-[#706961] transition hover:bg-[#f1eee7] disabled:opacity-55"
                   >
                     Reset to estimated
                   </button>
@@ -949,7 +907,7 @@ function ResilienceSection({
               </div>
 
               {overrideActive && (
-                <p className="mt-3 text-xs font-medium text-[#167c5a]">
+                <p className="mt-3 text-xs font-medium text-[#6E4B63]">
                   Showing your scenario at{" "}
                   {formatCents(resilience.monthly_essential_cents)}/month.
                 </p>
@@ -957,21 +915,21 @@ function ResilienceSection({
             </article>
           </div>
 
-          <article className="rounded-[24px] border border-[#14241e]/10 bg-[#f5f1e8] p-6">
+          <article className="rounded-[24px] border border-[#181713]/10 bg-[#F5F1EA] p-6">
             <div className="flex items-start gap-3">
-              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#167c5a]" />
+              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#6E4B63]" />
               <div>
                 <p className="text-sm font-semibold">
                   {resilience.headline}
                 </p>
-                <p className="mt-2 text-sm leading-6 text-[#66746e]">
+                <p className="mt-2 text-sm leading-6 text-[#706961]">
                   {resilience.why}
                 </p>
-                <p className="mt-2 text-sm leading-6 text-[#66746e]">
+                <p className="mt-2 text-sm leading-6 text-[#706961]">
                   {resilience.what_this_means}
                 </p>
                 {resilience.suggested_actions.length > 0 && (
-                  <ul className="mt-3 space-y-1.5 text-sm leading-6 text-[#66746e]">
+                  <ul className="mt-3 space-y-1.5 text-sm leading-6 text-[#706961]">
                     {resilience.suggested_actions.map((action) => (
                       <li key={action} className="flex gap-2">
                         <span aria-hidden="true">•</span>
@@ -980,7 +938,7 @@ function ResilienceSection({
                     ))}
                   </ul>
                 )}
-                <p className="mt-3 text-xs font-medium text-[#87928d]">
+                <p className="mt-3 text-xs font-medium text-[#8A8178]">
                   {resilience.essential_spending_source === "user_provided"
                     ? `${resilience.spending_basis_label}: your stated amount.`
                     : `${resilience.spending_basis_label}: estimated from your recent total spending (Discero doesn't yet classify essential vs. discretionary expenses).`}
@@ -1010,20 +968,20 @@ function ResilienceHero({
   const isExplicit = resilience.essential_spending_source === "user_provided";
 
   return (
-    <article className="relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.18)] sm:p-9">
-      <div className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full bg-[#76dfbd]/15 blur-3xl" />
-
-      <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+    <article className="rounded-[24px] border border-[#181713]/10 bg-[#FFFCF7] p-7 sm:p-8">
+      <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
+        <div className="lg:max-w-[58%]">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
             {isExplicit ? "Emergency runway" : "Spending coverage"}
           </p>
-          <p className="mt-3 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
+
+          <p className="mt-3 text-4xl font-semibold tracking-[-0.05em] text-[#181713] sm:text-5xl">
             {resilience.runway_months === null
               ? "No measurable spending"
               : `${resilience.runway_months} months`}
           </p>
-          <p className="mt-2 text-sm text-white/55">
+
+          <p className="mt-2 max-w-md text-sm leading-6 text-[#706961]">
             {resilience.runway_months === null
               ? isExplicit
                 ? "of essential expenses covered"
@@ -1033,18 +991,27 @@ function ResilienceHero({
                 : "covered by liquid cash at your recent spending pace"}
           </p>
 
-          <span
-            className={`mt-4 inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${status.className}`}
-          >
-            {resilience.resilience_status === "critical" ? (
-              <ShieldAlert className="h-3.5 w-3.5" />
-            ) : (
-              <ShieldCheck className="h-3.5 w-3.5" />
-            )}
-            {status.label}
-          </span>
+          <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
+            <span
+              className={`inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}
+            >
+              {resilience.resilience_status === "critical" ? (
+                <ShieldAlert className="h-3.5 w-3.5" />
+              ) : (
+                <ShieldCheck className="h-3.5 w-3.5" />
+              )}
+              {status.label}
+            </span>
+            <span aria-hidden="true" className="text-[#8A8178]">
+              ·
+            </span>
+            <span className="font-semibold tabular-nums text-[#181713]">
+              {Math.round(resilience.confidence_score)}%
+            </span>
+            <span className="text-[#706961]">confidence</span>
+          </div>
 
-          <div className="mt-5 h-2 w-full max-w-xs overflow-hidden rounded-full bg-white/10">
+          <div className="mt-3 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-[#181713]/8">
             <div
               className={`h-full rounded-full ${status.barClassName}`}
               style={{ width: `${barPercent}%` }}
@@ -1052,7 +1019,7 @@ function ResilienceHero({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-4 lg:w-[420px]">
+        <div className="grid grid-cols-1 gap-x-6 gap-y-5 border-t border-[#181713]/8 pt-6 sm:grid-cols-2 lg:w-[38%] lg:shrink-0 lg:grid-cols-2 lg:border-l lg:border-t-0 lg:border-[#181713]/8 lg:pl-8 lg:pt-0">
           <ResilienceMetric
             label="Liquid cash"
             value={formatCents(resilience.liquid_balance_cents)}
@@ -1064,10 +1031,6 @@ function ResilienceHero({
           <ResilienceMetric
             label="Accounts"
             value={String(resilience.liquid_account_count)}
-          />
-          <ResilienceMetric
-            label="Confidence"
-            value={`${Math.round(resilience.confidence_score)}%`}
           />
         </div>
       </div>
@@ -1083,11 +1046,13 @@ function ResilienceMetric({
   value: string;
 }) {
   return (
-    <div className="bg-white/[0.045] p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
+    <div>
+      <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">
         {label}
       </p>
-      <p className="mt-2 text-lg font-semibold">{value}</p>
+      <p className="mt-1 whitespace-nowrap text-base font-semibold tabular-nums text-[#181713]">
+        {value}
+      </p>
     </div>
   );
 }
@@ -1105,26 +1070,26 @@ function CoverageHorizonRow({
     : "your recent spending pace";
 
   return (
-    <div className="rounded-2xl border border-[#14241e]/8 bg-[#fbfaf7] p-4">
+    <div className="rounded-2xl border border-[#181713]/8 bg-[#FFFCF7] p-4">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold">{horizon.horizon_days}-day coverage</p>
         <p
           className={`text-sm font-semibold ${
-            shortfall ? "text-[#923f32]" : "text-[#167c5a]"
+            shortfall ? "text-[#923f32]" : "text-[#6E4B63]"
           }`}
         >
           {horizon.coverage_percent}%
         </p>
       </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#14241e]/8">
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#181713]/8">
         <div
           className={`h-full rounded-full ${
-            shortfall ? "bg-[#c0604c]" : "bg-[#167c5a]"
+            shortfall ? "bg-[#c0604c]" : "bg-[#6E4B63]"
           }`}
           style={{ width: `${Math.min(horizon.coverage_percent, 100)}%` }}
         />
       </div>
-      <p className="mt-2 text-xs text-[#87928d]">
+      <p className="mt-2 text-xs text-[#8A8178]">
         {shortfall
           ? `${formatCents(horizon.shortfall_cents)} shortfall against ${spendingPhrase}`
           : `${formatCents(horizon.remaining_liquid_cents)} remaining after ${spendingPhrase}`}
@@ -1143,10 +1108,10 @@ function ConfidenceFactorRow({
   return (
     <div className="grid gap-2 px-4 py-4 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-4">
       <div>
-        <p className="text-sm font-semibold text-[#14241e]">
+        <p className="text-sm font-semibold text-[#181713]">
           {factor.label}
         </p>
-        <p className="mt-1 text-xs leading-5 text-[#7b8781]">
+        <p className="mt-1 text-xs leading-5 text-[#8A8178]">
           {factor.detail}
         </p>
       </div>
@@ -1179,7 +1144,7 @@ function ForecastRow({
           : { x: 3, backgroundColor: "#fbfaf6" }
       }
       transition={{ duration: reduceMotion ? 0 : 0.2 }}
-      className="grid w-full gap-4 px-5 py-4 text-left md:grid-cols-[minmax(220px,1.4fr)_160px_150px_150px_40px] md:items-center"
+      className="grid w-full gap-4 px-5 py-4 text-left xl:grid-cols-[minmax(220px,1.4fr)_160px_150px_150px_40px] xl:items-center"
     >
       <div className="flex min-w-0 items-center gap-3">
         <MerchantAvatar merchant={item.merchant} />
@@ -1188,7 +1153,7 @@ function ForecastRow({
           <p className="truncate text-sm font-semibold">
             {item.merchant}
           </p>
-          <p className="mt-1 text-xs text-[#87928d]">
+          <p className="mt-1 text-xs text-[#8A8178]">
             Predicted recurring charge
           </p>
         </div>
@@ -1205,7 +1170,7 @@ function ForecastRow({
       <span
         className={`w-fit rounded-full px-3 py-1.5 text-xs font-semibold ${
           item.confidence_score >= 90
-            ? "bg-[#edf5ee] text-[#167c5a]"
+            ? "bg-[#edf5ee] text-[#6E4B63]"
             : item.confidence_score >= 75
               ? "bg-[#f7e8b5] text-[#8b6518]"
               : "bg-[#f8ddd5] text-[#923f32]"
@@ -1214,7 +1179,7 @@ function ForecastRow({
         {item.confidence_score}% confidence
       </span>
 
-      <ChevronRight className="h-4 w-4 text-[#87928d]" />
+      <ChevronRight className="h-4 w-4 text-[#8A8178]" />
     </motion.button>
   );
 }
@@ -1242,7 +1207,7 @@ function ForecastDrawer({
         type="button"
         aria-label="Close forecast details"
         onClick={onClose}
-        className="absolute inset-0 bg-[#14241e]/35 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-[#181713]/35 backdrop-blur-[2px]"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -1261,12 +1226,12 @@ function ForecastDrawer({
         }}
         className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-[#fdfcf8] shadow-2xl"
       >
-        <header className="flex items-start justify-between border-b border-[#14241e]/10 px-6 py-5">
+        <header className="flex items-start justify-between border-b border-[#181713]/10 px-6 py-5">
           <div className="flex min-w-0 items-center gap-3 pr-4">
             <MerchantAvatar merchant={item.merchant} />
 
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
                 Forecast detail
               </p>
               <h2
@@ -1282,21 +1247,21 @@ function ForecastDrawer({
             type="button"
             onClick={onClose}
             aria-label="Close forecast details"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#14241e]/10 bg-white"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#181713]/10 bg-white"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </header>
 
         <div className="flex-1 overflow-y-auto px-6 py-6">
-          <p className="text-sm text-[#728078]">
+          <p className="text-sm text-[#777168]">
             Predicted amount
           </p>
           <p className="mt-2 text-4xl font-semibold tracking-[-0.05em] text-[#a64b3d]">
             {formatCents(-item.amount_cents)}
           </p>
 
-          <dl className="mt-7 divide-y divide-[#14241e]/10 border-y border-[#14241e]/10">
+          <dl className="mt-7 divide-y divide-[#181713]/10 border-y border-[#181713]/10">
             <DrawerDetail
               label="Expected date"
               value={formatDate(item.expected_date)}
@@ -1317,12 +1282,12 @@ function ForecastDrawer({
 
           <div className="mt-7 rounded-2xl bg-[#edf5ee] p-5">
             <div className="flex gap-3">
-              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#167c5a]" />
+              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#6E4B63]" />
               <div>
                 <p className="text-sm font-semibold">
                   Forecast explanation
                 </p>
-                <p className="mt-1 text-sm leading-6 text-[#66746e]">
+                <p className="mt-1 text-sm leading-6 text-[#706961]">
                   This charge is projected from recurring transaction
                   timing and historical amount consistency.
                 </p>
@@ -1330,16 +1295,16 @@ function ForecastDrawer({
             </div>
           </div>
 
-          <div className="mt-5 flex items-center gap-3 rounded-2xl border border-[#14241e]/10 bg-white p-4">
-            <CalendarClock className="h-5 w-5 text-[#728078]" />
-            <p className="text-sm text-[#66746e]">
+          <div className="mt-5 flex items-center gap-3 rounded-2xl border border-[#181713]/10 bg-white p-4">
+            <CalendarClock className="h-5 w-5 text-[#777168]" />
+            <p className="text-sm text-[#706961]">
               The actual charge date and amount may differ.
             </p>
           </div>
 
-          <div className="mt-5 flex items-center gap-3 rounded-2xl border border-[#14241e]/10 bg-white p-4">
-            <CircleDollarSign className="h-5 w-5 text-[#728078]" />
-            <p className="text-sm text-[#66746e]">
+          <div className="mt-5 flex items-center gap-3 rounded-2xl border border-[#181713]/10 bg-white p-4">
+            <CircleDollarSign className="h-5 w-5 text-[#777168]" />
+            <p className="text-sm text-[#706961]">
               Include this predicted outflow when planning your remaining
               monthly cash.
             </p>
@@ -1359,7 +1324,7 @@ function DrawerDetail({
 }) {
   return (
     <div className="grid gap-1 py-4 sm:grid-cols-[130px_1fr]">
-      <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-[#87928d]">
+      <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-[#8A8178]">
         {label}
       </dt>
       <dd className="text-sm font-medium sm:text-right">{value}</dd>

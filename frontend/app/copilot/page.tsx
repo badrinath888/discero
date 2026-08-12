@@ -230,7 +230,7 @@ export default function CopilotPage() {
       ]);
     } catch {
       setError(
-        "The Copilot couldn't respond just now. Please try again."
+        "Ask Discero couldn't respond just now. Please try again."
       );
     } finally {
       setSending(false);
@@ -244,8 +244,8 @@ export default function CopilotPage() {
 
   if (initializing) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8]">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#167c5a] border-t-transparent" />
+      <main className="flex min-h-screen items-center justify-center bg-[#F5F1EA]">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#6E4B63] border-t-transparent" />
       </main>
     );
   }
@@ -253,25 +253,24 @@ export default function CopilotPage() {
   const suggestedPrompts = buildSuggestedPrompts(goals);
 
   return (
-    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
+    <main className="min-h-screen bg-[#F5F1EA] text-[#181713]">
       <AppSidebar />
 
-      <div className="flex min-h-screen flex-col px-4 pb-6 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-9">
+      <div className="flex min-h-screen flex-col px-4 pb-6 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto flex w-full max-w-[880px] flex-1 flex-col">
           <Reveal>
-            <header className="border-b border-[#14241e]/10 pb-6">
-              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
+            <header className="border-b border-[#181713]/10 pb-7">
+              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
                 <MessageCircle className="h-3.5 w-3.5" />
-                Copilot
+                Ask Discero
               </p>
 
               <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                Ask Discero anything
+                Ask a financial question.
               </h1>
 
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66746e]">
-                Answers are grounded in your real accounts, goals, and
-                forecasts -- never guessed.
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#706961]">
+                See what it means for your cash, goals, obligations, and resilience.
               </p>
             </header>
           </Reveal>
@@ -324,7 +323,7 @@ export default function CopilotPage() {
 
           <form
             onSubmit={handleSubmit}
-            className="sticky bottom-4 flex items-end gap-3 rounded-[26px] border border-[#14241e]/10 bg-white p-3 shadow-[0_18px_50px_rgba(20,36,30,0.1)]"
+            className="sticky bottom-4 flex items-end gap-3 rounded-[26px] border border-[#181713]/10 bg-white p-3 shadow-[0_18px_50px_rgba(60,43,35,0.1)]"
           >
             <textarea
               value={input}
@@ -346,7 +345,7 @@ export default function CopilotPage() {
               type="submit"
               disabled={sending || !input.trim()}
               aria-label="Send message"
-              className="focus-ring flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#167c5a] text-white transition hover:bg-[#0f6448] disabled:opacity-40"
+              className="discero-button-primary flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition"
             >
               <Send className="h-4 w-4" />
             </button>
@@ -365,22 +364,25 @@ function EmptyPrompts({
   onSelect: (text: string) => void;
 }) {
   return (
-    <Stagger className="grid gap-3 sm:grid-cols-2">
-      {prompts.map((prompt) => (
-        <Reveal key={prompt}>
-          <HoverLift>
-            <button
-              type="button"
-              onClick={() => onSelect(prompt)}
-              className="focus-ring flex w-full items-start gap-3 rounded-2xl border border-[#14241e]/10 bg-white px-4 py-3.5 text-left text-sm font-medium text-[#26382f] shadow-[0_10px_30px_rgba(20,36,30,0.05)] transition hover:border-[#167c5a]/30 hover:bg-[#f7fbf5]"
-            >
-              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#167c5a]" />
-              {prompt}
-            </button>
-          </HoverLift>
-        </Reveal>
-      ))}
-    </Stagger>
+    <section>
+      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[#8A8178]">Suggested questions</p>
+      <Stagger className="grid gap-px overflow-hidden border-y border-[#181713]/10 bg-[#181713]/10 sm:grid-cols-2">
+        {prompts.map((prompt) => (
+          <Reveal key={prompt}>
+            <HoverLift>
+              <button
+                type="button"
+                onClick={() => onSelect(prompt)}
+                className="focus-ring flex w-full items-start gap-3 bg-[#FFFCF7] px-5 py-4 text-left text-sm font-medium text-[#2F2930] transition hover:bg-[#F8F4EE]"
+              >
+                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#B86D4B]" />
+                {prompt}
+              </button>
+            </HoverLift>
+          </Reveal>
+        ))}
+      </Stagger>
+    </section>
   );
 }
 
@@ -399,12 +401,15 @@ function ThinkingIndicator() {
     <div
       role="status"
       aria-live="polite"
-      aria-label="Copilot is thinking"
-      className="flex w-fit items-center gap-2 rounded-[22px] border border-[#14241e]/8 bg-white px-5 py-4 shadow-[0_10px_30px_rgba(20,36,30,0.05)]"
+      aria-label="Discero analysis is in progress"
+      className="w-full border-y border-[#181713]/10 bg-[#FFFCF7] px-5 py-5"
     >
-      <span className="h-2 w-2 animate-bounce rounded-full bg-[#167c5a] [animation-delay:-0.3s]" />
-      <span className="h-2 w-2 animate-bounce rounded-full bg-[#167c5a] [animation-delay:-0.15s]" />
-      <span className="h-2 w-2 animate-bounce rounded-full bg-[#167c5a]" />
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Analyzing your question</p>
+      <div className="mt-4 grid gap-3 text-sm text-[#706961] sm:grid-cols-3">
+        <span>01 · Reading your position</span>
+        <span>02 · Checking obligations</span>
+        <span>03 · Preparing the consequence</span>
+      </div>
     </div>
   );
 }
@@ -419,7 +424,7 @@ function AssistantCard({
   if (response.kind === "unavailable" || response.kind === "out_of_scope") {
     return (
       <Reveal>
-        <div className="rounded-[22px] border border-[#14241e]/10 bg-white px-5 py-4 text-sm leading-6 text-[#4d5a53] shadow-[0_10px_30px_rgba(20,36,30,0.05)]">
+        <div className="rounded-[22px] border border-[#181713]/10 bg-white px-5 py-4 text-sm leading-6 text-[#5F5751] shadow-[0_10px_30px_rgba(60,43,35,0.05)]">
           {response.answer}
         </div>
       </Reveal>
@@ -429,13 +434,13 @@ function AssistantCard({
   if (response.kind === "clarifying_question") {
     return (
       <Reveal>
-        <div className="rounded-[22px] border border-[#167c5a]/30 bg-[#f2f9f0] px-5 py-4 shadow-[0_10px_30px_rgba(20,36,30,0.06)]">
-          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+        <div className="rounded-[22px] border border-[#6E4B63]/30 bg-[#f2f9f0] px-5 py-4 shadow-[0_10px_30px_rgba(60,43,35,0.06)]">
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
             <CircleHelp className="h-3.5 w-3.5" />
             Quick question
           </p>
 
-          <p className="mt-2 text-sm font-medium leading-6 text-[#1c2e26]">
+          <p className="mt-2 text-sm font-medium leading-6 text-[#2F2930]">
             {response.clarifying_question}
           </p>
 
@@ -447,7 +452,7 @@ function AssistantCard({
                     key={option}
                     type="button"
                     onClick={() => onSuggestedAction(option)}
-                    className="focus-ring rounded-full border border-[#167c5a]/30 bg-white px-3.5 py-1.5 text-xs font-semibold text-[#167c5a] transition hover:bg-[#dff6c7]"
+                    className="focus-ring rounded-full border border-[#6E4B63]/30 bg-white px-3.5 py-1.5 text-xs font-semibold text-[#6E4B63] transition hover:bg-[#EDE5DE]"
                   >
                     {option}
                   </button>
@@ -461,17 +466,17 @@ function AssistantCard({
 
   return (
     <Reveal>
-      <article className="rounded-[26px] border border-[#14241e]/10 bg-white p-5 shadow-[0_14px_40px_rgba(20,36,30,0.07)] sm:p-6">
+      <article className="border-y border-[#181713]/10 bg-[#FFFCF7] p-5 sm:p-7">
         <div className="flex flex-wrap items-center gap-2">
           {response.tool_used && (
-            <p className="inline-flex items-center gap-1.5 rounded-full bg-[#dff6c7] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#167c5a]">
+            <p className="inline-flex items-center gap-1.5 border-l-2 border-[#B86D4B] pl-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
               {response.tool_used}
             </p>
           )}
           <ProvenanceBadge provenance={response.provenance} />
         </div>
 
-        <p className="mt-3 text-[15px] font-medium leading-7 text-[#182b23]">
+        <p className="mt-3 text-[15px] font-medium leading-7 text-[#2F2930]">
           {response.answer}
         </p>
 
@@ -500,13 +505,13 @@ function AssistantCard({
         )}
 
         {response.suggested_actions.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-[#14241e]/8 pt-4">
+          <div className="mt-4 flex flex-wrap gap-2 border-t border-[#181713]/8 pt-4">
             {response.suggested_actions.map((action) => (
               <button
                 key={action}
                 type="button"
                 onClick={() => onSuggestedAction(action)}
-                className="focus-ring rounded-full border border-[#167c5a]/25 bg-[#f7fbf5] px-3.5 py-1.5 text-xs font-semibold text-[#167c5a] transition hover:bg-[#dff6c7]"
+                className="focus-ring rounded-full border border-[#6E4B63]/25 bg-[#F8F4EE] px-3.5 py-1.5 text-xs font-semibold text-[#6E4B63] transition hover:bg-[#EDE5DE]"
               >
                 {action}
               </button>
@@ -542,16 +547,16 @@ function Section({ label, text }: { label: string; text: string }) {
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8a978f]">
         {label}
       </p>
-      <p className="mt-1.5 text-sm leading-6 text-[#3d4a44]">{text}</p>
+      <p className="mt-1.5 text-sm leading-6 text-[#514B46]">{text}</p>
     </div>
   );
 }
 
 const TONE_STYLES: Record<CopilotMetric["tone"], string> = {
-  positive: "bg-[#dff6c7] text-[#315d31]",
-  warning: "bg-[#f5d66f] text-[#66500f]",
-  danger: "bg-[#f0b8a8] text-[#7b3528]",
-  neutral: "bg-[#eef1ec] text-[#4d5a53]",
+  positive: "bg-[#E3EBE1] text-[#48634B]",
+  warning: "bg-[#FBF1DF] text-[#8A5A20]",
+  danger: "bg-[#F8E6E1] text-[#8F3F33]",
+  neutral: "bg-[#eef1ec] text-[#5F5751]",
 };
 
 function MetricChip({ metric }: { metric: CopilotMetric }) {

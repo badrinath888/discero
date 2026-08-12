@@ -173,21 +173,21 @@ const STATUS_CONTENT = {
     label: "Affordable",
     description:
       "This purchase stays within the recommended decision range.",
-    className: "bg-[#dff6c7] text-[#315d31]",
+    className: "bg-[#E3EBE1] text-[#48634B]",
     icon: CheckCircle2,
   },
   caution: {
     label: "Proceed with caution",
     description:
       "The purchase fits, but it uses more than the recommended ceiling.",
-    className: "bg-[#f5d66f] text-[#66500f]",
+    className: "bg-[#FBF1DF] text-[#8A5A20]",
     icon: TriangleAlert,
   },
   not_affordable: {
     label: "Not affordable",
     description:
       "This purchase exceeds the current safe-to-spend amount.",
-    className: "bg-[#f0b8a8] text-[#7b3528]",
+    className: "bg-[#F8E6E1] text-[#8F3F33]",
     icon: CircleAlert,
   },
 } as const;
@@ -197,21 +197,21 @@ const RISK_CONTENT = {
     label: "Resilient",
     description:
       "Your finances can comfortably absorb this stress event.",
-    className: "bg-[#dff6c7] text-[#315d31]",
+    className: "bg-[#E3EBE1] text-[#48634B]",
     icon: ShieldCheck,
   },
   strained: {
     label: "Strained",
     description:
       "This event would strain your finances but not push you negative.",
-    className: "bg-[#f5d66f] text-[#66500f]",
+    className: "bg-[#FBF1DF] text-[#8A5A20]",
     icon: TriangleAlert,
   },
   critical: {
     label: "Critical",
     description:
       "This event would push your safe-to-spend into a shortfall.",
-    className: "bg-[#f0b8a8] text-[#7b3528]",
+    className: "bg-[#F8E6E1] text-[#8F3F33]",
     icon: CircleAlert,
   },
 } as const;
@@ -222,22 +222,22 @@ const TIMING_CONTENT: Record<
 > = {
   buy_now: {
     label: "Buy now",
-    className: "bg-[#dff6c7] text-[#315d31]",
+    className: "bg-[#E3EBE1] text-[#48634B]",
     icon: CheckCircle2,
   },
   wait: {
     label: "Wait",
-    className: "bg-[#dff6c7] text-[#315d31]",
+    className: "bg-[#E3EBE1] text-[#48634B]",
     icon: Clock,
   },
   either: {
     label: "Either works",
-    className: "bg-[#f5d66f] text-[#66500f]",
+    className: "bg-[#FBF1DF] text-[#8A5A20]",
     icon: Scale,
   },
   neither: {
     label: "Neither works right now",
-    className: "bg-[#f0b8a8] text-[#7b3528]",
+    className: "bg-[#F8E6E1] text-[#8F3F33]",
     icon: CircleAlert,
   },
 };
@@ -246,15 +246,15 @@ const SEVERITY_CONTENT: Record<
   FinancialStressTestResult["severity"],
   { label: string; className: string }
 > = {
-  low: { label: "Low", className: "bg-[#dff6c7] text-[#315d31]" },
+  low: { label: "Low", className: "bg-[#E3EBE1] text-[#48634B]" },
   moderate: {
     label: "Moderate",
-    className: "bg-[#f5d66f] text-[#66500f]",
+    className: "bg-[#FBF1DF] text-[#8A5A20]",
   },
-  high: { label: "High", className: "bg-[#f5d66f] text-[#66500f]" },
+  high: { label: "High", className: "bg-[#FBF1DF] text-[#8A5A20]" },
   critical: {
     label: "Critical",
-    className: "bg-[#f0b8a8] text-[#7b3528]",
+    className: "bg-[#F8E6E1] text-[#8F3F33]",
   },
 };
 
@@ -532,15 +532,15 @@ export default function DecisionsPage() {
   const TimingIcon = timingContent.icon;
 
   return (
-    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
+    <main className="min-h-screen bg-[#F5F1EA] text-[#181713]">
       <AppSidebar />
 
-      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-9">
-        <PageReveal className="mx-auto max-w-[1500px]">
+      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
+        <PageReveal className="mx-auto w-full max-w-[1500px]">
           <Reveal>
-            <header className="border-b border-[#14241e]/10 pb-7">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
-                Decision intelligence
+            <header className="border-b border-[#181713]/10 pb-7">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
+                Decision Lab
               </p>
 
               <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
@@ -551,7 +551,7 @@ export default function DecisionsPage() {
                     : "Major purchase simulator"}
               </h1>
 
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-[#66746e]">
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-[#706961]">
                 {mode === "stress"
                   ? "Model how an emergency expense, income loss, delayed paycheck, or bill increase would affect your safe-to-spend position."
                   : mode === "buy_now_wait"
@@ -563,7 +563,7 @@ export default function DecisionsPage() {
                 ref={topControlsRef}
                 className="mt-6 flex flex-wrap items-center gap-3 scroll-mt-24"
               >
-                <div className="inline-flex flex-wrap gap-1 rounded-2xl border border-[#14241e]/10 bg-white p-1 shadow-[0_8px_24px_rgba(20,36,30,0.06)]">
+                <div className="inline-flex flex-wrap gap-1 rounded-2xl border border-[#181713]/10 bg-white p-1 shadow-[0_8px_24px_rgba(60,43,35,0.06)]">
                   <ModeButton
                     active={mode === "single"}
                     onClick={() => handleModeChange("single")}
@@ -588,7 +588,7 @@ export default function DecisionsPage() {
 
                 <Link
                   href="/decisions/history"
-                  className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#167c5a]/25 bg-[#f7fbf5] px-4 py-2.5 text-sm font-semibold text-[#167c5a] transition hover:bg-[#dff6c7]"
+                  className="discero-button-tertiary inline-flex items-center gap-1.5 rounded-full px-4 py-2.5 text-sm font-semibold transition"
                 >
                   View saved decisions
                   <ArrowRight className="h-3.5 w-3.5" />
@@ -597,14 +597,14 @@ export default function DecisionsPage() {
             </header>
           </Reveal>
 
-          <section className="mt-8 grid gap-6 xl:grid-cols-[0.78fr_1.22fr]">
+          <section className="mt-8 grid gap-8 xl:grid-cols-[0.76fr_1.24fr]">
             <Reveal>
               <form
                 onSubmit={handleSubmit}
-                className="rounded-[30px] border border-[#14241e]/10 bg-white p-6 shadow-[0_18px_50px_rgba(20,36,30,0.08)] sm:p-8"
+                className="border-y border-[#181713]/10 bg-[#FFFCF7] p-6 sm:p-8"
               >
                 <div className="flex items-center gap-3">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#dff6c7] text-[#167c5a]">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#EDE5DE] text-[#6E4B63]">
                     {mode === "single" ? (
                       <BadgeDollarSign className="h-5 w-5" />
                     ) : mode === "compare" ? (
@@ -617,7 +617,7 @@ export default function DecisionsPage() {
                   </span>
 
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
                       Scenario inputs
                     </p>
                     <h2 className="mt-1 text-xl font-semibold tracking-[-0.03em]">
@@ -685,11 +685,11 @@ export default function DecisionsPage() {
                         onDateChange={setOptionBDate}
                       />
 
-                      <div className="rounded-2xl border border-[#14241e]/8 bg-[#fbfaf7] px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+                      <div className="rounded-2xl border border-[#181713]/8 bg-[#FFFCF7] px-4 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
                           Shared assumptions
                         </p>
-                        <p className="mt-1 text-xs leading-5 text-[#66746e]">
+                        <p className="mt-1 text-xs leading-5 text-[#706961]">
                           Safety reserve, essential spending, and horizon apply
                           to both options.
                         </p>
@@ -733,7 +733,7 @@ export default function DecisionsPage() {
                   ) : (
                     <>
                       <label className="block">
-                        <span className="text-sm font-semibold text-[#263c34]">
+                        <span className="text-sm font-semibold text-[#2F2930]">
                           Scenario type
                         </span>
                         <select
@@ -748,7 +748,7 @@ export default function DecisionsPage() {
                               setDurationDays("");
                             }
                           }}
-                          className="mt-2 h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+                          className="mt-2 h-12 w-full rounded-xl border border-[#181713]/10 bg-[#FFFCF7] px-4 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
                         >
                           {SCENARIO_OPTIONS.map((option) => (
                             <option key={option.value} value={option.value}>
@@ -811,7 +811,7 @@ export default function DecisionsPage() {
                       )}
 
                       {scenarioType === "recurring_bill_increase" && (
-                        <p className="-mt-3 text-xs leading-5 text-[#66746e]">
+                        <p className="-mt-3 text-xs leading-5 text-[#706961]">
                           Enter the total added cost for this scenario.
                           Discero uses this amount as-is and does not
                           multiply it by month.
@@ -821,7 +821,7 @@ export default function DecisionsPage() {
                       {(scenarioType === "income_reduction" ||
                         scenarioType === "recurring_expense_increase" ||
                         scenarioType === "combined") && (
-                        <p className="-mt-3 text-xs leading-5 text-[#66746e]">
+                        <p className="-mt-3 text-xs leading-5 text-[#706961]">
                           Percentages are applied to your recent income or
                           current recurring obligations from Discero data.
                         </p>
@@ -871,7 +871,7 @@ export default function DecisionsPage() {
                   </div>
 
                   <label className="block">
-                    <span className="text-sm font-semibold text-[#263c34]">
+                    <span className="text-sm font-semibold text-[#2F2930]">
                       Decision horizon
                     </span>
                     <select
@@ -879,7 +879,7 @@ export default function DecisionsPage() {
                       onChange={(event) =>
                         setHorizonDays(event.target.value)
                       }
-                      className="mt-2 h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+                      className="mt-2 h-12 w-full rounded-xl border border-[#181713]/10 bg-[#FFFCF7] px-4 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
                     >
                       <option value="14">Next 14 days</option>
                       <option value="30">Next 30 days</option>
@@ -901,7 +901,7 @@ export default function DecisionsPage() {
                 <button
                   type="submit"
                   disabled={initializing || simulating || userId === null}
-                  className="mt-7 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#14241e] px-5 text-sm font-semibold text-white transition hover:bg-[#25443a] disabled:cursor-not-allowed disabled:opacity-55"
+                  className="discero-button-primary mt-7 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold transition disabled:cursor-not-allowed"
                 >
                   {simulating
                     ? mode === "single"
@@ -1038,8 +1038,8 @@ function ModeButton({
       onClick={onClick}
       className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
         active
-          ? "bg-[#14241e] text-white shadow-[0_8px_20px_rgba(20,36,30,0.18)]"
-          : "text-[#66746e] hover:text-[#14241e]"
+          ? "bg-[#181713] text-white shadow-[0_8px_20px_rgba(60,43,35,0.18)]"
+          : "text-[#706961] hover:text-[#181713]"
       }`}
     >
       {label}
@@ -1085,7 +1085,7 @@ function SaveDecisionButton({
 
   if (status === "saved") {
     return (
-      <p className="text-sm font-semibold text-[#167c5a]">
+      <p className="text-sm font-semibold text-[#6E4B63]">
         Saved to your decision history.
       </p>
     );
@@ -1097,7 +1097,7 @@ function SaveDecisionButton({
         type="button"
         onClick={handleSave}
         disabled={status === "saving"}
-        className="focus-ring rounded-full border border-[#167c5a]/25 bg-[#f7fbf5] px-4 py-2 text-sm font-semibold text-[#167c5a] transition hover:bg-[#dff6c7] disabled:opacity-50"
+        className="discero-button-secondary rounded-full border px-4 py-2 text-sm font-semibold transition disabled:opacity-50"
       >
         {status === "saving" ? "Saving..." : "Save this decision"}
       </button>
@@ -1131,8 +1131,8 @@ function ComparisonOptionFields({
   onDateChange: (value: string) => void;
 }) {
   return (
-    <div className="rounded-2xl border border-[#14241e]/8 bg-[#fbfaf7] p-4 sm:p-5">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+    <div className="border-l-2 border-[#6E4B63]/35 bg-[#F8F4EE] p-4 sm:p-5">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
         {title}
       </p>
 
@@ -1180,7 +1180,7 @@ function DateField({
 }) {
   return (
     <label className="block">
-      <span className="text-sm font-semibold text-[#263c34]">
+      <span className="text-sm font-semibold text-[#2F2930]">
         {label}
       </span>
       <div className="relative mt-2">
@@ -1191,7 +1191,7 @@ function DateField({
           min={min}
           onChange={(event) => onChange(event.target.value)}
           required
-          className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] pl-11 pr-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+          className="h-12 w-full rounded-xl border border-[#181713]/10 bg-[#FFFCF7] pl-11 pr-4 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
         />
       </div>
     </label>
@@ -1206,8 +1206,8 @@ function EmptyState({
   description: string;
 }) {
   return (
-    <article className="flex min-h-[620px] flex-col items-center justify-center rounded-[30px] border border-dashed border-[#14241e]/15 bg-white p-8 text-center">
-      <span className="flex h-16 w-16 items-center justify-center rounded-[24px] bg-[#dff6c7] text-[#167c5a]">
+    <article className="flex min-h-[420px] flex-col items-center justify-center border-y border-[#181713]/10 bg-[#FFFCF7] p-8 text-center">
+      <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[#EDE5DE] text-[#6E4B63]">
         <Sparkles className="h-7 w-7" />
       </span>
 
@@ -1232,13 +1232,13 @@ function SinglePurchaseResult({
   StatusIcon: typeof CheckCircle2;
 }) {
   return (
-    <article className="relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.2)] sm:p-9">
-      <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[#76dfbd]/15 blur-3xl" />
+    <article className="relative overflow-hidden rounded-[30px] bg-[#181713] p-7 text-white shadow-[0_24px_70px_rgba(60,43,35,0.2)] sm:p-9">
+      <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[#C89A78]/15 blur-3xl" />
 
       <div className="relative">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D2B199]">
               Simulation result
             </p>
             <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em]">
@@ -1298,7 +1298,7 @@ function SinglePurchaseResult({
 
         <div className="mt-7 rounded-2xl border border-white/10 bg-white/[0.045] p-5">
           <div className="flex items-start gap-3">
-            <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#83dcb9]" />
+            <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#D2B199]" />
             <div>
               <p className="text-sm font-semibold">Discero explanation</p>
               <p className="mt-2 text-sm leading-6 text-white/58">
@@ -1334,7 +1334,7 @@ function SinglePurchaseResult({
                   key={`${alternative.label}-${alternative.purchase_amount_cents}`}
                   className="rounded-2xl border border-white/10 bg-white/[0.045] p-5"
                 >
-                  <p className="text-sm font-semibold text-[#83dcb9]">
+                  <p className="text-sm font-semibold text-[#D2B199]">
                     {alternative.label}
                   </p>
                   <p className="mt-2 text-2xl font-semibold tracking-[-0.035em]">
@@ -1372,18 +1372,18 @@ function ComparisonResults({
   return (
     <div className="space-y-6">
       <article
-        className={`rounded-[30px] border p-6 shadow-[0_18px_50px_rgba(20,36,30,0.08)] sm:p-8 ${
+        className={`rounded-[30px] border p-6 shadow-[0_18px_50px_rgba(60,43,35,0.08)] sm:p-8 ${
           isTie
-            ? "border-[#14241e]/10 bg-white"
-            : "border-[#167c5a]/20 bg-[#14241e] text-white"
+            ? "border-[#181713]/10 bg-white"
+            : "border-[#6E4B63]/20 bg-[#181713] text-white"
         }`}
       >
         <div className="flex items-start gap-4">
           <span
             className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${
               isTie
-                ? "bg-[#dff6c7] text-[#167c5a]"
-                : "bg-[#83dcb9]/15 text-[#83dcb9]"
+                ? "bg-[#E3EBE1] text-[#48634B]"
+                : "bg-[#D2B199]/15 text-[#D2B199]"
             }`}
           >
             {isTie ? (
@@ -1396,14 +1396,14 @@ function ComparisonResults({
           <div className="min-w-0">
             <p
               className={`text-xs font-semibold uppercase tracking-[0.16em] ${
-                isTie ? "text-[#167c5a]" : "text-[#83dcb9]"
+                isTie ? "text-[#6E4B63]" : "text-[#D2B199]"
               }`}
             >
               {isTie ? "Comparison result" : "Recommended option"}
             </p>
             <h2
               className={`mt-2 break-words text-2xl font-semibold tracking-[-0.04em] sm:text-3xl ${
-                isTie ? "text-[#14241e]" : "text-white"
+                isTie ? "text-[#181713]" : "text-white"
               }`}
             >
               {isTie
@@ -1414,7 +1414,7 @@ function ComparisonResults({
             </h2>
             <p
               className={`mt-3 max-w-3xl text-sm leading-6 ${
-                isTie ? "text-[#66746e]" : "text-white/60"
+                isTie ? "text-[#706961]" : "text-white/60"
               }`}
             >
               {result.recommendation}
@@ -1425,12 +1425,12 @@ function ComparisonResults({
         {result.reasons.length > 0 && (
           <div
             className={`mt-6 border-t pt-6 ${
-              isTie ? "border-[#14241e]/10" : "border-white/10"
+              isTie ? "border-[#181713]/10" : "border-white/10"
             }`}
           >
             <p
               className={`text-xs font-semibold uppercase tracking-[0.16em] ${
-                isTie ? "text-[#167c5a]" : "text-[#83dcb9]"
+                isTie ? "text-[#6E4B63]" : "text-[#D2B199]"
               }`}
             >
               {isTie ? "Why they tie" : "Why this wins"}
@@ -1438,7 +1438,7 @@ function ComparisonResults({
 
             <ul
               className={`mt-3 space-y-2 text-sm leading-6 ${
-                isTie ? "text-[#66746e]" : "text-white/70"
+                isTie ? "text-[#706961]" : "text-white/70"
               }`}
             >
               {result.reasons.map((reason) => (
@@ -1490,14 +1490,14 @@ function ComparisonOptionCard({
 
   return (
     <article
-      className={`relative overflow-hidden rounded-[30px] p-6 shadow-[0_18px_50px_rgba(20,36,30,0.08)] sm:p-7 ${
+      className={`relative overflow-hidden rounded-[30px] p-6 shadow-[0_18px_50px_rgba(60,43,35,0.08)] sm:p-7 ${
         recommended && !isTie
-          ? "border-2 border-[#83dcb9] bg-[#14241e] text-white"
-          : "border border-[#14241e]/10 bg-white text-[#14241e]"
+          ? "border-2 border-[#D2B199] bg-[#181713] text-white"
+          : "border border-[#181713]/10 bg-white text-[#181713]"
       }`}
     >
       {recommended && !isTie && (
-        <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[#76dfbd]/15 blur-3xl" />
+        <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[#C89A78]/15 blur-3xl" />
       )}
 
       <div className="relative">
@@ -1506,8 +1506,8 @@ function ComparisonOptionCard({
             <p
               className={`text-xs font-semibold uppercase tracking-[0.14em] ${
                 recommended && !isTie
-                  ? "text-[#83dcb9]"
-                  : "text-[#167c5a]"
+                  ? "text-[#D2B199]"
+                  : "text-[#6E4B63]"
               }`}
             >
               {title}
@@ -1520,10 +1520,10 @@ function ComparisonOptionCard({
           <span
             className={`inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
               recommended && !isTie
-                ? "bg-[#83dcb9]/15 text-[#83dcb9]"
+                ? "bg-[#D2B199]/15 text-[#D2B199]"
                 : isTie
-                  ? "bg-[#f1eee7] text-[#66746e]"
-                  : "bg-[#14241e]/5 text-[#66746e]"
+                  ? "bg-[#f1eee7] text-[#706961]"
+                  : "bg-[#181713]/5 text-[#706961]"
             }`}
           >
             {recommended && !isTie && (
@@ -1614,7 +1614,7 @@ function ComparisonMetric({
       className={`rounded-2xl border p-4 ${
         highlighted
           ? "border-white/10 bg-white/[0.045]"
-          : "border-[#14241e]/8 bg-[#fbfaf7]"
+          : "border-[#181713]/8 bg-[#FFFCF7]"
       }`}
     >
       <p
@@ -1632,7 +1632,7 @@ function ComparisonMetric({
               : "text-[#b65743]"
             : highlighted
               ? "text-white"
-              : "text-[#14241e]"
+              : "text-[#181713]"
         }`}
       >
         {value}
@@ -1654,15 +1654,15 @@ function ComparisonScorecard({
   );
 
   return (
-    <article className="rounded-[30px] border border-[#14241e]/10 bg-white p-6 shadow-[0_18px_50px_rgba(20,36,30,0.08)] sm:p-8">
+    <article className="rounded-[30px] border border-[#181713]/10 bg-white p-6 shadow-[0_18px_50px_rgba(60,43,35,0.08)] sm:p-8">
       <div className="flex items-center gap-2">
-        <Scale className="h-4 w-4 text-[#167c5a]" aria-hidden="true" />
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+        <Scale className="h-4 w-4 text-[#6E4B63]" aria-hidden="true" />
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
           Comparison scorecard
         </p>
       </div>
 
-      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#66746e]">
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#706961]">
         Every factor below is scored directly from your financial
         data — a higher score always means a safer outcome for that
         option.
@@ -1683,20 +1683,20 @@ function ComparisonScorecard({
         />
       </div>
 
-      <div className="mt-5 divide-y divide-[#14241e]/8 overflow-hidden rounded-2xl border border-[#14241e]/8">
+      <div className="mt-5 divide-y divide-[#181713]/8 overflow-hidden rounded-2xl border border-[#181713]/8">
         {scorecard.criteria.map((criterion) => (
           <div
             key={criterion.key}
             className="flex items-center justify-between gap-3 px-4 py-3"
           >
-            <span className="text-sm font-medium text-[#14241e]">
+            <span className="text-sm font-medium text-[#181713]">
               {criterion.label}
             </span>
             <span
               className={`text-xs font-semibold ${
                 criterion.winner === "tie"
-                  ? "text-[#66746e]"
-                  : "text-[#167c5a]"
+                  ? "text-[#706961]"
+                  : "text-[#6E4B63]"
               }`}
             >
               {criterion.winner === "tie"
@@ -1724,11 +1724,11 @@ function ScorecardTotal({
   percent: number;
 }) {
   return (
-    <div className="rounded-2xl border border-[#14241e]/8 bg-[#fbfaf7] p-4">
+    <div className="rounded-2xl border border-[#181713]/8 bg-[#FFFCF7] p-4">
       <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#7f8c86]">
         {label}
       </p>
-      <p className="mt-2 text-lg font-semibold text-[#14241e]">
+      <p className="mt-2 text-lg font-semibold text-[#181713]">
         {score} / {maxScore}
       </p>
       <div
@@ -1737,10 +1737,10 @@ function ScorecardTotal({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={`${label}: ${percent}% of maximum`}
-        className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#14241e]/8"
+        className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#181713]/8"
       >
         <div
-          className="h-full rounded-full bg-[#167c5a]"
+          className="h-full rounded-full bg-[#6E4B63]"
           style={{ width: `${percent}%` }}
         />
       </div>
@@ -1767,7 +1767,7 @@ function BuyNowVsWaitResults({
 }) {
   return (
     <div className="space-y-6">
-      <article className="relative overflow-hidden rounded-[30px] border border-[#167c5a]/20 bg-[#14241e] p-6 text-white shadow-[0_18px_50px_rgba(20,36,30,0.08)] sm:p-8">
+      <article className="relative overflow-hidden rounded-[30px] border border-[#6E4B63]/20 bg-[#181713] p-6 text-white shadow-[0_18px_50px_rgba(60,43,35,0.08)] sm:p-8">
         <div className="flex items-start gap-4">
           <span
             className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${timingContent.className}`}
@@ -1775,7 +1775,7 @@ function BuyNowVsWaitResults({
             <TimingIcon className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D2B199]">
               Recommendation
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] sm:text-3xl">
@@ -1809,7 +1809,7 @@ function BuyNowVsWaitResults({
         </div>
 
         <div className="mt-6 flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.045] p-4">
-          <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-[#83dcb9]" />
+          <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-[#D2B199]" />
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/40">
               How the wait estimate works
@@ -1870,17 +1870,17 @@ function BuyNowVsWaitOptionCard({
 
   return (
     <article
-      className={`relative overflow-hidden rounded-[30px] p-6 shadow-[0_18px_50px_rgba(20,36,30,0.08)] sm:p-7 ${
+      className={`relative overflow-hidden rounded-[30px] p-6 shadow-[0_18px_50px_rgba(60,43,35,0.08)] sm:p-7 ${
         highlighted
-          ? "border-2 border-[#83dcb9] bg-[#14241e] text-white"
-          : "border border-[#14241e]/10 bg-white text-[#14241e]"
+          ? "border-2 border-[#D2B199] bg-[#181713] text-white"
+          : "border border-[#181713]/10 bg-white text-[#181713]"
       }`}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p
             className={`text-xs font-semibold uppercase tracking-[0.14em] ${
-              highlighted ? "text-[#83dcb9]" : "text-[#167c5a]"
+              highlighted ? "text-[#D2B199]" : "text-[#6E4B63]"
             }`}
           >
             {title}
@@ -1891,7 +1891,7 @@ function BuyNowVsWaitOptionCard({
         </div>
 
         {highlighted && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#83dcb9]/15 px-3 py-1 text-xs font-semibold text-[#83dcb9]">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#D2B199]/15 px-3 py-1 text-xs font-semibold text-[#D2B199]">
             <CheckCircle2 className="h-3.5 w-3.5" />
             Recommended
           </span>
@@ -1944,13 +1944,13 @@ function StressTestResult({
   RiskIcon: typeof ShieldCheck;
 }) {
   return (
-    <article className="relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.2)] sm:p-9">
-      <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[#76dfbd]/15 blur-3xl" />
+    <article className="relative overflow-hidden rounded-[30px] bg-[#181713] p-7 text-white shadow-[0_24px_70px_rgba(60,43,35,0.2)] sm:p-9">
+      <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[#C89A78]/15 blur-3xl" />
 
       <div className="relative">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D2B199]">
               Stress test result
             </p>
             <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em]">
@@ -2094,7 +2094,7 @@ function StressTestResult({
 
         <div className="mt-7 rounded-2xl border border-white/10 bg-white/[0.045] p-5">
           <div className="flex items-start gap-3">
-            <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#83dcb9]" />
+            <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#D2B199]" />
             <div>
               <p className="text-sm font-semibold">Discero explanation</p>
               <p className="mt-2 text-sm leading-6 text-white/58">
@@ -2139,7 +2139,7 @@ function StressTestResult({
                   key={recommendation}
                   className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.045] p-4"
                 >
-                  <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-[#83dcb9]" />
+                  <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-[#D2B199]" />
                   <p className="text-sm leading-6 text-white/70">
                     {recommendation}
                   </p>
@@ -2180,13 +2180,13 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-sm font-semibold text-[#263c34]">
+      <span className="text-sm font-semibold text-[#2F2930]">
         {label}
       </span>
 
       <div className="relative mt-2">
         {prefix && (
-          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#728078]">
+          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#777168]">
             {prefix}
           </span>
         )}
@@ -2199,7 +2199,7 @@ function Field({
           required={required}
           placeholder={placeholder}
           onChange={(event) => onChange(event.target.value)}
-          className={`h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] pr-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white ${
+          className={`h-12 w-full rounded-xl border border-[#181713]/10 bg-[#FFFCF7] pr-4 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white ${
             prefix ? "pl-9" : "pl-4"
           }`}
         />
@@ -2253,7 +2253,7 @@ function DecisionStat({
           className={`flex h-10 w-10 items-center justify-center rounded-xl ${
             warning
               ? "bg-[#f0b8a8]/15 text-[#f4a594]"
-              : "bg-[#83dcb9]/10 text-[#83dcb9]"
+              : "bg-[#D2B199]/10 text-[#D2B199]"
           }`}
         >
           <Icon className="h-5 w-5" />

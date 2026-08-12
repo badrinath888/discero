@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-import json
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
+import json
+import logging
 from typing import Any
 
 import plaid
@@ -22,6 +23,8 @@ from plaid.model.transactions_sync_request import (
 )
 
 from app.config import Settings, settings
+
+logger = logging.getLogger(__name__)
 
 
 class PlaidConfigurationError(RuntimeError):
@@ -116,6 +119,11 @@ def create_link_token(
             LinkTokenCreateRequest(**request_data)
         )
     except plaid.ApiException as exc:
+        logger.exception(
+            "Plaid link token creation failed: status=%s body=%s",
+            getattr(exc, "status", None),
+            getattr(exc, "body", None),
+        )
         raise PlaidServiceError(
             "Unable to create Plaid Link token"
         ) from exc

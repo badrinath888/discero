@@ -66,7 +66,7 @@ export default function ResetPasswordPage() {
           {loading ? "Resetting..." : "Reset password"}
         </button>
       </form>
-      <Link href="/" className="mt-5 block text-center text-sm font-semibold text-[#167c5a]">
+      <Link href="/" className="mt-5 block text-center text-sm font-semibold text-[#6E4B63]">
         Back to sign in
       </Link>
     </AuthFlowCard>

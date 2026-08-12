@@ -184,26 +184,21 @@ export default function InsightsPage() {
   );
 
   return (
-    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
+    <main className="min-h-screen bg-[#F5F1EA] text-[#181713]">
       <AppSidebar />
 
-      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-9">
+      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto max-w-[1500px]">
           <Reveal>
-            <header className="flex flex-col gap-6 border-b border-[#14241e]/10 pb-7 xl:flex-row xl:items-end xl:justify-between">
+            <header className="flex flex-col gap-6 border-b border-[#181713]/10 pb-7 xl:flex-row xl:items-end xl:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
-                  Financial intelligence
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
+                  Insights
                 </p>
 
                 <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                  Insights
+                  What changed, and what matters?
                 </h1>
-
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66746e]">
-                  Understand what changed, what deserves attention, and
-                  which financial patterns are moving in the right direction.
-                </p>
               </div>
 
               <label className="relative w-full max-w-xs">
@@ -214,7 +209,7 @@ export default function InsightsPage() {
                   value={month}
                   max={getCurrentMonth()}
                   onChange={(event) => setMonth(event.target.value)}
-                  className="h-11 w-full rounded-xl border border-[#14241e]/10 bg-white pl-11 pr-4 text-sm outline-none focus:border-[#167c5a]"
+                  className="h-11 w-full rounded-xl border border-[#181713]/10 bg-white pl-11 pr-4 text-sm outline-none focus:border-[#6E4B63]"
                 />
               </label>
             </header>
@@ -243,106 +238,65 @@ export default function InsightsPage() {
           ) : insights ? (
             <>
               <Reveal delay={0.06}>
-                <section className="mt-6 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-                  <article className="premium-hover relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.18)] sm:p-9">
-                    <div className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full bg-[#76dfbd]/15 blur-3xl" />
-
-                    <div className="relative">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+                <section className="mt-6 border-y border-[#181713]/10 bg-[#FFFCF7] px-5 py-7 sm:px-8 sm:py-8">
+                  <div className="grid gap-8 xl:grid-cols-[minmax(280px,0.9fr)_minmax(520px,1.4fr)] xl:items-end">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
                         Net cash flow · {formatMonth(insights.month)}
                       </p>
-
                       <AnimatedNumber
                         value={insights.net_cents}
                         format={formatCents}
-                        className="mt-4 block text-5xl font-semibold tracking-[-0.06em] sm:text-6xl"
+                        className={`mt-4 block text-5xl font-semibold tracking-[-0.06em] sm:text-6xl ${insights.net_cents >= 0 ? "text-[#2F2930]" : "text-[#A25543]"}`}
                       />
-
-                      <p className="mt-3 text-sm text-white/55">
-                        Income after spending for the selected month.
-                      </p>
-
-                      <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
-                        <InsightMetric
-                          label="Income"
-                          value={formatCents(insights.income_cents)}
-                          tone="positive"
-                        />
-                        <InsightMetric
-                          label="Spending"
-                          value={formatCents(-insights.spending_cents)}
-                          tone="negative"
-                        />
-                        <InsightMetric
-                          label="Savings rate"
-                          value={`${insights.savings_rate_percent}%`}
-                          tone="neutral"
-                        />
-                      </div>
                     </div>
-                  </article>
 
-                  <article
-                    className={`premium-hover rounded-[30px] p-7 sm:p-8 ${
-                      insights.spending_change_cents > 0
-                        ? "bg-[#f8ddd5]"
-                        : "bg-[#dff6c7]"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#52635b]">
-                          Month-over-month
-                        </p>
-                        <p className="mt-4 text-5xl font-semibold tracking-[-0.05em]">
+                    <dl className="grid grid-cols-2 gap-y-5 sm:grid-cols-4 sm:divide-x sm:divide-[#181713]/10">
+                      {[
+                        ["Income", formatCents(insights.income_cents)],
+                        ["Spending", formatCents(-insights.spending_cents)],
+                        ["Savings rate", `${insights.savings_rate_percent}%`],
+                        ["Month over month", !hasCurrentMonthActivity ? "No activity" : insights.spending_change_percent === null ? "—" : `${insights.spending_change_percent > 0 ? "+" : ""}${insights.spending_change_percent}%`],
+                      ].map(([label, value]) => (
+                        <div key={label} className="sm:px-5 first:sm:pl-0 last:sm:pr-0">
+                          <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">{label}</dt>
+                          <dd className="mt-2 text-lg font-semibold tabular-nums text-[#2F2930]">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+
+                  <div className="mt-8 grid gap-5 border-t border-[#181713]/10 pt-5 lg:grid-cols-[1fr_auto] lg:items-center">
+                    <div>
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        {insights.spending_change_cents > 0 ? <TrendingUp className="h-4 w-4 text-[#A25543]" /> : <TrendingDown className="h-4 w-4 text-[#58715A]" />}
+                        <span>
                           {!hasCurrentMonthActivity
-                            ? "No activity"
+                            ? `Add or synchronize ${formatMonth(insights.month)} transactions to compare spending.`
                             : insights.spending_change_percent === null
-                              ? "—"
-                              : `${
-                                  insights.spending_change_percent > 0
-                                    ? "+"
-                                    : ""
-                                }${insights.spending_change_percent}%`}
-                        </p>
+                              ? "There is not enough previous-month data for a reliable comparison."
+                              : insights.spending_change_cents > 0
+                                ? "Spending increased compared with the previous month."
+                                : "Spending decreased compared with the previous month."}
+                        </span>
                       </div>
-
-                      <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#14241e] text-white">
-                        {insights.spending_change_cents > 0 ? (
-                          <TrendingUp className="h-5 w-5" />
-                        ) : (
-                          <TrendingDown className="h-5 w-5" />
-                        )}
-                      </span>
+                      {hasCurrentMonthActivity && insights.spending_change_percent !== null && (
+                        <div className="mt-3 h-1.5 max-w-xl overflow-hidden rounded-full bg-[#EDE7E1]">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${Math.min(Math.abs(insights.spending_change_percent), 100)}%` }}
+                            transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
+                            className={`h-full rounded-full ${insights.spending_change_cents > 0 ? "bg-[#A25543]" : "bg-[#58715A]"}`}
+                          />
+                        </div>
+                      )}
                     </div>
-
-                    <p className="mt-4 text-sm leading-6 text-[#66746e]">
-                      {!hasCurrentMonthActivity
-                        ? `Add or synchronize ${formatMonth(
-                            insights.month
-                          )} transactions to compare spending.`
-                        : insights.spending_change_percent === null
-                          ? "There is not enough previous-month data for a reliable comparison."
-                          : insights.spending_change_cents > 0
-                            ? "Spending increased compared with the previous month."
-                            : "Spending decreased compared with the previous month."}
+                    <p className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-[#706961]">
+                      <span><strong className="text-[#58715A]">{severityCounts.positive}</strong> positive</span>
+                      <span><strong className="text-[#A87522]">{severityCounts.warning}</strong> warnings</span>
+                      <span><strong className="text-[#6E4B63]">{severityCounts.info}</strong> informational</span>
                     </p>
-
-                    <div className="mt-8 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      <SeverityCount
-                        label="Positive"
-                        value={severityCounts.positive}
-                      />
-                      <SeverityCount
-                        label="Warnings"
-                        value={severityCounts.warning}
-                      />
-                      <SeverityCount
-                        label="Informational"
-                        value={severityCounts.info}
-                      />
-                    </div>
-                  </article>
+                  </div>
                 </section>
               </Reveal>
 
@@ -350,7 +304,7 @@ export default function InsightsPage() {
                 <section className="mt-8">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
                         Ranked observations
                       </p>
                       <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
@@ -368,7 +322,7 @@ export default function InsightsPage() {
                           }
                           aria-label="Search insights"
                           placeholder="Search insights"
-                          className="h-11 w-full rounded-xl border border-[#14241e]/10 bg-white pl-10 pr-4 text-sm outline-none focus:border-[#167c5a]"
+                          className="h-11 w-full rounded-xl border border-[#181713]/10 bg-white pl-10 pr-4 text-sm outline-none focus:border-[#6E4B63]"
                         />
                       </label>
 
@@ -387,8 +341,8 @@ export default function InsightsPage() {
                             onClick={() => setFilter(value)}
                             className={`h-full rounded-lg px-3 text-xs font-semibold transition ${
                               filter === value
-                                ? "bg-[#14241e] text-white"
-                                : "text-[#66746e]"
+                                ? "bg-[#181713] text-white"
+                                : "text-[#706961]"
                             }`}
                           >
                             {label}
@@ -398,8 +352,8 @@ export default function InsightsPage() {
                     </div>
                   </div>
 
-                  <div className="mt-5 overflow-hidden rounded-[24px] border border-[#14241e]/10 bg-white">
-                    <header className="hidden border-b border-[#14241e]/10 bg-[#faf8f3] px-5 py-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780] md:grid md:grid-cols-[54px_minmax(260px,1.5fr)_150px_150px_40px] md:items-center">
+                  <div className="mt-5 overflow-hidden border-y border-[#181713]/10 bg-[#FFFCF7]">
+                    <header className="hidden border-b border-[#181713]/10 bg-[#F8F4EE] px-5 py-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780] xl:grid xl:grid-cols-[54px_minmax(260px,1.5fr)_150px_150px_40px] xl:items-center">
                       <span>Rank</span>
                       <span>Observation</span>
                       <span>Category</span>
@@ -407,7 +361,7 @@ export default function InsightsPage() {
                       <span />
                     </header>
 
-                    <div className="divide-y divide-[#14241e]/8">
+                    <div className="divide-y divide-[#181713]/8">
                       {filteredInsights.map((insight, index) => (
                         <InsightRow
                           key={`${insight.kind}-${insight.category ?? index}`}
@@ -463,50 +417,6 @@ export default function InsightsPage() {
   );
 }
 
-function InsightMetric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "positive" | "negative" | "neutral";
-}) {
-  const toneClass = {
-    positive: "text-[#83dcb9]",
-    negative: "text-[#f4a594]",
-    neutral: "text-white",
-  };
-
-  return (
-    <div className="bg-white/[0.045] p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-        {label}
-      </p>
-      <p className={`mt-2 text-lg font-semibold ${toneClass[tone]}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function SeverityCount({
-  label,
-  value,
-}: {
-  label: string;
-  value: number;
-}) {
-  return (
-    <div className="rounded-2xl bg-white/45 p-3">
-      <p className="text-[10px] uppercase tracking-[0.1em] text-[#66746e]">
-        {label}
-      </p>
-      <p className="mt-1 text-lg font-semibold">{value}</p>
-    </div>
-  );
-}
-
 function InsightRow({
   insight,
   rank,
@@ -520,7 +430,7 @@ function InsightRow({
 
   const severity = {
     positive: {
-      badge: "bg-[#edf5ee] text-[#167c5a]",
+      badge: "bg-[#E3EBE1] text-[#58715A]",
       label: "Positive",
       icon: ArrowUpRight,
     },
@@ -530,7 +440,7 @@ function InsightRow({
       icon: CircleAlert,
     },
     info: {
-      badge: "bg-[#dceeea] text-[#476457]",
+      badge: "bg-[#EDE5DE] text-[#6E4B63]",
       label: "Information",
       icon: Lightbulb,
     },
@@ -542,13 +452,15 @@ function InsightRow({
     <motion.button
       type="button"
       onClick={onOpen}
+      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
       whileHover={
         reduceMotion
           ? undefined
           : { x: 3, backgroundColor: "#fbfaf6" }
       }
-      transition={{ duration: reduceMotion ? 0 : 0.2 }}
-      className="grid w-full gap-4 px-5 py-4 text-left md:grid-cols-[54px_minmax(260px,1.5fr)_150px_150px_40px] md:items-center"
+      transition={{ duration: reduceMotion ? 0 : 0.32, delay: reduceMotion ? 0 : (rank - 1) * 0.06 }}
+      className="grid w-full gap-4 px-5 py-4 text-left xl:grid-cols-[54px_minmax(260px,1.5fr)_150px_150px_40px] xl:items-center"
     >
       <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f1eee7] text-xs font-bold text-[#66746e]">
         {String(rank).padStart(2, "0")}
@@ -627,7 +539,7 @@ function InsightDrawer({
       >
         <header className="flex items-start justify-between border-b border-[#14241e]/10 px-6 py-5">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
               Insight details
             </p>
             <h2 id="insight-drawer-title" className="mt-2 text-xl font-semibold">
@@ -651,7 +563,7 @@ function InsightDrawer({
               insight.severity === "warning"
                 ? "bg-[#f8ddd5] text-[#923f32]"
                 : insight.severity === "positive"
-                  ? "bg-[#edf5ee] text-[#167c5a]"
+                  ? "bg-[#E3EBE1] text-[#58715A]"
                   : "bg-[#dceeea] text-[#476457]"
             }`}
           >
@@ -687,7 +599,7 @@ function InsightDrawer({
 
           <div className="mt-7 rounded-2xl bg-[#edf5ee] p-5">
             <div className="flex gap-3">
-              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#167c5a]" />
+              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#6E4B63]" />
               <div>
                 <p className="text-sm font-semibold">
                   Recommended next action

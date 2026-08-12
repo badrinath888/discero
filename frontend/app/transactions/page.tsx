@@ -1007,26 +1007,21 @@ export default function TransactionsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
+    <main className="min-h-screen bg-[#F5F1EA] text-[#181713]">
       <AppSidebar />
 
-      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-9">
+      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto max-w-[1500px]">
           <Reveal>
-          <header className="flex flex-col gap-5 border-b border-[#14241e]/10 pb-6 lg:flex-row lg:items-end lg:justify-between">
+          <header className="flex flex-col gap-5 border-b border-[#181713]/10 pb-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
-                Money activity
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
+                Transactions
               </p>
 
               <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                Transactions
+                What happened to my money?
               </h1>
-
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66746e]">
-                Review, organize, and manage every financial event
-                from one focused workspace.
-              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -1034,7 +1029,7 @@ export default function TransactionsPage() {
                 type="button"
                 onClick={openCreateForm}
                 disabled={!userId}
-                className="inline-flex min-h-11 items-center justify-center rounded-full border border-[#14241e]/10 bg-white px-5 text-sm font-semibold text-[#14241e] transition hover:bg-[#f7f4ed] disabled:cursor-not-allowed disabled:opacity-50"
+                className="discero-button-secondary inline-flex min-h-11 items-center justify-center rounded-xl border px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Add transaction
               </button>
@@ -1043,7 +1038,7 @@ export default function TransactionsPage() {
                 type="button"
                 onClick={exportFilteredTransactions}
                 disabled={!userId || exporting}
-                className="inline-flex min-h-11 items-center justify-center rounded-full border border-[#14241e]/10 bg-white px-5 text-sm font-semibold text-[#14241e] transition hover:bg-[#f7f4ed] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-xl px-3 text-sm font-semibold text-[#706961] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {exporting ? "Preparing export..." : "Export CSV"}
               </button>
@@ -1052,9 +1047,16 @@ export default function TransactionsPage() {
                 type="button"
                 onClick={syncTransactions}
                 disabled={!userId || syncing}
-                className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#14241e] px-5 text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:cursor-not-allowed disabled:opacity-50"
+                aria-busy={syncing}
+                className="discero-button-primary inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold transition disabled:cursor-not-allowed"
               >
-                {syncing ? "Syncing transactions..." : "Sync transactions"}
+                {syncing && (
+                  <span
+                    aria-hidden="true"
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none"
+                  />
+                )}
+                {syncing ? "Syncing…" : "Sync transactions"}
               </button>
             </div>
           </header>
@@ -1066,26 +1068,30 @@ export default function TransactionsPage() {
               <CardSkeleton count={4} />
             </section>
           ) : (
-          <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <section className="mt-5 grid overflow-hidden border-y border-[#181713]/10 bg-[#FFFCF7] sm:grid-cols-2 xl:grid-cols-4 xl:divide-x xl:divide-[#181713]/10">
             <SummaryItem
               label="Transactions"
-              value={total.toLocaleString()}
+              value={total}
+              format={(value) => Math.round(value).toLocaleString()}
             />
             <SummaryItem
               label="Income"
-              value={formatCents(totalIncome)}
-              valueClassName="text-[#167c5a]"
+              value={totalIncome}
+              format={formatCents}
+              valueClassName="text-[#58715A]"
             />
             <SummaryItem
               label="Spending"
-              value={formatCents(-totalSpending)}
-              valueClassName="text-[#a64b3d]"
+              value={totalSpending}
+              format={(value) => formatCents(-value)}
+              valueClassName="text-[#A25543]"
             />
             <SummaryItem
               label="Net activity"
-              value={formatCents(net)}
+              value={net}
+              format={formatCents}
               valueClassName={
-                net >= 0 ? "text-[#167c5a]" : "text-[#a64b3d]"
+                net >= 0 ? "text-[#58715A]" : "text-[#A25543]"
               }
             />
           </section>
@@ -1103,7 +1109,7 @@ export default function TransactionsPage() {
             </div>
           )}
 
-          <section className="sticky top-0 z-30 mt-5 border-y border-[#14241e]/10 bg-[#f5f1e8]/95 py-3 backdrop-blur lg:top-0">
+          <section className="sticky top-0 z-30 mt-5 border-y border-[#181713]/10 bg-[#F5F1EA]/95 py-3 backdrop-blur lg:top-0">
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                 <div className="relative min-w-0 flex-1">
@@ -1119,7 +1125,7 @@ export default function TransactionsPage() {
                     }}
                     aria-label="Search transactions"
                     placeholder="Search merchant, description, category, or account"
-                    className="h-11 w-full rounded-xl border border-[#14241e]/10 bg-white pl-11 pr-4 text-sm outline-none transition placeholder:text-[#98a19d] focus:border-[#167c5a]"
+                    className="h-11 w-full rounded-xl border border-[#181713]/10 bg-white pl-11 pr-4 text-sm outline-none transition placeholder:text-[#8A8178] focus:border-[#6E4B63]"
                   />
                 </div>
 
@@ -1130,14 +1136,14 @@ export default function TransactionsPage() {
                     aria-expanded={showFilters}
                     className={`inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${
                       showFilters || activeFilterCount > 0
-                        ? "border-[#167c5a] bg-[#e7f3eb] text-[#126a4d]"
-                        : "border-[#14241e]/10 bg-white hover:bg-[#f9f7f1]"
+                        ? "border-[#6E4B63] bg-[#EDE5DE] text-[#6E4B63]"
+                        : "border-[#181713]/10 bg-white hover:bg-[#F8F4EE]"
                     }`}
                   >
                     <FilterIcon />
                     Filters
                     {activeFilterCount > 0 && (
-                      <span className="rounded-full bg-[#167c5a] px-2 py-0.5 text-xs text-white">
+                      <span className="rounded-full bg-[#6E4B63] px-2 py-0.5 text-xs text-white">
                         {activeFilterCount}
                       </span>
                     )}
@@ -1153,14 +1159,14 @@ export default function TransactionsPage() {
                     }}
                     className={`inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${
                       duplicatesOnly
-                        ? "border-[#167c5a] bg-[#e7f3eb] text-[#126a4d]"
-                        : "border-[#14241e]/10 bg-white hover:bg-[#f9f7f1]"
+                        ? "border-[#6E4B63] bg-[#EDE5DE] text-[#6E4B63]"
+                        : "border-[#181713]/10 bg-white hover:bg-[#F8F4EE]"
                     }`}
                   >
                     <span
                       aria-hidden="true"
                       className={`relative h-5 w-9 rounded-full transition ${
-                        duplicatesOnly ? "bg-[#167c5a]" : "bg-[#c9cfcc]"
+                        duplicatesOnly ? "bg-[#6E4B63]" : "bg-[#c9cfcc]"
                       }`}
                     >
                       <span
@@ -1179,8 +1185,8 @@ export default function TransactionsPage() {
                       aria-pressed={density === "compact"}
                       className={`h-full rounded-lg px-3 text-xs font-semibold transition ${
                         density === "compact"
-                          ? "bg-[#14241e] text-white"
-                          : "text-[#66746e]"
+                          ? "bg-[#181713] text-white"
+                          : "text-[#706961]"
                       }`}
                     >
                       Compact
@@ -1192,8 +1198,8 @@ export default function TransactionsPage() {
                       aria-pressed={density === "comfortable"}
                       className={`h-full rounded-lg px-3 text-xs font-semibold transition ${
                         density === "comfortable"
-                          ? "bg-[#14241e] text-white"
-                          : "text-[#66746e]"
+                          ? "bg-[#181713] text-white"
+                          : "text-[#706961]"
                       }`}
                     >
                       Comfortable
@@ -1209,7 +1215,7 @@ export default function TransactionsPage() {
                   animate={{ opacity: 1, height: "auto", y: 0 }}
                   exit={{ opacity: 0, height: 0, y: -8 }}
                   transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-                  className="grid overflow-hidden gap-2 rounded-2xl border border-[#14241e]/10 bg-white p-3 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1.4fr_1fr_1fr_auto]"
+                  className="grid overflow-hidden gap-2 bg-[#FFFCF7] py-3 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1.4fr_1fr_1fr_auto]"
                 >
                   <FilterSelect
                     value={category}
@@ -1268,7 +1274,7 @@ export default function TransactionsPage() {
                       setFromDate(event.target.value);
                       setPage(1);
                     }}
-                    className="h-10 rounded-xl border border-[#14241e]/10 bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#167c5a]"
+                    className="h-10 rounded-xl border border-[#181713]/10 bg-[#F8F4EE] px-3 text-sm outline-none focus:border-[#6E4B63]"
                   />
 
                   <input
@@ -1280,13 +1286,13 @@ export default function TransactionsPage() {
                       setToDate(event.target.value);
                       setPage(1);
                     }}
-                    className="h-10 rounded-xl border border-[#14241e]/10 bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#167c5a]"
+                    className="h-10 rounded-xl border border-[#181713]/10 bg-[#F8F4EE] px-3 text-sm outline-none focus:border-[#6E4B63]"
                   />
 
                   <button
                     type="button"
                     onClick={clearFilters}
-                    className="h-10 rounded-xl px-4 text-sm font-semibold text-[#167c5a] transition hover:bg-[#edf5ee]"
+                    className="h-10 rounded-xl px-4 text-sm font-semibold text-[#6E4B63] transition hover:bg-[#EDE7E1]"
                   >
                     Clear
                   </button>
@@ -1303,7 +1309,7 @@ export default function TransactionsPage() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.99 }}
               transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-              className="mt-4 flex flex-col gap-3 rounded-2xl border border-[#167c5a]/20 bg-[#e7f3eb] p-3 sm:flex-row sm:items-center sm:justify-between"
+              className="mt-4 flex flex-col gap-3 rounded-2xl border border-[#6E4B63]/20 bg-[#EDE5DE] p-3 sm:flex-row sm:items-center sm:justify-between"
             >
               <p className="text-sm font-semibold text-[#126a4d]">
                 {selectedIds.length} selected
@@ -1317,7 +1323,7 @@ export default function TransactionsPage() {
                   onChange={(event) =>
                     setBulkCategory(event.target.value)
                   }
-                  className="h-10 rounded-xl border border-[#167c5a]/20 bg-white px-3 text-sm outline-none disabled:opacity-50"
+                  className="h-10 rounded-xl border border-[#6E4B63]/20 bg-white px-3 text-sm outline-none disabled:opacity-50"
                 >
                   <option value="">Choose category</option>
                   {EDITABLE_CATEGORIES.map((item) => (
@@ -1329,7 +1335,7 @@ export default function TransactionsPage() {
                   type="button"
                   onClick={updateSelectedCategory}
                   disabled={!bulkCategory || bulkBusy}
-                  className="h-10 rounded-xl bg-[#167c5a] px-4 text-sm font-semibold text-white disabled:opacity-40"
+                  className="discero-button-primary h-10 rounded-xl px-4 text-sm font-semibold"
                 >
                   Apply category
                 </button>
@@ -1338,7 +1344,7 @@ export default function TransactionsPage() {
                   type="button"
                   onClick={deleteSelectedTransactions}
                   disabled={bulkBusy}
-                  className="h-10 rounded-xl border border-[#a64b3d]/20 bg-white px-4 text-sm font-semibold text-[#a64b3d] disabled:opacity-40"
+                  className="discero-button-destructive h-10 rounded-xl border px-4 text-sm font-semibold disabled:opacity-40"
                 >
                   Delete selected
                 </button>
@@ -1356,15 +1362,15 @@ export default function TransactionsPage() {
           )}
           </AnimatePresence>
 
-          <section className="mt-4 overflow-hidden rounded-2xl border border-[#14241e]/10 bg-white">
-            <div className="hidden grid-cols-[44px_minmax(240px,1.8fr)_minmax(160px,1fr)_150px_130px_48px] items-center gap-4 border-b border-[#14241e]/10 bg-[#f9f7f1] px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780] lg:grid">
+          <section className="mt-4 overflow-hidden border-y border-[#181713]/10 bg-[#FFFCF7]">
+            <div className="hidden grid-cols-[44px_minmax(240px,1.8fr)_minmax(160px,1fr)_150px_130px_48px] items-center gap-4 border-b border-[#181713]/10 bg-[#F8F4EE] px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780] xl:grid">
               <label className="flex items-center">
                 <input
                   type="checkbox"
                   checked={allVisibleSelected}
                   onChange={toggleVisibleSelection}
                   aria-label="Select visible transactions"
-                  className="h-4 w-4 accent-[#167c5a]"
+                  className="h-4 w-4 accent-[#6E4B63]"
                 />
               </label>
 
@@ -1454,7 +1460,7 @@ export default function TransactionsPage() {
                     setPage((current) => Math.max(1, current - 1))
                   }
                   disabled={page === 1}
-                  className="h-10 rounded-xl border border-[#14241e]/10 px-4 text-sm font-semibold transition hover:bg-[#f7f4ed] disabled:opacity-40"
+                  className="discero-button-secondary h-10 rounded-xl border px-4 text-sm font-semibold transition disabled:opacity-40"
                 >
                   Previous
                 </button>
@@ -1471,7 +1477,7 @@ export default function TransactionsPage() {
                     )
                   }
                   disabled={page === totalPages}
-                  className="h-10 rounded-xl bg-[#14241e] px-4 text-sm font-semibold text-white transition hover:bg-[#20352d] disabled:opacity-40"
+                  className="discero-button-secondary h-10 rounded-xl border px-4 text-sm font-semibold transition disabled:opacity-40"
                 >
                   Next
                 </button>
@@ -1619,27 +1625,23 @@ export default function TransactionsPage() {
 function SummaryItem({
   label,
   value,
+  format,
   valueClassName = "",
 }: {
   label: string;
-  value: string;
+  value: number;
+  format: (value: number) => string;
   valueClassName?: string;
 }) {
   return (
-    <motion.article
-      whileHover={{ y: -2 }}
-      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-      className="border-l-2 border-[#14241e]/10 bg-white px-4 py-3"
-    >
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#849089]">
+    <article className="border-b border-[#181713]/10 px-5 py-4 last:border-b-0 sm:[&:nth-child(3)]:border-b-0 sm:[&:nth-child(4)]:border-b-0 xl:border-b-0">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">
         {label}
       </p>
-      <p
-        className={`mt-1 text-xl font-semibold tracking-[-0.03em] ${valueClassName}`}
-      >
-        {value}
+      <p className={`mt-1 text-xl font-semibold tracking-[-0.03em] tabular-nums ${valueClassName}`}>
+        {format(value)}
       </p>
-    </motion.article>
+    </article>
   );
 }
 
@@ -1662,7 +1664,7 @@ function FilterSelect({
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
       aria-label={ariaLabel}
-      className="h-10 min-w-0 rounded-xl border border-[#14241e]/10 bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#167c5a] disabled:cursor-not-allowed disabled:opacity-50"
+      className="h-10 min-w-0 rounded-xl border border-[#181713]/10 bg-[#F8F4EE] px-3 text-sm outline-none focus:border-[#6E4B63] disabled:cursor-not-allowed disabled:opacity-50"
     >
       {options.map((option) => (
         <option key={option.value} value={option.value}>
@@ -1715,23 +1717,23 @@ function TransactionGroup({
       initial={reduceMotion ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: reduceMotion ? 0 : 0.32 }}
-      className="border-b border-[#14241e]/10 last:border-b-0"
+      className="border-b border-[#181713]/10 last:border-b-0"
     >
-      <div className="flex items-center justify-between bg-[#faf8f3] px-4 py-2.5">
-        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#68756f]">
+      <div className="flex items-center justify-between bg-[#F8F4EE] px-4 py-2.5">
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#706961]">
           {formatDateHeading(date)}
         </p>
 
         <p
           className={`text-xs font-semibold ${
-            dailyTotal >= 0 ? "text-[#167c5a]" : "text-[#a64b3d]"
+            dailyTotal >= 0 ? "text-[#58715A]" : "text-[#A25543]"
           }`}
         >
           {formatCents(dailyTotal)}
         </p>
       </div>
 
-      {transactions.map((transaction) => (
+      {transactions.map((transaction, index) => (
         <TransactionListRow
           key={transaction.id}
           transaction={transaction}
@@ -1739,6 +1741,7 @@ function TransactionGroup({
           busy={busyId === transaction.id}
           selected={selectedIds.includes(transaction.id)}
           menuOpen={menuId === transaction.id}
+          index={index}
           onSelect={() => onSelect(transaction.id)}
           onOpen={() => onOpen(transaction.id)}
           onMenuChange={(open) =>
@@ -1761,6 +1764,7 @@ function TransactionListRow({
   busy,
   selected,
   menuOpen,
+  index,
   onSelect,
   onOpen,
   onMenuChange,
@@ -1773,6 +1777,7 @@ function TransactionListRow({
   busy: boolean;
   selected: boolean;
   menuOpen: boolean;
+  index: number;
   onSelect: () => void;
   onOpen: () => void;
   onMenuChange: (open: boolean) => void;
@@ -1791,23 +1796,23 @@ function TransactionListRow({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 14, height: 0 }}
       whileHover={reduceMotion ? undefined : { x: 3 }}
-      transition={{ duration: reduceMotion ? 0 : 0.22 }}
-      className={`relative grid gap-3 border-t border-[#14241e]/5 px-4 transition first:border-t-0 hover:bg-[#fbfaf6] lg:grid-cols-[44px_minmax(240px,1.8fr)_minmax(160px,1fr)_150px_130px_48px] lg:items-center ${padding}`}
+      transition={{ duration: reduceMotion ? 0 : 0.28, delay: reduceMotion ? 0 : index * 0.04 }}
+      className={`relative grid gap-3 border-t border-[#181713]/5 px-4 transition first:border-t-0 hover:bg-[#FBF8F3] xl:grid-cols-[44px_minmax(240px,1.8fr)_minmax(160px,1fr)_150px_130px_48px] xl:items-center ${padding}`}
     >
-      <label className="absolute left-4 top-4 flex lg:static">
+      <label className="absolute left-4 top-4 flex xl:static">
         <input
           type="checkbox"
           checked={selected}
           onChange={onSelect}
           aria-label={`Select ${transaction.description}`}
-          className="h-4 w-4 accent-[#167c5a]"
+          className="h-4 w-4 accent-[#6E4B63]"
         />
       </label>
 
       <button
         type="button"
         onClick={onOpen}
-        className="min-w-0 pl-8 text-left lg:pl-0"
+        className="min-w-0 pl-8 text-left xl:pl-0"
       >
         <div className="flex min-w-0 items-center gap-2">
           <p className="truncate text-sm font-semibold">
@@ -1829,7 +1834,7 @@ function TransactionListRow({
               </span>
             )}
 
-          <span className="rounded-full bg-[#edf5ee] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#476457]">
+          <span className="rounded-full bg-[#EDE7E1] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#6E4B63]">
             {sourceLabel(transaction.source)}
           </span>
         </div>
@@ -1859,7 +1864,7 @@ function TransactionListRow({
         disabled={busy}
         onChange={(event) => onCategoryChange(event.target.value)}
         onClick={(event) => event.stopPropagation()}
-        className="h-9 rounded-xl border border-[#14241e]/10 bg-[#f7f4ed] px-3 text-xs font-medium outline-none focus:border-[#167c5a] disabled:opacity-50"
+        className="h-9 rounded-xl border border-[#181713]/10 bg-[#F8F4EE] px-3 text-xs font-medium outline-none focus:border-[#6E4B63] disabled:opacity-50"
       >
         {EDITABLE_CATEGORIES.map((item) => (
           <option key={item}>{item}</option>
@@ -1872,8 +1877,8 @@ function TransactionListRow({
         aria-label={`Amount ${formatCents(transaction.amount_cents)} for ${
           transaction.merchant_name || transaction.description
         }`}
-        className={`text-left text-base font-semibold lg:text-right ${
-          positive ? "text-[#167c5a]" : "text-[#a64b3d]"
+        className={`text-left text-base font-semibold xl:text-right ${
+          positive ? "text-[#58715A]" : "text-[#A25543]"
         }`}
       >
         {formatCents(transaction.amount_cents)}
@@ -1987,7 +1992,7 @@ function TransactionDrawer({
       >
         <header className="flex items-start justify-between border-b border-[#14241e]/10 px-6 py-5">
           <div className="min-w-0 pr-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#167c5a]">
+            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#6E4B63]">
               Transaction details
             </p>
 
@@ -2013,7 +2018,7 @@ function TransactionDrawer({
           <div className="border-b border-[#14241e]/10 pb-6">
             <p
               className={`text-4xl font-semibold tracking-[-0.05em] ${
-                positive ? "text-[#167c5a]" : "text-[#a64b3d]"
+                positive ? "text-[#58715A]" : "text-[#A25543]"
               }`}
             >
               {formatCents(transaction.amount_cents)}
@@ -2086,7 +2091,7 @@ function TransactionDrawer({
                 onChange={(event) =>
                   onCategoryChange(event.target.value)
                 }
-                className="mt-2 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm font-normal normal-case tracking-normal outline-none focus:border-[#167c5a] disabled:opacity-50"
+                className="mt-2 h-11 w-full rounded-xl border border-[#181713]/10 bg-white px-3 text-sm font-normal normal-case tracking-normal outline-none focus:border-[#6E4B63] disabled:opacity-50"
               >
                 {EDITABLE_CATEGORIES.map((item) => (
                   <option key={item}>{item}</option>
@@ -2101,7 +2106,7 @@ function TransactionDrawer({
             type="button"
             onClick={onEdit}
             disabled={busy}
-            className="h-11 w-full rounded-xl border border-[#14241e]/10 bg-white text-sm font-semibold text-[#14241e] transition hover:bg-[#f7f4ed] disabled:opacity-50"
+            className="discero-button-secondary h-11 w-full rounded-xl border text-sm font-semibold transition disabled:opacity-50"
           >
             Edit transaction
           </button>
@@ -2110,7 +2115,7 @@ function TransactionDrawer({
             type="button"
             onClick={onDelete}
             disabled={busy}
-            className="h-11 w-full rounded-xl border border-[#a64b3d]/20 bg-white text-sm font-semibold text-[#a64b3d] transition hover:bg-[#fdf1ed] disabled:opacity-50"
+            className="discero-button-destructive h-11 w-full rounded-xl border text-sm font-semibold transition disabled:opacity-50"
           >
             {busy ? "Working..." : "Delete transaction"}
           </button>
@@ -2196,7 +2201,7 @@ function TransactionFormModal({
         }}
         className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[28px] border border-[#14241e]/10 bg-[#fdfcf8] p-6 shadow-[0_30px_90px_rgba(20,36,30,0.28)] sm:p-7"
       >
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
           {mode === "create" ? "New transaction" : "Edit transaction"}
         </p>
 
@@ -2229,7 +2234,7 @@ function TransactionFormModal({
               disabled={busy}
               className={`h-10 rounded-xl border text-sm font-semibold transition disabled:opacity-50 ${
                 type === "income"
-                  ? "border-[#167c5a] bg-[#e7f3eb] text-[#126a4d]"
+                  ? "border-[#6E4B63] bg-[#EDE5DE] text-[#6E4B63]"
                   : "border-[#14241e]/10 bg-white text-[#66746e]"
               }`}
             >
@@ -2249,7 +2254,7 @@ function TransactionFormModal({
               value={amount}
               onChange={(event) => onAmountChange(event.target.value)}
               disabled={busy}
-              className="mt-1 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm outline-none focus:border-[#167c5a] disabled:opacity-50"
+              className="mt-1 h-11 w-full rounded-xl border border-[#181713]/10 bg-white px-3 text-sm outline-none focus:border-[#6E4B63] disabled:opacity-50"
             />
           </label>
 
@@ -2262,7 +2267,7 @@ function TransactionFormModal({
               value={date}
               onChange={(event) => onDateChange(event.target.value)}
               disabled={busy}
-              className="mt-1 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm outline-none focus:border-[#167c5a] disabled:opacity-50"
+              className="mt-1 h-11 w-full rounded-xl border border-[#181713]/10 bg-white px-3 text-sm outline-none focus:border-[#6E4B63] disabled:opacity-50"
             />
           </label>
 
@@ -2278,7 +2283,7 @@ function TransactionFormModal({
               }
               disabled={busy}
               maxLength={512}
-              className="mt-1 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm outline-none focus:border-[#167c5a] disabled:opacity-50"
+              className="mt-1 h-11 w-full rounded-xl border border-[#181713]/10 bg-white px-3 text-sm outline-none focus:border-[#6E4B63] disabled:opacity-50"
             />
           </label>
 
@@ -2292,7 +2297,7 @@ function TransactionFormModal({
               onChange={(event) => onMerchantChange(event.target.value)}
               disabled={busy}
               maxLength={255}
-              className="mt-1 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm outline-none focus:border-[#167c5a] disabled:opacity-50"
+              className="mt-1 h-11 w-full rounded-xl border border-[#181713]/10 bg-white px-3 text-sm outline-none focus:border-[#6E4B63] disabled:opacity-50"
             />
           </label>
 
@@ -2304,7 +2309,7 @@ function TransactionFormModal({
               value={category}
               onChange={(event) => onCategoryChange(event.target.value)}
               disabled={busy}
-              className="mt-1 h-11 w-full rounded-xl border border-[#14241e]/10 bg-white px-3 text-sm outline-none focus:border-[#167c5a] disabled:opacity-50"
+              className="mt-1 h-11 w-full rounded-xl border border-[#181713]/10 bg-white px-3 text-sm outline-none focus:border-[#6E4B63] disabled:opacity-50"
             >
               {EDITABLE_CATEGORIES.map((item) => (
                 <option key={item}>{item}</option>
@@ -2327,7 +2332,7 @@ function TransactionFormModal({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="min-h-11 rounded-full border border-[#14241e]/10 bg-white px-5 text-sm font-semibold transition hover:bg-[#f5f1e8] disabled:cursor-not-allowed disabled:opacity-50"
+            className="discero-button-secondary min-h-11 rounded-full border px-5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50"
           >
             Cancel
           </button>
@@ -2335,7 +2340,7 @@ function TransactionFormModal({
           <button
             type="submit"
             disabled={busy}
-            className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#167c5a] px-5 text-sm font-semibold text-white transition hover:bg-[#126a4d] disabled:cursor-not-allowed disabled:opacity-60"
+            className="discero-button-primary inline-flex min-h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition disabled:cursor-not-allowed"
           >
             {busy
               ? "Saving..."

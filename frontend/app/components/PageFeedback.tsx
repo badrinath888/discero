@@ -71,11 +71,11 @@ export function PageSuccess({
     <div
       role="status"
       aria-live="polite"
-      className="flex items-center gap-3 rounded-xl border border-[#167c5a]/30 bg-[#dcefe3] px-4 py-3.5 text-sm font-semibold text-[#0f5f43] shadow-sm"
+      className="flex items-center gap-3 rounded-xl border border-[#58715A]/30 bg-[#E3EBE1] px-4 py-3.5 text-sm font-semibold text-[#48634B] shadow-sm"
     >
       <span
         aria-hidden="true"
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#167c5a] text-xs text-white"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#58715A] text-xs text-white"
       >
         ✓
       </span>
@@ -99,19 +99,19 @@ export function EmptyState({
   children?: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-dashed border-white/[0.1] bg-[#101916] px-6 py-12 text-center">
+    <div className="rounded-xl border border-[#DED8CF] bg-[#FFFCF7] px-6 py-8 text-center">
       <div
         aria-hidden="true"
-        className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.08] text-slate-600"
+        className="mx-auto flex h-9 w-9 items-center justify-center rounded-lg bg-[#EDE5DE] text-[#6E4B63]"
       >
         ◎
       </div>
 
-      <h2 className="mt-4 text-sm font-medium text-slate-300">
+      <h2 className="mt-3 text-sm font-semibold text-[#181713]">
         {title}
       </h2>
 
-      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#706961]">
         {description}
       </p>
 
@@ -121,7 +121,7 @@ export function EmptyState({
         <button
           type="button"
           onClick={onAction}
-          className="focus-ring mt-5 rounded-lg bg-[#55d6a7] px-4 py-2.5 text-sm font-semibold text-[#07110e] transition hover:bg-[#6ee0b5]"
+          className="discero-button-primary mt-5 rounded-lg px-4 py-2.5 text-sm font-semibold transition"
         >
           {actionLabel}
         </button>

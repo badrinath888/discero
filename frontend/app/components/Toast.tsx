@@ -54,14 +54,14 @@ export default function Toast({
           }}
           className={`fixed right-4 top-20 z-[70] flex w-auto max-w-[calc(100%-2rem)] items-center gap-2.5 rounded-2xl border px-4 py-3 shadow-[0_20px_55px_rgba(20,36,30,0.22)] sm:right-6 sm:top-6 ${
             isSuccess
-              ? "border-[#167c5a]/25 bg-[#edf7f0] text-[#0f5f43]"
+              ? "border-[#58715A]/25 bg-[#E3EBE1] text-[#48634B]"
               : "border-[#a64b3d]/25 bg-[#fff3ef] text-[#8f3f33]"
           }`}
         >
           <span
             aria-hidden="true"
             className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white ${
-              isSuccess ? "bg-[#167c5a]" : "bg-[#a64b3d]"
+              isSuccess ? "bg-[#58715A]" : "bg-[#A25543]"
             }`}
           >
             {isSuccess ? (

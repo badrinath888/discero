@@ -10,7 +10,6 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
-  CalendarClock,
   Check,
   ChevronRight,
   Clock3,
@@ -105,6 +104,7 @@ function statusLabel(status: RecurringItemStatus): string {
 
 export default function RecurringPage() {
   const router = useRouter();
+  const reduceMotion = useReducedMotion();
   const [userId, setUserId] = useState<number | null>(null);
   const [payments, setPayments] = useState<RecurringPayment[]>([]);
   const [items, setItems] = useState<RecurringItem[]>([]);
@@ -391,23 +391,22 @@ export default function RecurringPage() {
     managedItems.length > 0 || visibleDetected.length > 0;
 
   return (
-    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
+    <main className="min-h-screen bg-[#F5F1EA] text-[#181713]">
       <AppSidebar />
 
-      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-9">
+      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto max-w-[1500px]">
           <Reveal>
-            <header className="flex flex-col gap-6 border-b border-[#14241e]/10 pb-7 lg:flex-row lg:items-end lg:justify-between">
+            <header className="flex flex-col gap-6 border-b border-[#181713]/10 pb-7 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
-                  Subscription intelligence
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
+                  Recurring commitments
                 </p>
                 <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                  Recurring
+                  What money is already committed?
                 </h1>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66746e]">
-                  Confirm detected patterns, manage active bills, and
-                  stay ahead of upcoming charges.
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#706961]">
+                  Understand your recurring load, upcoming obligations, and changes that need review.
                 </p>
               </div>
             </header>
@@ -442,89 +441,64 @@ export default function RecurringPage() {
           ) : (
             <>
               <Reveal delay={0.06}>
-                <section className="mt-6 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-                  <article className="premium-hover relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.18)] sm:p-9">
-                    <div className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full bg-[#76dfbd]/15 blur-3xl" />
-                    <div className="relative">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
+                <section className="mt-6 border-y border-[#181713]/10 bg-[#FFFCF7] px-5 py-7 sm:px-8 sm:py-8">
+                  <div className="grid gap-8 xl:grid-cols-[minmax(280px,0.9fr)_minmax(520px,1.35fr)] xl:items-end">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
                         Monthly recurring load
                       </p>
                       <AnimatedNumber
                         value={summary.monthly}
                         format={(value) => formatCents(-value)}
-                        className="mt-4 block text-5xl font-semibold tracking-[-0.06em] sm:text-6xl"
+                        className="mt-4 block text-5xl font-semibold tracking-[-0.06em] text-[#2F2930] sm:text-6xl"
                       />
-                      <p className="mt-3 text-sm text-white/55">
-                        Estimated from active and confirmed recurring
-                        payments.
+                      <p className="mt-2 text-sm text-[#706961]">
+                        Active and confirmed commitments
                       </p>
-
-                      <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
-                        <RecurringMetric
-                          label="Managed"
-                          value={String(managedItems.length)}
-                          tone="neutral"
-                        />
-                        <RecurringMetric
-                          label="Due in 30 days"
-                          value={formatCents(-summary.upcoming)}
-                          tone="warning"
-                        />
-                        <RecurringMetric
-                          label="Suggestions"
-                          value={String(visibleDetected.length)}
-                          tone={
-                            visibleDetected.length > 0
-                              ? "warning"
-                              : "positive"
-                          }
-                        />
-                      </div>
-                    </div>
-                  </article>
-
-                  <article className="premium-hover rounded-[30px] bg-[#f7e8b5] p-7 sm:p-8">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8b6518]">
-                          Next charges
-                        </p>
-                        <p className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
-                          Upcoming timeline
-                        </p>
-                      </div>
-                      <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#14241e] text-[#f7e8b5]">
-                        <CalendarClock className="h-5 w-5" />
-                      </span>
                     </div>
 
-                    <div className="mt-6 space-y-4">
-                      {upcomingItems.length === 0 ? (
-                        <p className="text-sm text-[#6b5d39]">
-                          No active charges are currently scheduled.
-                        </p>
-                      ) : (
-                        upcomingItems.map(({ item, days }) => (
-                          <div
-                            key={item.id}
-                            className="flex items-center justify-between gap-4 border-b border-[#14241e]/10 pb-4 last:border-b-0 last:pb-0"
-                          >
+                    <dl className="grid grid-cols-3 divide-x divide-[#181713]/10">
+                      {[
+                        ["Managed", String(managedItems.length)],
+                        ["Due in 30 days", formatCents(-summary.upcoming)],
+                        ["Suggestions", String(visibleDetected.length)],
+                      ].map(([label, value]) => (
+                        <div key={label} className="px-3 sm:px-6 first:pl-0 last:pr-0">
+                          <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">
+                            {label}
+                          </dt>
+                          <dd className="mt-2 text-lg font-semibold tabular-nums text-[#2F2930] sm:text-xl">
+                            {value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+
+                  <div className="mt-8 border-t border-[#181713]/10 pt-5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">
+                      Next charges
+                    </p>
+                    {upcomingItems.length === 0 ? (
+                      <p className="mt-3 text-sm text-[#706961]">
+                        No active charges are currently scheduled.
+                      </p>
+                    ) : (
+                      <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                        {upcomingItems.map(({ item, days }) => (
+                          <div key={item.id} className="flex min-w-0 items-baseline justify-between gap-3 sm:border-l sm:border-[#181713]/10 sm:pl-4 first:border-l-0 first:pl-0">
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold">
-                                {item.merchant}
-                              </p>
-                              <p className="mt-1 text-xs text-[#6b5d39]">
-                                {dueLabel(days)}
-                              </p>
+                              <p className="truncate text-sm font-semibold">{item.merchant}</p>
+                              <p className="mt-1 text-xs text-[#8A8178]">{dueLabel(days)}</p>
                             </div>
-                            <p className="shrink-0 text-sm font-semibold text-[#a64b3d]">
+                            <p className="shrink-0 text-sm font-semibold text-[#A25543]">
                               {formatCents(-item.amount_cents)}
                             </p>
                           </div>
-                        ))
-                      )}
-                    </div>
-                  </article>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </section>
               </Reveal>
 
@@ -553,18 +527,21 @@ export default function RecurringPage() {
               {visibleDetected.length > 0 && (
                 <Reveal>
                   <section className="mt-8">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
                       Needs review
                     </p>
                     <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
                       Detected suggestions
                     </h2>
 
-                    <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                      {visibleDetected.map((payment) => (
-                        <article
+                    <div className="mt-5 divide-y divide-[#181713]/10 border-y border-[#181713]/10">
+                      {visibleDetected.map((payment, index) => (
+                        <motion.article
                           key={`${payment.merchant}-${payment.last_payment}`}
-                          className="rounded-[24px] border border-[#14241e]/10 bg-white p-5"
+                          initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: reduceMotion ? 0 : 0.34, delay: reduceMotion ? 0 : index * 0.07 }}
+                          className="bg-[#FFFCF7] p-5"
                         >
                           <div className="flex items-start gap-3">
                             <MerchantAvatar merchant={payment.merchant} />
@@ -572,7 +549,7 @@ export default function RecurringPage() {
                               <p className="truncate font-semibold">
                                 {payment.merchant}
                               </p>
-                              <p className="mt-1 text-xs text-[#7b8781]">
+                              <p className="mt-1 text-xs text-[#8A8178]">
                                 {payment.frequency} ·{" "}
                                 {payment.confidence_score}% confidence
                               </p>
@@ -589,7 +566,7 @@ export default function RecurringPage() {
                               onClick={() =>
                                 void saveDetected(payment, "active")
                               }
-                              className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#167c5a] px-4 text-sm font-semibold text-white disabled:opacity-50"
+                              className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#6E4B63] px-4 text-sm font-semibold text-white disabled:opacity-50"
                             >
                               <Check className="h-4 w-4" />
                               Confirm
@@ -600,7 +577,7 @@ export default function RecurringPage() {
                               onClick={() =>
                                 void saveDetected(payment, "dismissed")
                               }
-                              className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#14241e]/10 px-4 text-sm font-semibold disabled:opacity-50"
+                              className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#181713]/10 px-4 text-sm font-semibold disabled:opacity-50"
                             >
                               <XCircle className="h-4 w-4" />
                               Dismiss
@@ -613,12 +590,12 @@ export default function RecurringPage() {
                                   payment,
                                 })
                               }
-                              className="ml-auto h-10 rounded-xl px-3 text-sm font-semibold text-[#167c5a]"
+                              className="ml-auto h-10 rounded-xl px-3 text-sm font-semibold text-[#6E4B63]"
                             >
                               Details
                             </button>
                           </div>
-                        </article>
+                        </motion.article>
                       ))}
                     </div>
                   </section>
@@ -630,7 +607,7 @@ export default function RecurringPage() {
                   <section className="mt-8">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
                           Managed patterns
                         </p>
                         <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
@@ -640,7 +617,7 @@ export default function RecurringPage() {
 
                       <div className="flex flex-col gap-2 sm:flex-row">
                         <label className="relative min-w-0 sm:w-72">
-                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#87928d]" />
+                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8178]" />
                           <input
                             value={search}
                             onChange={(event) =>
@@ -648,11 +625,11 @@ export default function RecurringPage() {
                             }
                             aria-label="Search recurring payments"
                             placeholder="Search merchant, frequency, or status"
-                            className="h-11 w-full rounded-xl border border-[#14241e]/10 bg-white pl-10 pr-4 text-sm outline-none focus:border-[#167c5a]"
+                            className="h-11 w-full rounded-xl border border-[#181713]/10 bg-white pl-10 pr-4 text-sm outline-none focus:border-[#6E4B63]"
                           />
                         </label>
 
-                        <div className="flex h-11 items-center rounded-xl border border-[#14241e]/10 bg-white p-1">
+                        <div className="flex h-11 items-center rounded-xl border border-[#181713]/10 bg-white p-1">
                           {(
                             [
                               ["all", "All"],
@@ -666,8 +643,8 @@ export default function RecurringPage() {
                               onClick={() => setFilter(value)}
                               className={`h-full rounded-lg px-3 text-xs font-semibold transition ${
                                 filter === value
-                                  ? "bg-[#14241e] text-white"
-                                  : "text-[#66746e]"
+                                  ? "bg-[#181713] text-white"
+                                  : "text-[#706961]"
                               }`}
                             >
                               {label}
@@ -677,8 +654,8 @@ export default function RecurringPage() {
                       </div>
                     </div>
 
-                    <div className="mt-5 overflow-hidden rounded-[24px] border border-[#14241e]/10 bg-white">
-                      <header className="hidden border-b border-[#14241e]/10 bg-[#faf8f3] px-5 py-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780] md:grid md:grid-cols-[minmax(220px,1.4fr)_130px_150px_150px_130px_40px] md:items-center">
+                    <div className="mt-5 overflow-hidden border-y border-[#181713]/10 bg-[#FFFCF7]">
+                      <header className="hidden border-b border-[#181713]/10 bg-[#F8F4EE] px-5 py-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8780] xl:grid xl:grid-cols-[minmax(220px,1.4fr)_130px_150px_150px_130px_40px] xl:items-center">
                         <span>Merchant</span>
                         <span>Frequency</span>
                         <span>Payment</span>
@@ -687,11 +664,12 @@ export default function RecurringPage() {
                         <span />
                       </header>
 
-                      <div className="divide-y divide-[#14241e]/8">
-                        {filteredItems.map((item) => (
+                      <div className="divide-y divide-[#181713]/8">
+                        {filteredItems.map((item, index) => (
                           <RecurringItemRow
                             key={item.id}
                             item={item}
+                            index={index}
                             onOpen={() =>
                               setSelection({ kind: "saved", item })
                             }
@@ -704,7 +682,7 @@ export default function RecurringPage() {
                           <p className="text-sm font-semibold">
                             No recurring payments match
                           </p>
-                          <p className="mt-2 text-sm text-[#7b8781]">
+                          <p className="mt-2 text-sm text-[#8A8178]">
                             Adjust the search or filter to see more results.
                           </p>
                         </div>
@@ -714,7 +692,7 @@ export default function RecurringPage() {
                 </Reveal>
               )}
 
-              <p className="mt-6 text-xs leading-5 text-[#7b8781]">
+              <p className="mt-6 text-xs leading-5 text-[#8A8178]">
                 Recurring payments are inferred from transaction timing
                 and amount consistency. Predictions may not match future
                 charges exactly.
@@ -747,38 +725,13 @@ export default function RecurringPage() {
   );
 }
 
-function RecurringMetric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "positive" | "warning" | "neutral";
-}) {
-  const className = {
-    positive: "text-[#83dcb9]",
-    warning: "text-[#f4c978]",
-    neutral: "text-white",
-  };
-
-  return (
-    <div className="bg-white/[0.045] p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-        {label}
-      </p>
-      <p className={`mt-2 text-lg font-semibold ${className[tone]}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
 function RecurringItemRow({
   item,
+  index,
   onOpen,
 }: {
   item: RecurringItem;
+  index: number;
   onOpen: () => void;
 }) {
   const reduceMotion = useReducedMotion();
@@ -788,13 +741,15 @@ function RecurringItemRow({
     <motion.button
       type="button"
       onClick={onOpen}
+      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
       whileHover={
         reduceMotion
           ? undefined
           : { x: 3, backgroundColor: "#fbfaf6" }
       }
-      transition={{ duration: reduceMotion ? 0 : 0.2 }}
-      className="grid w-full gap-4 px-5 py-4 text-left md:grid-cols-[minmax(220px,1.4fr)_130px_150px_150px_130px_40px] md:items-center"
+      transition={{ duration: reduceMotion ? 0 : 0.3, delay: reduceMotion ? 0 : index * 0.05 }}
+      className="grid w-full gap-4 px-5 py-4 text-left xl:grid-cols-[minmax(220px,1.4fr)_130px_150px_150px_130px_40px] xl:items-center"
     >
       <div className="flex min-w-0 items-center gap-3">
         <MerchantAvatar merchant={item.merchant} />
@@ -802,7 +757,7 @@ function RecurringItemRow({
           <p className="truncate text-sm font-semibold">
             {item.merchant}
           </p>
-          <p className="mt-1 text-xs text-[#87928d]">
+          <p className="mt-1 text-xs text-[#8A8178]">
             {item.category ?? "Uncategorized"}
           </p>
         </div>
@@ -815,7 +770,7 @@ function RecurringItemRow({
 
       <div>
         <p className="text-sm font-medium">{dueLabel(days)}</p>
-        <p className="mt-1 text-xs text-[#87928d]">
+        <p className="mt-1 text-xs text-[#8A8178]">
           {new Date(
             `${item.next_payment}T00:00:00`
           ).toLocaleDateString("en-US")}
@@ -825,18 +780,18 @@ function RecurringItemRow({
       <span
         className={`w-fit rounded-full px-3 py-1.5 text-xs font-semibold ${
           item.status === "active"
-            ? "bg-[#edf5ee] text-[#167c5a]"
+            ? "bg-[#E8EEE7] text-[#6E4B63]"
             : item.status === "paused"
               ? "bg-[#f7e8b5] text-[#8b6518]"
               : item.status === "cancelled"
                 ? "bg-[#f8ddd5] text-[#923f32]"
-                : "bg-[#eef0ef] text-[#66746e]"
+                : "bg-[#eef0ef] text-[#706961]"
         }`}
       >
         {statusLabel(item.status)}
       </span>
 
-      <ChevronRight className="h-4 w-4 text-[#87928d]" />
+      <ChevronRight className="h-4 w-4 text-[#8A8178]" />
     </motion.button>
   );
 }
@@ -883,7 +838,7 @@ function RecurringDrawer({
         type="button"
         aria-label="Close recurring payment details"
         onClick={onClose}
-        className="absolute inset-0 bg-[#14241e]/35 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-[#181713]/35 backdrop-blur-[2px]"
       />
 
       <motion.aside
@@ -899,11 +854,11 @@ function RecurringDrawer({
         }}
         className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-[#fdfcf8] shadow-2xl"
       >
-        <header className="flex items-start justify-between border-b border-[#14241e]/10 px-6 py-5">
+        <header className="flex items-start justify-between border-b border-[#181713]/10 px-6 py-5">
           <div className="flex min-w-0 items-center gap-3 pr-4">
             <MerchantAvatar merchant={payment.merchant} />
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
                 {selection.kind === "detected"
                   ? "Detected suggestion"
                   : "Managed recurring payment"}
@@ -921,14 +876,14 @@ function RecurringDrawer({
             type="button"
             onClick={onClose}
             aria-label="Close recurring payment details"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#14241e]/10 bg-white"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#181713]/10 bg-white"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </header>
 
         <div className="flex-1 overflow-y-auto px-6 py-6">
-          <p className="text-sm text-[#728078]">Typical payment</p>
+          <p className="text-sm text-[#777168]">Typical payment</p>
           <p className="mt-2 text-4xl font-semibold tracking-[-0.05em] text-[#a64b3d]">
             {formatCents(-payment.amount_cents)}
           </p>
@@ -948,7 +903,7 @@ function RecurringDrawer({
             </div>
           )}
 
-          <dl className="mt-7 divide-y divide-[#14241e]/10 border-y border-[#14241e]/10">
+          <dl className="mt-7 divide-y divide-[#181713]/10 border-y border-[#181713]/10">
             <DrawerDetail
               label="Frequency"
               value={payment.frequency}
@@ -983,14 +938,14 @@ function RecurringDrawer({
             )}
           </dl>
 
-          <div className="mt-7 rounded-2xl bg-[#edf5ee] p-5">
+          <div className="mt-7 rounded-2xl bg-[#E8EEE7] p-5">
             <div className="flex gap-3">
-              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#167c5a]" />
+              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#6E4B63]" />
               <div>
                 <p className="text-sm font-semibold">
                   Detection insight
                 </p>
-                <p className="mt-1 text-sm leading-6 text-[#66746e]">
+                <p className="mt-1 text-sm leading-6 text-[#706961]">
                   Discero identified this pattern from repeated timing
                   and similar transaction amounts.
                 </p>
@@ -998,22 +953,22 @@ function RecurringDrawer({
             </div>
           </div>
 
-          <div className="mt-5 flex items-center gap-3 rounded-2xl border border-[#14241e]/10 bg-white p-4">
-            <Clock3 className="h-5 w-5 text-[#728078]" />
-            <p className="text-sm text-[#66746e]">
+          <div className="mt-5 flex items-center gap-3 rounded-2xl border border-[#181713]/10 bg-white p-4">
+            <Clock3 className="h-5 w-5 text-[#777168]" />
+            <p className="text-sm text-[#706961]">
               Future timing and amounts remain estimates.
             </p>
           </div>
         </div>
 
-        <footer className="border-t border-[#14241e]/10 bg-white px-6 py-5">
+        <footer className="border-t border-[#181713]/10 bg-white px-6 py-5">
           {selection.kind === "detected" ? (
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
                 disabled={working}
                 onClick={() => onConfirm(selection.payment)}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#167c5a] text-sm font-semibold text-white disabled:opacity-50"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#6E4B63] text-sm font-semibold text-white disabled:opacity-50"
               >
                 <Check className="h-4 w-4" />
                 Confirm
@@ -1022,7 +977,7 @@ function RecurringDrawer({
                 type="button"
                 disabled={working}
                 onClick={() => onDismiss(selection.payment)}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#14241e]/10 text-sm font-semibold disabled:opacity-50"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#181713]/10 text-sm font-semibold disabled:opacity-50"
               >
                 <XCircle className="h-4 w-4" />
                 Dismiss
@@ -1050,7 +1005,7 @@ function RecurringDrawer({
                     onClick={() =>
                       onStatusChange(selection.item, "active")
                     }
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#167c5a] text-sm font-semibold text-white disabled:opacity-50"
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#6E4B63] text-sm font-semibold text-white disabled:opacity-50"
                   >
                     <Play className="h-4 w-4" />
                     Activate
@@ -1074,7 +1029,7 @@ function RecurringDrawer({
                 type="button"
                 disabled={working}
                 onClick={() => onDelete(selection.item)}
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#14241e]/10 text-sm font-semibold text-[#66746e] disabled:opacity-50"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#181713]/10 text-sm font-semibold text-[#706961] disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4" />
                 Delete permanently
@@ -1096,7 +1051,7 @@ function DrawerDetail({
 }) {
   return (
     <div className="grid gap-1 py-4 sm:grid-cols-[130px_1fr]">
-      <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-[#87928d]">
+      <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-[#8A8178]">
         {label}
       </dt>
       <dd className="text-sm font-medium sm:text-right">{value}</dd>
@@ -1105,11 +1060,11 @@ function DrawerDetail({
 }
 function InsightsSkeleton() {
   return (
-    <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {Array.from({ length: 4 }).map((_, index) => (
+    <div className="mt-8 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+      {Array.from({ length: 2 }).map((_, index) => (
         <div
           key={index}
-          className="h-32 animate-pulse rounded-[24px] border border-[#14241e]/10 bg-white"
+          className="h-44 animate-pulse border-y border-[#181713]/10 bg-white"
         />
       ))}
     </div>
@@ -1129,12 +1084,12 @@ function SignalCard({
 }) {
   const toneClass = {
     warning: "bg-[#f7e8b5] text-[#8b6518]",
-    neutral: "bg-[#eef0ef] text-[#66746e]",
-    positive: "bg-[#edf5ee] text-[#167c5a]",
+    neutral: "bg-[#eef0ef] text-[#706961]",
+    positive: "bg-[#E8EEE7] text-[#6E4B63]",
   }[tone];
 
   return (
-    <article className="rounded-[24px] border border-[#14241e]/10 bg-white p-5">
+    <article className="border-l-2 border-[#C89A78] bg-[#FFFCF7] px-5 py-6 sm:px-6">
       <div className="flex items-center gap-3">
         <span
           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${toneClass}`}
@@ -1146,6 +1101,30 @@ function SignalCard({
         </p>
       </div>
       <div className="mt-4">{children}</div>
+    </article>
+  );
+}
+
+function SignalRow({
+  icon,
+  label,
+  children,
+}: {
+  icon: ReactNode;
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <article className="grid gap-3 py-4 sm:grid-cols-[150px_1fr] sm:items-start">
+      <div className="flex items-center gap-2 text-[#7a8780]">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#EDE7E1]">
+          {icon}
+        </span>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em]">
+          {label}
+        </p>
+      </div>
+      <div>{children}</div>
     </article>
   );
 }
@@ -1164,7 +1143,7 @@ function RecurringIntelligenceSection({
   if (loading) {
     return (
       <section className="mt-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
           Recurring intelligence
         </p>
         <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
@@ -1197,7 +1176,7 @@ function RecurringIntelligenceSection({
 
   return (
     <section className="mt-8">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
         Recurring intelligence
       </p>
       <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
@@ -1205,74 +1184,58 @@ function RecurringIntelligenceSection({
       </h2>
 
       {burden.active_recurring_count === 0 ? (
-        <p className="mt-4 text-sm text-[#66746e]">
+        <p className="mt-4 text-sm text-[#706961]">
           {intelligence.data_quality_note ??
             "No active recurring items yet -- confirm a detected suggestion below to start tracking intelligence on it."}
         </p>
       ) : (
         <>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-[24px] border border-[#14241e]/10 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7a8780]">
-                Monthly burden
+          <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-y border-[#181713]/10 py-4 text-sm">
+            <p>
+              <span className="font-semibold">{formatCents(-burden.monthly_recurring_cents)}</span>{" "}
+              <span className="text-[#8A8178]">monthly</span>
+            </p>
+            {burden.percent_of_income !== null && (
+              <p className="text-[#706961]">
+                {burden.percent_of_income.toFixed(0)}% of average income
               </p>
-              <p className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
-                {formatCents(-burden.monthly_recurring_cents)}
-              </p>
-              {burden.percent_of_income !== null && (
-                <p className="mt-1 text-xs text-[#87928d]">
-                  {burden.percent_of_income.toFixed(0)}% of average income
-                </p>
-              )}
-            </div>
-            <div className="rounded-[24px] border border-[#14241e]/10 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7a8780]">
-                Active recurring
-              </p>
-              <p className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
-                {burden.active_recurring_count}
-              </p>
-            </div>
-            <div className="rounded-[24px] border border-[#14241e]/10 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7a8780]">
-                Next 30 days
-              </p>
-              <p className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
-                {formatCents(-burden.next_30_days_cents)}
-              </p>
-            </div>
-            <div className="rounded-[24px] border border-[#14241e]/10 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7a8780]">
-                Changes detected
-              </p>
-              <p className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
-                {changesDetected}
-              </p>
-            </div>
+            )}
+            <p>
+              <span className="font-semibold">{burden.active_recurring_count}</span>{" "}
+              <span className="text-[#8A8178]">active</span>
+            </p>
+            <p>
+              <span className="font-semibold">{formatCents(-burden.next_30_days_cents)}</span>{" "}
+              <span className="text-[#8A8178]">next 30 days</span>
+            </p>
+            <p>
+              <span className="font-semibold">{changesDetected}</span>{" "}
+              <span className="text-[#8A8178]">changes detected</span>
+            </p>
           </div>
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-5 grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
             <SignalCard
               icon={<TrendingUp className="h-4 w-4" />}
-              label="Increased"
+              label="Price changes"
               tone={increased.length > 0 ? "warning" : "positive"}
             >
               {increased.length === 0 ? (
-                <p className="text-sm text-[#66746e]">
+                <p className="text-sm text-[#706961]">
                   No recurring bills have increased recently.
                 </p>
               ) : (
                 <div>
-                  <p className="text-sm font-semibold">
+                  <p className="text-xl font-semibold tracking-[-0.02em]">
                     {increased[0].merchant}
                   </p>
-                  <p className="mt-1 text-xs text-[#a64b3d]">
+                  <p className="mt-2 text-sm font-medium text-[#A25543]">
                     {formatCents(-increased[0].current_amount_cents)}, up{" "}
                     {increased[0].change_percent.toFixed(0)}% from{" "}
                     {formatCents(-increased[0].baseline_amount_cents)}
                   </p>
                   {increased.length > 1 && (
-                    <p className="mt-2 text-xs text-[#87928d]">
+                    <p className="mt-2 text-xs text-[#8A8178]">
                       +{increased.length - 1} more
                     </p>
                   )}
@@ -1280,103 +1243,51 @@ function RecurringIntelligenceSection({
               )}
             </SignalCard>
 
-            <SignalCard
-              icon={<Sparkles className="h-4 w-4" />}
-              label="New"
-              tone={
-                intelligence.new_recurring.length > 0 ? "neutral" : "positive"
-              }
-            >
-              {intelligence.new_recurring.length === 0 ? (
-                <p className="text-sm text-[#66746e]">
-                  No newly established recurring payments.
-                </p>
-              ) : (
-                <div>
-                  <p className="text-sm font-semibold">
-                    {intelligence.new_recurring[0].merchant}
-                  </p>
-                  <p className="mt-1 text-xs text-[#87928d]">
-                    {formatCents(
-                      -intelligence.new_recurring[0].amount_cents
-                    )}{" "}
-                    · {intelligence.new_recurring[0].occurrences_seen} seen
-                    so far
-                  </p>
-                  {intelligence.new_recurring.length > 1 && (
-                    <p className="mt-2 text-xs text-[#87928d]">
-                      +{intelligence.new_recurring.length - 1} more
+            <div className="divide-y divide-[#181713]/10 border-y border-[#181713]/10">
+              <SignalRow icon={<Sparkles className="h-3.5 w-3.5" />} label="New">
+                {intelligence.new_recurring.length === 0 ? (
+                  <p className="text-sm text-[#706961]">No newly established recurring payments.</p>
+                ) : (
+                  <div>
+                    <p className="text-sm font-semibold">{intelligence.new_recurring[0].merchant}</p>
+                    <p className="mt-1 text-xs text-[#8A8178]">
+                      {formatCents(-intelligence.new_recurring[0].amount_cents)} · {intelligence.new_recurring[0].occurrences_seen} seen so far
                     </p>
-                  )}
-                </div>
-              )}
-            </SignalCard>
+                    {intelligence.new_recurring.length > 1 && <p className="mt-1 text-xs text-[#8A8178]">+{intelligence.new_recurring.length - 1} more</p>}
+                  </div>
+                )}
+              </SignalRow>
 
-            <SignalCard
-              icon={<HelpCircle className="h-4 w-4" />}
-              label="Possibly missing"
-              tone={
-                intelligence.possibly_missing.length > 0
-                  ? "warning"
-                  : "positive"
-              }
-            >
-              {intelligence.possibly_missing.length === 0 ? (
-                <p className="text-sm text-[#66746e]">
-                  Every active bill has arrived as expected.
-                </p>
-              ) : (
-                <div>
-                  <p className="text-sm font-semibold">
-                    {intelligence.possibly_missing[0].merchant}
-                  </p>
-                  <p className="mt-1 text-xs text-[#8b6518]">
-                    {intelligence.possibly_missing[0].days_overdue} days
-                    past expected
-                  </p>
-                  {intelligence.possibly_missing.length > 1 && (
-                    <p className="mt-2 text-xs text-[#87928d]">
-                      +{intelligence.possibly_missing.length - 1} more
-                    </p>
-                  )}
-                </div>
-              )}
-            </SignalCard>
+              <SignalRow icon={<HelpCircle className="h-3.5 w-3.5" />} label="Possibly missing">
+                {intelligence.possibly_missing.length === 0 ? (
+                  <p className="text-sm text-[#706961]">Every active bill has arrived as expected.</p>
+                ) : (
+                  <div>
+                    <p className="text-sm font-semibold">{intelligence.possibly_missing[0].merchant}</p>
+                    <p className="mt-1 text-xs text-[#8b6518]">{intelligence.possibly_missing[0].days_overdue} days past expected</p>
+                    {intelligence.possibly_missing.length > 1 && <p className="mt-1 text-xs text-[#8A8178]">+{intelligence.possibly_missing.length - 1} more</p>}
+                  </div>
+                )}
+              </SignalRow>
 
-            <SignalCard
-              icon={<Copy className="h-4 w-4" />}
-              label="Possible duplicate"
-              tone={
-                intelligence.possible_duplicates.length > 0
-                  ? "warning"
-                  : "positive"
-              }
-            >
-              {intelligence.possible_duplicates.length === 0 ? (
-                <p className="text-sm text-[#66746e]">
-                  No possible duplicate subscriptions found.
-                </p>
-              ) : (
-                <div>
-                  <p className="text-sm font-semibold">
-                    {intelligence.possible_duplicates[0].merchant_a} &{" "}
-                    {intelligence.possible_duplicates[0].merchant_b}
-                  </p>
-                  <p className="mt-1 text-xs text-[#87928d]">
-                    Similar name, amount, and cadence
-                  </p>
-                  {intelligence.possible_duplicates.length > 1 && (
-                    <p className="mt-2 text-xs text-[#87928d]">
-                      +{intelligence.possible_duplicates.length - 1} more
+              <SignalRow icon={<Copy className="h-3.5 w-3.5" />} label="Possible duplicate">
+                {intelligence.possible_duplicates.length === 0 ? (
+                  <p className="text-sm text-[#706961]">No possible duplicate subscriptions found.</p>
+                ) : (
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {intelligence.possible_duplicates[0].merchant_a} & {intelligence.possible_duplicates[0].merchant_b}
                     </p>
-                  )}
-                </div>
-              )}
-            </SignalCard>
+                    <p className="mt-1 text-xs text-[#8A8178]">Similar name, amount, and cadence</p>
+                    {intelligence.possible_duplicates.length > 1 && <p className="mt-1 text-xs text-[#8A8178]">+{intelligence.possible_duplicates.length - 1} more</p>}
+                  </div>
+                )}
+              </SignalRow>
+            </div>
           </div>
 
           {intelligence.possibly_missing.length > 0 && (
-            <p className="mt-4 text-xs leading-5 text-[#87928d]">
+            <p className="mt-4 text-xs leading-5 text-[#8A8178]">
               Discero has not seen these expected payments yet -- this
               does not necessarily mean a subscription was cancelled.
             </p>
@@ -1392,7 +1303,7 @@ function anomalySeverityClass(
 ): string {
   if (severity === "high") return "bg-[#f8ddd5] text-[#923f32]";
   if (severity === "warning") return "bg-[#f7e8b5] text-[#8b6518]";
-  return "bg-[#eef0ef] text-[#66746e]";
+  return "bg-[#eef0ef] text-[#706961]";
 }
 
 function anomalySeverityLabel(
@@ -1423,10 +1334,12 @@ function SpendingAnomaliesSection({
   error: string;
   onRetry?: () => void;
 }) {
+  const reduceMotion = useReducedMotion();
+
   if (loading) {
     return (
       <section className="mt-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
           Spending anomalies
         </p>
         <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
@@ -1449,7 +1362,7 @@ function SpendingAnomaliesSection({
 
   return (
     <section className="mt-8">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
         Spending anomalies
       </p>
       <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
@@ -1457,22 +1370,25 @@ function SpendingAnomaliesSection({
       </h2>
 
       {anomalies.anomalies.length === 0 ? (
-        <div className="mt-5 rounded-[24px] border border-dashed border-[#14241e]/15 bg-white px-6 py-10 text-center">
-          <p className="text-sm font-semibold text-[#167c5a]">
+        <div className="mt-5 rounded-[24px] border border-dashed border-[#181713]/15 bg-white px-6 py-10 text-center">
+          <p className="text-sm font-semibold text-[#6E4B63]">
             No unusual spending patterns detected from the available data.
           </p>
           {anomalies.data_quality_note && (
-            <p className="mt-2 text-xs text-[#87928d]">
+            <p className="mt-2 text-xs text-[#8A8178]">
               {anomalies.data_quality_note}
             </p>
           )}
         </div>
       ) : (
-        <div className="mt-5 space-y-3">
-          {anomalies.anomalies.slice(0, 6).map((anomaly) => (
-            <article
+        <div className="mt-5 divide-y divide-[#181713]/10 border-y border-[#181713]/10">
+          {anomalies.anomalies.slice(0, 6).map((anomaly, index) => (
+            <motion.article
               key={anomaly.id}
-              className="rounded-[24px] border border-[#14241e]/10 bg-white p-5"
+              initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: reduceMotion ? 0 : 0.34, delay: reduceMotion ? 0 : index * 0.07 }}
+              className="bg-[#FFFCF7] p-5"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -1484,14 +1400,14 @@ function SpendingAnomaliesSection({
                     >
                       {anomalySeverityLabel(anomaly.severity)}
                     </span>
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#87928d]">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8A8178]">
                       {anomalyTypeLabel(anomaly.type)}
                     </span>
                   </div>
                   <p className="mt-2 text-sm font-semibold">
                     {anomaly.title}
                   </p>
-                  <p className="mt-1 text-sm leading-6 text-[#66746e]">
+                  <p className="mt-1 text-sm leading-6 text-[#706961]">
                     {anomaly.reason}
                   </p>
                 </div>
@@ -1507,14 +1423,14 @@ function SpendingAnomaliesSection({
                   </p>
                   {anomaly.type !== "repeated_charge" &&
                     anomaly.baseline_amount_cents !== null && (
-                      <p className="mt-1 text-xs text-[#87928d]">
+                      <p className="mt-1 text-xs text-[#8A8178]">
                         vs {formatCents(-anomaly.baseline_amount_cents)}{" "}
                         usual
                       </p>
                     )}
                 </div>
               </div>
-            </article>
+            </motion.article>
           ))}
         </div>
       )}

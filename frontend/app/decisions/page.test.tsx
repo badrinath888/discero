@@ -302,7 +302,7 @@ const stressTestResult: FinancialStressTestResult = {
     "Build a safety reserve so future stress events are easier to absorb.",
   ],
   data_disclaimer:
-    "This is a simulation based on your current FinSight data, not a probabilistic forecast or financial advice.",
+    "This is a simulation based on your current Discero data, not a probabilistic forecast or financial advice.",
   safe_to_spend: {
     as_of: "2026-08-04",
     through_date: "2026-10-03",
@@ -386,7 +386,7 @@ const emergencyStressResult: FinancialStressTestResult = {
     "Maintain your current safety reserve; it is sufficient to absorb this scenario.",
   ],
   data_disclaimer:
-    "This is a simulation based on your current FinSight data, not a probabilistic forecast or financial advice.",
+    "This is a simulation based on your current Discero data, not a probabilistic forecast or financial advice.",
   safe_to_spend: {
     as_of: "2026-08-04",
     through_date: "2026-09-03",
@@ -1351,7 +1351,7 @@ describe("decisions save to history", () => {
     });
   });
 
-  it("renders 'View saved decisions' as a polished button-styled control", async () => {
+  it("renders 'View saved decisions' as a tertiary action", async () => {
     await renderPage();
 
     const link = screen.getByRole("link", {
@@ -1359,9 +1359,8 @@ describe("decisions save to history", () => {
     });
 
     expect(link).toHaveAttribute("href", "/decisions/history");
-    // Button-like styling (outlined pill), not a plain text link.
     expect(link.className).toContain("rounded-full");
-    expect(link.className).toContain("border");
+    expect(link.className).toContain("discero-button-tertiary");
   });
 
   it("scrolls to the top controls after a successful Scenario Comparison save", async () => {

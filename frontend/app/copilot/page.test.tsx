@@ -148,7 +148,7 @@ const clarifyingResponse: CopilotResponse = {
 
 const outOfScopeResponse: CopilotResponse = {
   kind: "out_of_scope",
-  answer: "I can only help with your FinSight finances.",
+  answer: "I can only help with your Discero finances.",
   why: null,
   what_this_means: null,
   key_numbers: [],
@@ -218,7 +218,7 @@ describe("Copilot page", () => {
     expect(
       screen.getByText("What's my safe to spend right now?")
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Copilot is thinking")).toBeInTheDocument();
+    expect(screen.getByLabelText("Discero analysis is in progress")).toBeInTheDocument();
 
     await waitFor(() =>
       expect(
@@ -237,7 +237,7 @@ describe("Copilot page", () => {
       screen.getByRole("button", { name: "Run a stress test" })
     ).toBeInTheDocument();
     expect(
-      screen.queryByLabelText("Copilot is thinking")
+      screen.queryByLabelText("Discero analysis is in progress")
     ).not.toBeInTheDocument();
     expect(
       screen.getByText("AI-enhanced Discero analysis")
@@ -312,7 +312,7 @@ describe("Copilot page", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText("I can only help with your FinSight finances.")
+        screen.getByText("I can only help with your Discero finances.")
       ).toBeInTheDocument()
     );
   });
@@ -470,7 +470,7 @@ describe("Copilot auto-scroll", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "The Copilot couldn't respond just now. Please try again."
+          "Ask Discero couldn't respond just now. Please try again."
         )
       ).toBeInTheDocument()
     );

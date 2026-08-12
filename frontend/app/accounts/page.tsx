@@ -219,6 +219,21 @@ export default function AccountsPage() {
     [assets]
   );
 
+  const liquidityMix = useMemo(() => {
+    const totals = { Checking: 0, Savings: 0, Credit: 0 };
+
+    for (const account of accounts) {
+      const type = `${account.account_type ?? ""} ${account.account_subtype ?? ""}`.toLowerCase();
+      const balance = Math.abs(account.current_balance_cents ?? 0);
+
+      if (type.includes("checking")) totals.Checking += balance;
+      else if (type.includes("saving")) totals.Savings += balance;
+      else if (type.includes("credit")) totals.Credit += balance;
+    }
+
+    return Object.entries(totals).filter(([, value]) => value > 0);
+  }, [accounts]);
+
   const institutionCount = useMemo(
     () =>
       new Set(
@@ -346,26 +361,21 @@ export default function AccountsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
+    <main className="min-h-screen bg-[#F5F1EA] text-[#181713]">
       <AppSidebar />
 
-      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-9">
+      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto max-w-[1500px]">
           <Reveal>
-            <header className="flex flex-col gap-6 border-b border-[#14241e]/10 pb-7 lg:flex-row lg:items-end lg:justify-between">
+            <header className="flex flex-col gap-6 border-b border-[#181713]/10 pb-7 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
-                  Connected money
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
+                  Accounts
                 </p>
 
                 <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                  Accounts
+                  What do I have available?
                 </h1>
-
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66746e]">
-                  See your full financial position, inspect every account,
-                  and keep connected balances up to date.
-                </p>
               </div>
 
               <div className="flex flex-wrap gap-3">
@@ -374,7 +384,7 @@ export default function AccountsPage() {
                     type="button"
                     onClick={handleSync}
                     disabled={syncInProgress}
-                    className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[#14241e]/10 bg-white px-5 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-[#f9f7f1] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="discero-button-secondary inline-flex min-h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <RefreshCw
                       className={`h-4 w-4 ${syncInProgress ? "animate-spin" : ""}`}
@@ -408,17 +418,17 @@ export default function AccountsPage() {
             <Reveal delay={0.04}>
               <section
                 aria-label="Synchronization status"
-                className="mt-5 grid gap-3 lg:grid-cols-2"
+                className="mt-5 divide-y divide-[#181713]/10 border-y border-[#181713]/10 bg-[#FFFCF7]"
               >
                 {connectedItems.map((item) => (
                   <article
                     key={item.plaid_item_id}
-                    className={`rounded-2xl border px-5 py-4 ${
+                    className={`px-5 py-4 ${
                       item.connection_status === "reconnect_required"
-                        ? "border-[#a64b3d]/25 bg-[#f6e6e1]"
+                        ? "bg-[#F8E6E1]"
                         : item.sync_status === "failed"
-                          ? "border-[#b8792f]/25 bg-[#fbf1df]"
-                          : "border-[#14241e]/10 bg-white"
+                          ? "bg-[#FBF1DF]"
+                          : ""
                     }`}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -426,11 +436,11 @@ export default function AccountsPage() {
                         <p className="text-sm font-semibold">
                           {item.institution_name ?? "Connected institution"}
                         </p>
-                        <p className="mt-1 text-xs text-[#66746e]">
+                        <p className="mt-1 text-xs text-[#706961]">
                           Last successful sync: {formatSyncTime(item.last_synced_at)}
                         </p>
                       </div>
-                      <span className="rounded-full bg-[#14241e]/6 px-3 py-1 text-xs font-semibold capitalize text-[#52635b]">
+                      <span className="rounded-full bg-[#EDE7E1] px-3 py-1 text-xs font-semibold capitalize text-[#5F5751]">
                         {item.sync_status}
                       </span>
                     </div>
@@ -451,101 +461,67 @@ export default function AccountsPage() {
           )}
 
           <Reveal delay={0.06}>
-            <section className="mt-6 grid gap-4 xl:grid-cols-[1.4fr_0.6fr]">
-              <article className="premium-hover relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.18)] sm:p-9">
-                <div className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full bg-[#76dfbd]/15 blur-3xl" />
-
-                <div className="relative">
-                  <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
-                        Net financial position
-                      </p>
-
-                      {loading ? (
-                        <div className="mt-5 h-14 w-60 animate-pulse rounded-xl bg-white/10" />
-                      ) : (
-                        <AnimatedNumber
-                          value={netPosition}
-                          format={formatCents}
-                          className="mt-4 block text-5xl font-semibold tracking-[-0.06em] sm:text-6xl"
-                        />
-                      )}
-                    </div>
-
-                    <span
-                      className={`inline-flex w-fit rounded-full px-3 py-1.5 text-xs font-semibold ${
-                        netPosition >= 0
-                          ? "bg-[#dff6c7] text-[#315d31]"
-                          : "bg-[#f0b8a8] text-[#7b3528]"
-                      }`}
-                    >
-                      {netPosition >= 0 ? "Positive position" : "Net debt"}
-                    </span>
-                  </div>
-
-                  <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
-                    <PortfolioMetric
-                      label="Assets"
-                      loading={loading}
-                      value={formatCents(assetTotal)}
-                      tone="positive"
-                    />
-                    <PortfolioMetric
-                      label="Liabilities"
-                      loading={loading}
-                      value={formatCents(-liabilityTotal)}
-                      tone="negative"
-                    />
-                    <PortfolioMetric
-                      label="Available cash"
-                      loading={loading}
-                      value={formatCents(availableBalance)}
-                      tone="neutral"
-                    />
-                  </div>
-                </div>
-              </article>
-
-              <article className="premium-hover rounded-[30px] bg-[#dff6c7] p-7 sm:p-8">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#4c7e53]">
-                  Connected network
-                </p>
-
-                {loading ? (
-                  <div className="mt-5 h-11 w-16 animate-pulse rounded-lg bg-[#14241e]/10" />
-                ) : (
-                  <AnimatedNumber
-                    value={accounts.length}
-                    format={(value) => String(value)}
-                    className="mt-4 block text-5xl font-semibold tracking-[-0.05em]"
-                  />
-                )}
-
-                <p className="mt-2 text-sm text-[#56705d]">
-                  {loading
-                    ? "Loading accounts..."
-                    : `Financial accounts across ${institutionCount} institution${
-                        institutionCount === 1 ? "" : "s"
-                      }.`}
-                </p>
-
-                <div className="mt-8 border-t border-[#14241e]/10 pt-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#5c7663]">
-                    Portfolio mix
+            <section className="mt-6 border-y border-[#181713]/10 bg-[#FFFCF7] px-5 py-7 sm:px-8 sm:py-8">
+              <div className="grid gap-8 xl:grid-cols-[minmax(280px,0.9fr)_minmax(520px,1.4fr)] xl:items-end">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
+                    Total liquidity
                   </p>
                   {loading ? (
-                    <div className="mt-2 h-5 w-40 animate-pulse rounded bg-[#14241e]/10" />
+                    <div className="mt-5 h-14 w-60 animate-pulse rounded-xl bg-[#181713]/8" />
                   ) : (
-                    <p className="mt-2 text-sm text-[#52635b]">
-                      {assets.length} asset account
-                      {assets.length === 1 ? "" : "s"} · {liabilities.length}{" "}
-                      liability account
-                      {liabilities.length === 1 ? "" : "s"}
-                    </p>
+                    <AnimatedNumber
+                      value={availableBalance}
+                      format={formatCents}
+                      className="mt-4 block text-5xl font-semibold tracking-[-0.06em] text-[#2F2930] sm:text-6xl"
+                    />
                   )}
                 </div>
-              </article>
+
+                <dl className="grid grid-cols-2 gap-y-5 sm:grid-cols-4 sm:divide-x sm:divide-[#181713]/10">
+                  {[
+                    ["Net position", formatCents(netPosition)],
+                    ["Assets", formatCents(assetTotal)],
+                    ["Liabilities", formatCents(-liabilityTotal)],
+                    ["Connected network", `${accounts.length} · ${institutionCount} institution${institutionCount === 1 ? "" : "s"}`],
+                  ].map(([label, value]) => (
+                    <div key={label} className="sm:px-5 first:sm:pl-0 last:sm:pr-0">
+                      <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">{label}</dt>
+                      {loading ? (
+                        <dd className="mt-2 h-5 w-16 animate-pulse rounded bg-[#181713]/8" />
+                      ) : (
+                        <dd className="mt-2 text-base font-semibold tabular-nums text-[#2F2930]">{value}</dd>
+                      )}
+                    </div>
+                  ))}
+                </dl>
+              </div>
+
+              {liquidityMix.length > 0 && (
+                <div className="mt-8 border-t border-[#181713]/10 pt-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Liquidity composition</p>
+                    <p className="text-xs text-[#706961]">Checking · savings · credit</p>
+                  </div>
+                  <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-[#EDE7E1]">
+                    {liquidityMix.map(([label, value], index) => {
+                      const total = liquidityMix.reduce((sum, [, amount]) => sum + amount, 0);
+                      return (
+                        <motion.span
+                          key={label}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(value / total) * 100}%` }}
+                          transition={{ duration: 0.6, delay: index * 0.12, ease: [0.22, 1, 0.36, 1] }}
+                          className={index === 0 ? "bg-[#6E4B63]" : index === 1 ? "bg-[#8AA184]" : "bg-[#C89A78]"}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs text-[#706961]">
+                    {liquidityMix.map(([label, value]) => <span key={label}><strong className="text-[#2F2930]">{label}</strong> {formatCents(value)}</span>)}
+                  </div>
+                </div>
+              )}
             </section>
           </Reveal>
 
@@ -655,39 +631,6 @@ export default function AccountsPage() {
   );
 }
 
-function PortfolioMetric({
-  label,
-  value,
-  tone,
-  loading = false,
-}: {
-  label: string;
-  value: string;
-  tone: "positive" | "negative" | "neutral";
-  loading?: boolean;
-}) {
-  const toneClass = {
-    positive: "text-[#83dcb9]",
-    negative: "text-[#f4a594]",
-    neutral: "text-white",
-  };
-
-  return (
-    <div className="bg-white/[0.045] p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-        {label}
-      </p>
-      {loading ? (
-        <div className="mt-2 h-[22px] w-16 animate-pulse rounded bg-white/10" />
-      ) : (
-        <p className={`mt-2 text-lg font-semibold ${toneClass[tone]}`}>
-          {value}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function AccountSection({
   title,
   description,
@@ -720,10 +663,10 @@ function AccountSection({
 }) {
   return (
     <Reveal>
-      <section className="overflow-hidden rounded-[24px] border border-[#14241e]/10 bg-white">
-        <header className="flex flex-col gap-3 border-b border-[#14241e]/10 bg-[#faf8f3] px-5 py-5 sm:flex-row sm:items-end sm:justify-between">
+      <section className="overflow-hidden border-y border-[#181713]/10 bg-[#FFFCF7]">
+        <header className="flex flex-col gap-3 border-b border-[#181713]/10 bg-[#F8F4EE] px-5 py-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#167c5a]">
+            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#6E4B63]">
               {title}
             </p>
             <p className="mt-2 max-w-2xl text-sm text-[#728078]">
@@ -733,7 +676,7 @@ function AccountSection({
 
           <p
             className={`text-2xl font-semibold tracking-[-0.04em] ${
-              liability ? "text-[#a64b3d]" : "text-[#167c5a]"
+              liability ? "text-[#A25543]" : "text-[#58715A]"
             }`}
           >
             {formatCents(liability ? -total : total)}
@@ -745,8 +688,8 @@ function AccountSection({
             No {title.toLowerCase()} connected.
           </div>
         ) : (
-          <div className="divide-y divide-[#14241e]/8">
-            {accounts.map((account) => (
+          <div className="divide-y divide-[#181713]/8">
+            {accounts.map((account, index) => (
               <AccountRow
                 key={account.id}
                 account={account}
@@ -775,6 +718,7 @@ function AccountSection({
                 }
                 showDisconnect={disconnectAccountIds.has(account.id)}
                 liability={liability}
+                index={index}
               />
             ))}
           </div>
@@ -794,6 +738,7 @@ function AccountRow({
   disconnecting,
   showDisconnect,
   liability,
+  index,
 }: {
   account: FinancialAccount;
   expanded: boolean;
@@ -804,6 +749,7 @@ function AccountRow({
   disconnecting: boolean;
   showDisconnect: boolean;
   liability: boolean;
+  index: number;
 }) {
   const reduceMotion = useReducedMotion();
   const accountLabel = [account.account_type, account.account_subtype]
@@ -811,13 +757,18 @@ function AccountRow({
     .join(" • ");
 
   return (
-    <motion.article layout>
+    <motion.article
+      layout
+      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.32, delay: reduceMotion ? 0 : index * 0.06 }}
+    >
       <button
         type="button"
         onClick={onToggle}
         className="grid w-full gap-4 px-5 py-4 text-left transition hover:bg-[#fbfaf6] md:grid-cols-[52px_minmax(220px,1.4fr)_minmax(160px,1fr)_150px_36px] md:items-center"
       >
-        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#edf5ee] text-[#167c5a]">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EDE7E1] text-[#6E4B63]">
           <AccountTypeIcon account={account} />
         </span>
 
@@ -837,7 +788,7 @@ function AccountRow({
 
         <span
           className={`text-base font-semibold md:text-right ${
-            liability ? "text-[#a64b3d]" : "text-[#14241e]"
+            liability ? "text-[#A25543]" : "text-[#181713]"
           }`}
         >
           {account.current_balance_cents === null
@@ -897,7 +848,7 @@ function AccountRow({
                   <button
                     type="button"
                     onClick={onOpenDetails}
-                    className="inline-flex items-center gap-2 text-sm font-semibold text-[#167c5a]"
+                    className="inline-flex items-center gap-2 text-sm font-semibold text-[#6E4B63]"
                   >
                     Open account details
                     <ArrowUpRight className="h-4 w-4" />
@@ -955,7 +906,7 @@ function AccountRow({
                         <p
                           className={`text-sm font-semibold sm:text-right ${
                             transaction.amount_cents >= 0
-                              ? "text-[#167c5a]"
+                              ? "text-[#58715A]"
                               : "text-[#a64b3d]"
                           }`}
                         >
@@ -1040,12 +991,12 @@ function AccountDrawer({
       >
         <header className="flex items-start justify-between border-b border-[#14241e]/10 px-6 py-5">
           <div className="flex min-w-0 items-center gap-3 pr-4">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#edf5ee] text-[#167c5a]">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#EDE7E1] text-[#6E4B63]">
               <AccountTypeIcon account={account} />
             </span>
 
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#167c5a]">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
                 Account details
               </p>
               <h2
@@ -1140,7 +1091,7 @@ function AccountDrawer({
                   <p
                     className={`shrink-0 text-sm font-semibold ${
                       transaction.amount_cents >= 0
-                        ? "text-[#167c5a]"
+                        ? "text-[#58715A]"
                         : "text-[#a64b3d]"
                     }`}
                   >

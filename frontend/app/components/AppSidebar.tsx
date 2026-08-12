@@ -39,9 +39,9 @@ const primaryNavigation: NavigationItem[] = [
 ];
 
 const intelligenceNavigation: NavigationItem[] = [
-  { label: "Copilot", href: "/copilot", icon: "copilot" },
+  { label: "Ask Discero", href: "/copilot", icon: "copilot" },
   {
-    label: "For You",
+    label: "Recommendations",
     href: "/recommendations",
     icon: "recommendations",
   },
@@ -72,7 +72,7 @@ export default function AppSidebar() {
         type="button"
         onClick={() => setMobileOpen(true)}
         aria-label="Open navigation"
-        className="focus-ring fixed left-4 top-4 z-50 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#14241e]/10 bg-[#24463a] text-[#f4f0e7] shadow-[0_10px_30px_rgba(20,36,30,0.12)] lg:hidden"
+        className="focus-ring fixed left-4 top-4 z-50 flex h-10 w-10 items-center justify-center rounded-xl bg-[#1B1A18] text-white shadow-[0_10px_28px_rgba(34,27,24,0.18)] lg:hidden"
       >
         <Icon name="menu" />
       </button>
@@ -87,13 +87,13 @@ export default function AppSidebar() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: reduceMotion ? 0 : 0.18 }}
-            className="fixed inset-0 z-40 bg-[#0f211b]/45 backdrop-blur-[2px] lg:hidden"
+            className="fixed inset-0 z-40 bg-[#181713]/45 lg:hidden"
           />
         )}
       </AnimatePresence>
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-white/8 bg-[#183028] px-3 py-4 text-[#f4f0e7] shadow-[8px_0_30px_rgba(15,33,27,0.16)] transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-56 flex-col border-r border-white/[0.06] bg-[#1B1A18] px-3 py-4 text-white shadow-[8px_0_28px_rgba(34,27,24,0.10)] transition-transform duration-200 lg:translate-x-0 ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -107,8 +107,8 @@ export default function AppSidebar() {
               <span className="block truncate text-[15px] font-semibold tracking-[-0.02em] text-white">
                 Discero
               </span>
-              <span className="block truncate text-[11px] text-[#a9b8b0]">
-                Financial decision intelligence
+              <span className="block truncate text-[11px] text-[#9C9188]">
+                Decision intelligence
               </span>
             </span>
           </Link>
@@ -117,7 +117,7 @@ export default function AppSidebar() {
             type="button"
             onClick={() => setMobileOpen(false)}
             aria-label="Close navigation"
-            className="focus-ring rounded-xl p-2 text-[#d7e2dd] transition hover:bg-white/[0.07] hover:text-white lg:hidden"
+            className="focus-ring rounded-xl p-2 text-[#C8BDB4] transition hover:bg-white/[0.07] hover:text-white lg:hidden"
           >
             <Icon name="close" />
           </button>
@@ -147,9 +147,9 @@ export default function AppSidebar() {
           <button
             type="button"
             onClick={signOut}
-            className="focus-ring flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[#dce7e1] transition hover:bg-white/[0.07] hover:text-white"
+            className="focus-ring flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[#D1C8C0] transition hover:bg-white/[0.06] hover:text-white"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/[0.06] text-[#9fb0a8]">
+            <span className="flex h-7 w-7 items-center justify-center text-[#9C9188]">
               <Icon name="logout" />
             </span>
             Sign out
@@ -174,14 +174,16 @@ function NavigationGroup({
   return (
     <div>
       {label && (
-        <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#aebfb7]">
+        <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8E8279]">
           {label}
         </p>
       )}
 
       <div className="space-y-1.5">
         {items.map((item) => {
-          const active = pathname === item.href;
+          const active =
+            pathname === item.href ||
+            (item.href === "/decisions" && pathname.startsWith("/decisions/"));
 
           return (
             <Link
@@ -189,17 +191,17 @@ function NavigationGroup({
               href={item.href}
               onClick={onNavigate}
               aria-current={active ? "page" : undefined}
-              className={`focus-ring group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm transition ${
+              className={`focus-ring group relative flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm transition ${
                 active
-                  ? "bg-[#d5e7da] font-semibold text-[#173c30] shadow-[0_6px_18px_rgba(20,36,30,0.10)]"
-                  : "font-medium text-[#d7e2dd] hover:bg-white/[0.07] hover:text-white"
+                  ? "bg-white/[0.07] font-semibold text-white"
+                  : "font-medium text-[#C8BDB4] hover:bg-white/[0.045] hover:text-white"
               }`}
             >
               <span
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition ${
+                className={`flex h-7 w-7 shrink-0 items-center justify-center transition ${
                   active
-                    ? "bg-white text-[#167c5a]"
-                    : "bg-white/[0.08] text-[#c8d5cf] group-hover:bg-white/[0.12] group-hover:text-[#7ce0bd]"
+                    ? "text-[#D2A07E]"
+                    : "text-[#91857C] group-hover:text-[#C8BDB4]"
                 }`}
               >
                 <Icon name={item.icon} />
@@ -208,7 +210,7 @@ function NavigationGroup({
               <span className="truncate">{item.label}</span>
 
               {active && (
-                <span className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-[#22a879]" />
+                <span className="absolute inset-y-2.5 left-0 w-0.5 rounded-r-full bg-[#C47A58]" />
               )}
             </Link>
           );

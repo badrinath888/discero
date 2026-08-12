@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -12,7 +12,6 @@ import {
   History,
   Plus,
   Save,
-  Target,
   Trash2,
   WalletCards,
   X,
@@ -84,6 +83,7 @@ function formatDate(value: string): string {
 
 export default function GoalsPage() {
   const router = useRouter();
+  const reduceMotion = useReducedMotion();
 
   const [userId, setUserId] = useState<number | null>(null);
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
@@ -201,8 +201,10 @@ useEffect(() => {
 
   const overallProgress =
     totals.target > 0
-      ? Math.min(Math.round((totals.saved / totals.target) * 100), 100)
+      ? Math.round((totals.saved / totals.target) * 100)
       : 0;
+  const trajectoryPosition = Math.min(Math.max(overallProgress, 0), 100);
+  const activeGoalCount = goals.length - totals.completed;
 
   function resetContributionForm() {
     setContributionForm({
@@ -553,30 +555,29 @@ useEffect(() => {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f1e8] text-[#14241e]">
+    <main className="min-h-screen bg-[#F5F1EA] text-[#181713]">
       <AppSidebar />
 
-      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-64 lg:px-10 lg:pt-9">
+      <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto max-w-[1500px]">
           <Reveal>
-            <header className="flex flex-col gap-6 border-b border-[#14241e]/10 pb-7 lg:flex-row lg:items-end lg:justify-between">
+            <header className="flex flex-col gap-6 border-b border-[#181713]/10 pb-7 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#167c5a]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
                   Financial milestones
                 </p>
                 <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                  Goals
+                  Can you reach what you&apos;re planning for?
                 </h1>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66746e]">
-                  Build meaningful milestones and track every deposit and
-                  withdrawal in one place.
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#706961]">
+                  Progress, feasibility, and the funding pressure behind each goal.
                 </p>
               </div>
 
               <button
                 type="button"
                 onClick={openCreateDrawer}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[#14241e] px-5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[#20352d]"
+                className="discero-button-primary inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition hover:-translate-y-0.5"
               >
                 <Plus className="h-4 w-4" />
                 Create goal
@@ -598,59 +599,92 @@ useEffect(() => {
               <CardSkeleton count={2} />
             </div>
           ) : (
-          <Reveal delay={0.06}>
-            <section className="mt-6 grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
-              <article className="relative overflow-hidden rounded-[30px] bg-[#14241e] p-7 text-white shadow-[0_24px_70px_rgba(20,36,30,0.18)] sm:p-9">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#83dcb9]">
-                  Total saved
-                </p>
-                <AnimatedNumber
-                  value={totals.saved}
-                  format={formatCents}
-                  className="mt-4 block text-5xl font-semibold tracking-[-0.06em] sm:text-6xl"
-                />
-                <p className="mt-3 text-sm text-white/55">
-                  {formatCents(Math.max(totals.target - totals.saved, 0))}{" "}
-                  remaining across all goals
-                </p>
-
-                <div className="mt-10 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-3">
-                  <Metric label="Target" value={formatCents(totals.target)} />
-                  <Metric label="Progress" value={`${overallProgress}%`} />
-                  <Metric
-                    label="Completed"
-                    value={`${totals.completed} of ${goals.length}`}
-                  />
-                </div>
-              </article>
-
-              <article className="rounded-[30px] bg-[#f7e8b5] p-7 sm:p-8">
-                <div className="flex items-start justify-between">
+            <Reveal delay={0.06}>
+              <section className="mt-6 border-y border-[#181713]/10 bg-[#FFFCF7] px-5 py-7 sm:px-8 sm:py-8">
+                <div className="grid gap-6 xl:grid-cols-[minmax(260px,0.9fr)_minmax(480px,1.25fr)] xl:items-end">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8b6518]">
-                      Overall progress
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
+                      Goal position
                     </p>
+                    <p className="mt-3 text-sm font-medium text-[#706961]">Saved</p>
                     <AnimatedNumber
-                      value={overallProgress}
-                      format={(value) => `${value}%`}
-                      className="mt-4 block text-5xl font-semibold tracking-[-0.05em]"
+                      value={totals.saved}
+                      format={formatCents}
+                      duration={0.75}
+                      className="mt-1 block text-5xl font-semibold leading-none tracking-[-0.06em] text-[#2F2930] [overflow-wrap:anywhere] sm:text-6xl"
                     />
                   </div>
-                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#14241e] text-[#f7e8b5]">
-                    <Target className="h-5 w-5" />
-                  </span>
+
+                  <motion.dl
+                    initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: reduceMotion ? 0 : 0.35, delay: reduceMotion ? 0 : 0.28 }}
+                    className="grid text-sm sm:grid-cols-3 sm:divide-x sm:divide-[#181713]/10"
+                  >
+                    <div className="border-b border-[#181713]/10 py-2 sm:border-b-0 sm:py-0 sm:pr-5">
+                      <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">Target</dt>
+                      <dd className="mt-1 text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatCents(totals.target)}</dd>
+                    </div>
+                    <div className="border-b border-[#181713]/10 py-2 sm:border-b-0 sm:px-5 sm:py-0">
+                      <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">Active goals</dt>
+                      <dd className="mt-1 text-lg font-semibold tabular-nums">{activeGoalCount}</dd>
+                    </div>
+                    <div className="py-2 sm:py-0 sm:pl-5">
+                      <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">Funded</dt>
+                      <dd className="mt-1 text-lg font-semibold tabular-nums">{overallProgress}%</dd>
+                    </div>
+                  </motion.dl>
                 </div>
 
-                <div className="mt-8 h-2 overflow-hidden rounded-full bg-[#14241e]/10">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${overallProgress}%` }}
-                    className="h-full rounded-full bg-[#167c5a]"
-                  />
+                <div className="mt-6 border-t border-[#181713]/10 pt-4" aria-label="Overall goal trajectory">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#706961]">
+                    <span className="font-semibold text-[#2F2930]">Goal progress</span>
+                    <span><strong className="font-semibold tabular-nums text-[#2F2930]">{formatCents(Math.max(totals.target - totals.saved, 0))}</strong> remaining</span>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-[auto_minmax(70px,1fr)_auto] items-start gap-3 text-xs font-semibold tabular-nums text-[#706961]">
+                    <span>$0</span>
+                    <div className="relative h-7">
+                      <div className="absolute inset-x-0 top-1.5 h-px bg-[#181713]/18" />
+                      <motion.div
+                        initial={reduceMotion ? false : { width: 0 }}
+                        animate={{ width: `${trajectoryPosition}%` }}
+                        transition={{ duration: reduceMotion ? 0 : 0.65, delay: reduceMotion ? 0 : 0.42, ease: [0.22, 1, 0.36, 1] }}
+                        className="absolute left-0 top-1.5 h-0.5 bg-[#6E4B63]"
+                      />
+                      <motion.div
+                        initial={reduceMotion ? false : { left: 0, opacity: 0, scale: 0.75 }}
+                        animate={{ left: `${trajectoryPosition}%`, opacity: 1, scale: 1 }}
+                        transition={{ duration: reduceMotion ? 0 : 0.38, delay: reduceMotion ? 0 : 0.84, ease: [0.22, 1, 0.36, 1] }}
+                        className={`absolute top-1.5 h-3.5 w-3.5 -translate-y-1/2 rounded-full border-[3px] border-[#FFFCF7] bg-[#6E4B63] shadow-[0_0_0_1px_rgba(110,75,99,0.28)] ${
+                          trajectoryPosition === 0
+                            ? "translate-x-0"
+                            : trajectoryPosition === 100
+                              ? "-translate-x-full"
+                              : "-translate-x-1/2"
+                        }`}
+                      />
+                      <motion.span
+                        initial={reduceMotion ? false : { opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: reduceMotion ? 0 : 0.28, delay: reduceMotion ? 0 : 1.02 }}
+                        style={{ left: `${trajectoryPosition}%` }}
+                        className={`absolute top-3.5 text-xs font-semibold text-[#6E4B63] ${
+                          trajectoryPosition <= 8
+                            ? "translate-x-0"
+                            : trajectoryPosition >= 92
+                              ? "-translate-x-full"
+                              : "-translate-x-1/2"
+                        }`}
+                      >
+                        {overallProgress}%
+                      </motion.span>
+                    </div>
+                    <span className="max-w-[42vw] text-right [overflow-wrap:anywhere]">{formatCents(totals.target)}</span>
+                  </div>
                 </div>
-              </article>
-            </section>
-          </Reveal>
+              </section>
+            </Reveal>
           )}
 
           <Reveal delay={0.1}>
@@ -681,12 +715,14 @@ useEffect(() => {
             )
           ) : (
             <Reveal>
-              <section className="mt-8 overflow-hidden rounded-[24px] border border-[#14241e]/10 bg-white">
-                <div className="divide-y divide-[#14241e]/8">
-                  {goals.map((goal) => (
+              <section className="mt-8 overflow-hidden border-y border-[#181713]/10 bg-[#FFFCF7]">
+                <div className="divide-y divide-[#181713]/8">
+                  {goals.map((goal, index) => (
                     <GoalRow
                       key={goal.id}
                       goal={goal}
+                      index={index}
+                      intelligenceGoal={conflictAnalysis?.goals.find((item) => item.goal_id === goal.id)}
                       busy={busyId === goal.id}
                       onFund={() => void openFundDrawer(goal)}
                       onEdit={() => openEditDrawer(goal)}
@@ -815,19 +851,8 @@ useEffect(() => {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-white/[0.045] p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-        {label}
-      </p>
-      <p className="mt-2 text-lg font-semibold">{value}</p>
-    </div>
-  );
-}
-
 const GOAL_INTELLIGENCE_STATUS_STYLE: Record<string, string> = {
-  on_track: "bg-[#edf5ee] text-[#167c5a]",
+  on_track: "bg-[#E3EBE1] text-[#48634B]",
   at_risk: "bg-[#fbeecb] text-[#8b6518]",
   conflict: "bg-[#f8ddd5] text-[#923f32]",
   completed: "bg-[#e8ecea] text-[#4b5a54]",
@@ -849,14 +874,18 @@ function GoalConflictPanel({
   onCapacityChange: (value: string) => void;
   onAnalyze: () => void;
 }) {
+  const comparisonMax = analysis
+    ? Math.max(analysis.total_capacity_cents, analysis.total_required_cents, 1)
+    : 1;
+
   return (
-    <section className="mt-8 rounded-[30px] border border-[#14241e]/10 bg-white p-6">
+    <section className="mt-8 border-y border-[#181713]/10 bg-[#FFFCF7] p-6 sm:p-8">
       <div className="flex items-center gap-3">
         <AlertTriangle className="h-5 w-5 text-[#8b6518]" />
         <h2 className="text-2xl font-semibold">Goal intelligence</h2>
       </div>
 
-      <p className="mt-3 text-sm text-[#66746e]">
+      <p className="mt-3 text-sm text-[#706961]">
         See which goal is most urgent, how much each needs per month, and
         whether your capacity covers them all.
       </p>
@@ -870,7 +899,7 @@ function GoalConflictPanel({
               step="0.01"
               value={monthlyCapacity}
               onChange={(event) => onCapacityChange(event.target.value)}
-              className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+              className="h-12 w-full rounded-xl border border-[#181713]/10 bg-[#FFFCF7] px-4 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
               placeholder="1000.00"
               disabled={disabled || loading}
             />
@@ -880,15 +909,15 @@ function GoalConflictPanel({
             type="button"
             onClick={onAnalyze}
             disabled={disabled || loading}
-            className="mt-4 min-h-11 w-full rounded-2xl bg-[#14241e] px-5 text-sm font-semibold text-white disabled:opacity-50"
+            className="discero-button-primary mt-4 min-h-11 w-full rounded-2xl px-5 text-sm font-semibold"
           >
             {loading ? "Analyzing..." : "Analyze my goals"}
           </button>
         </div>
 
-        <div className="rounded-2xl bg-[#f5f1e8] p-5">
+        <div className="rounded-2xl bg-[#F5F1EA] p-5">
           {!analysis ? (
-            <p className="text-sm text-[#66746e]">
+            <p className="text-sm text-[#706961]">
               {disabled
                 ? "Create a savings goal before running the analysis."
                 : "Run the analysis to see goal risk and monthly shortfalls."}
@@ -898,7 +927,7 @@ function GoalConflictPanel({
               <p className="text-lg font-semibold capitalize">
                 {analysis.conflict_status.replaceAll("_", " ")}
               </p>
-              <p className="mt-2 text-sm leading-6 text-[#66746e]">
+              <p className="mt-2 text-sm leading-6 text-[#706961]">
                 {analysis.explanation}
               </p>
 
@@ -915,6 +944,19 @@ function GoalConflictPanel({
                   label="Shortfall"
                   value={formatCents(analysis.total_shortfall_cents)}
                 />
+              </div>
+
+              <div className="mt-5 space-y-3 border-y border-[#181713]/10 py-4">
+                <div className="grid grid-cols-[80px_1fr_auto] items-center gap-3 text-xs">
+                  <span className="font-semibold text-[#706961]">Capacity</span>
+                  <div className="h-2 overflow-hidden rounded-full bg-[#181713]/8"><motion.div initial={{ width: 0 }} animate={{ width: `${(analysis.total_capacity_cents / comparisonMax) * 100}%` }} transition={{ duration: 0.65 }} className="h-full rounded-full bg-[#58715A]" /></div>
+                  <span className="font-semibold tabular-nums">{formatCents(analysis.total_capacity_cents)}</span>
+                </div>
+                <div className="grid grid-cols-[80px_1fr_auto] items-center gap-3 text-xs">
+                  <span className="font-semibold text-[#706961]">Required</span>
+                  <div className="h-2 overflow-hidden rounded-full bg-[#181713]/8"><motion.div initial={{ width: 0 }} animate={{ width: `${(analysis.total_required_cents / comparisonMax) * 100}%` }} transition={{ duration: 0.75 }} className="h-full rounded-full bg-[#B86D4B]" /></div>
+                  <span className="font-semibold tabular-nums">{formatCents(analysis.total_required_cents)}</span>
+                </div>
               </div>
 
               {analysis.suggestions.length > 0 && (
@@ -942,13 +984,13 @@ function GoalConflictPanel({
               className={`rounded-2xl border p-4 ${
                 goal.goal_id === analysis.largest_pressure_goal_id
                   ? "border-[#923f32]/30 bg-[#fdf4f1]"
-                  : "border-[#14241e]/10 bg-white"
+                  : "border-[#181713]/10 bg-white"
               }`}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   {goal.urgency_rank === 1 && (
-                    <span className="rounded-full bg-[#14241e] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white">
+                    <span className="rounded-full bg-[#181713] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white">
                       Most urgent
                     </span>
                   )}
@@ -969,42 +1011,42 @@ function GoalConflictPanel({
                 </span>
               </div>
 
-              <p className="mt-2 text-sm leading-6 text-[#66746e]">
+              <p className="mt-2 text-sm leading-6 text-[#706961]">
                 {goal.explanation}
               </p>
 
-              <div className="mt-3 grid gap-3 text-xs text-[#66746e] sm:grid-cols-4">
+              <div className="mt-3 grid gap-3 text-xs text-[#706961] sm:grid-cols-4">
                 <div>
-                  <p className="uppercase tracking-[0.08em] text-[#87928d]">
+                  <p className="uppercase tracking-[0.08em] text-[#8A8178]">
                     Required / mo
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-[#14241e]">
+                  <p className="mt-1 text-sm font-semibold text-[#181713]">
                     {formatCents(goal.required_monthly_cents)}
                   </p>
                 </div>
                 <div>
-                  <p className="uppercase tracking-[0.08em] text-[#87928d]">
+                  <p className="uppercase tracking-[0.08em] text-[#8A8178]">
                     Monthly gap
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-[#14241e]">
+                  <p className="mt-1 text-sm font-semibold text-[#181713]">
                     {formatCents(goal.monthly_gap_cents)}
                   </p>
                 </div>
                 <div>
-                  <p className="uppercase tracking-[0.08em] text-[#87928d]">
+                  <p className="uppercase tracking-[0.08em] text-[#8A8178]">
                     Projected completion
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-[#14241e]">
+                  <p className="mt-1 text-sm font-semibold text-[#181713]">
                     {goal.projected_completion_date
                       ? formatDate(goal.projected_completion_date)
                       : "—"}
                   </p>
                 </div>
                 <div>
-                  <p className="uppercase tracking-[0.08em] text-[#87928d]">
+                  <p className="uppercase tracking-[0.08em] text-[#8A8178]">
                     Feasible target date
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-[#14241e]">
+                  <p className="mt-1 text-sm font-semibold text-[#181713]">
                     {goal.suggested_feasible_target_date
                       ? formatDate(goal.suggested_feasible_target_date)
                       : "On track"}
@@ -1021,31 +1063,39 @@ function GoalConflictPanel({
 
 function GoalRow({
   goal,
+  index,
+  intelligenceGoal,
   busy,
   onFund,
   onEdit,
   onDelete,
 }: {
   goal: SavingsGoal;
+  index: number;
+  intelligenceGoal?: GoalIntelligence["goals"][number];
   busy: boolean;
   onFund: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   const percentage = Math.min(goal.progress_percent, 100);
+  const reduceMotion = useReducedMotion();
 
   return (
     <motion.article
       layout
-      className="grid gap-4 px-5 py-5 md:grid-cols-[minmax(220px,1.35fr)_160px_minmax(220px,1fr)_170px] md:items-center"
+      initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.36, delay: reduceMotion ? 0 : index * 0.07 }}
+      className="grid gap-4 px-5 py-5 xl:grid-cols-[minmax(190px,1.2fr)_150px_minmax(200px,1fr)_170px_150px] xl:items-center"
     >
       <div className="flex min-w-0 items-center gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#edf5ee] text-[#167c5a]">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#EDE5DE] text-[#6E4B63]">
           <Flag className="h-4 w-4" />
         </span>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{goal.name}</p>
-          <p className="mt-1 text-xs capitalize text-[#87928d]">
+          <p className="mt-1 text-xs capitalize text-[#8A8178]">
             {goal.status}
           </p>
         </div>
@@ -1055,20 +1105,25 @@ function GoalRow({
         <p className="text-sm font-semibold">
           {formatCents(goal.saved_cents)}
         </p>
-        <p className="mt-1 text-xs text-[#87928d]">
+        <p className="mt-1 text-xs text-[#8A8178]">
           of {formatCents(goal.target_cents)}
         </p>
       </div>
 
+      <div className="text-xs text-[#8A8178]">
+        <p>{goal.target_date ? `Target ${formatDate(goal.target_date)}` : "No target date"}</p>
+        {intelligenceGoal && <p className="mt-1 font-semibold text-[#2F2930]">{formatCents(intelligenceGoal.required_monthly_cents)}/month</p>}
+      </div>
+
       <div>
-        <div className="h-2 overflow-hidden rounded-full bg-[#14241e]/8">
+        <div className="h-2 overflow-hidden rounded-full bg-[#181713]/8">
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${percentage}%` }}
-            className="h-full rounded-full bg-[#167c5a]"
+            className="h-full rounded-full bg-[#6E4B63]"
           />
         </div>
-        <div className="mt-2 flex justify-between gap-3 text-xs text-[#7b8781]">
+        <div className="mt-2 flex justify-between gap-3 text-xs text-[#8A8178]">
           <span>{goal.progress_percent}% complete</span>
           <span>{formatCents(goal.remaining_cents)} left</span>
         </div>
@@ -1078,7 +1133,7 @@ function GoalRow({
         <button
           type="button"
           onClick={onFund}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#14241e] px-3 text-sm font-semibold text-white"
+          className="discero-button-secondary inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition"
         >
           <WalletCards className="h-4 w-4" />
           Funds
@@ -1087,7 +1142,7 @@ function GoalRow({
           type="button"
           onClick={onEdit}
           aria-label={`Edit ${goal.name}`}
-          className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#14241e]/10"
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#181713]/10"
         >
           <Edit3 className="h-4 w-4" />
         </button>
@@ -1096,7 +1151,7 @@ function GoalRow({
           onClick={onDelete}
           disabled={busy}
           aria-label={`Delete ${goal.name}`}
-          className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f8ddd5] text-[#923f32] disabled:opacity-50"
+          className="discero-button-destructive flex h-10 w-10 items-center justify-center rounded-xl border disabled:opacity-50"
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -1123,7 +1178,7 @@ function DrawerShell({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="fixed inset-0 z-40 bg-[#14241e]/35 backdrop-blur-sm"
+        className="fixed inset-0 z-40 bg-[#181713]/35 backdrop-blur-sm"
       />
       <motion.aside
         role="dialog"
@@ -1140,7 +1195,7 @@ function DrawerShell({
             type="button"
             onClick={onClose}
             aria-label="Close drawer"
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-[#14241e]/10 bg-white"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-[#181713]/10 bg-white"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -1172,13 +1227,13 @@ function GoalEditor({
 }) {
   return (
     <section>
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
         Goal details
       </p>
       <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
         {title}
       </h2>
-      <p className="mt-3 text-sm leading-6 text-[#66746e]">
+      <p className="mt-3 text-sm leading-6 text-[#706961]">
         {description}
       </p>
 
@@ -1189,7 +1244,7 @@ function GoalEditor({
             onChange={(event) =>
               onChange({ ...form, name: event.target.value })
             }
-            className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+            className="h-12 w-full rounded-xl border border-[#181713]/10 bg-[#FFFCF7] px-4 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
             placeholder="Emergency fund"
           />
         </Field>
@@ -1203,7 +1258,7 @@ function GoalEditor({
             onChange={(event) =>
               onChange({ ...form, targetAmount: event.target.value })
             }
-            className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+            className="h-12 w-full rounded-xl border border-[#181713]/10 bg-[#FFFCF7] px-4 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
             placeholder="10000"
           />
         </Field>
@@ -1218,7 +1273,7 @@ function GoalEditor({
               onChange={(event) =>
                 onChange({ ...form, savedAmount: event.target.value })
               }
-              className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+              className="h-12 w-full rounded-xl border border-[#181713]/10 bg-[#FFFCF7] px-4 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
               placeholder="0"
             />
           </Field>
@@ -1231,7 +1286,7 @@ function GoalEditor({
             onChange={(event) =>
               onChange({ ...form, targetDate: event.target.value })
             }
-            className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+            className="h-12 w-full rounded-xl border border-[#181713]/10 bg-[#FFFCF7] px-4 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
           />
         </Field>
 
@@ -1239,7 +1294,7 @@ function GoalEditor({
           type="button"
           onClick={onSubmit}
           disabled={busy}
-          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#14241e] px-5 text-sm font-semibold text-white disabled:opacity-50"
+          className="discero-button-primary inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl px-5 text-sm font-semibold"
         >
           <Save className="h-4 w-4" />
           {busy ? "Saving..." : submitLabel}
@@ -1276,7 +1331,7 @@ function FundManager({
 }) {
   return (
     <section>
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#167c5a]">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
         Manage funds
       </p>
       <h2 className="mt-2 break-words text-3xl font-semibold tracking-[-0.04em]">
@@ -1291,7 +1346,7 @@ function FundManager({
         />
       </div>
 
-      <div className="mt-8 rounded-[24px] border border-[#14241e]/10 bg-white p-5">
+      <div className="mt-8 rounded-[24px] border border-[#181713]/10 bg-white p-5">
         <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#f1eee7] p-1">
           {(["deposit", "withdrawal"] as GoalContributionType[]).map(
             (type) => (
@@ -1303,8 +1358,8 @@ function FundManager({
                 }
                 className={`rounded-xl px-3 py-2.5 text-sm font-semibold capitalize ${
                   form.contributionType === type
-                    ? "bg-[#14241e] text-white"
-                    : "text-[#66746e]"
+                    ? "bg-[#181713] text-white"
+                    : "text-[#706961]"
                 }`}
               >
                 {type}
@@ -1323,7 +1378,7 @@ function FundManager({
               onChange={(event) =>
                 onFormChange({ ...form, amount: event.target.value })
               }
-              className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+              className="h-12 w-full rounded-xl border border-[#181713]/10 bg-[#FFFCF7] px-4 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
               placeholder="100.00"
             />
           </Field>
@@ -1338,7 +1393,7 @@ function FundManager({
                   contributedOn: event.target.value,
                 })
               }
-              className="h-12 w-full rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+              className="h-12 w-full rounded-xl border border-[#181713]/10 bg-[#FFFCF7] px-4 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
             />
           </Field>
 
@@ -1348,7 +1403,7 @@ function FundManager({
               onChange={(event) =>
                 onFormChange({ ...form, note: event.target.value })
               }
-              className="min-h-24 w-full resize-none rounded-xl border border-[#14241e]/10 bg-[#fbfaf7] px-4 py-3 text-sm outline-none transition focus:border-[#167c5a] focus:bg-white"
+              className="min-h-24 w-full resize-none rounded-xl border border-[#181713]/10 bg-[#FFFCF7] px-4 py-3 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
               placeholder="Optional note"
               maxLength={255}
             />
@@ -1359,7 +1414,7 @@ function FundManager({
               type="button"
               onClick={onSave}
               disabled={busy}
-              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-[#14241e] px-4 text-sm font-semibold text-white disabled:opacity-50"
+              className="discero-button-primary inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-semibold"
             >
               {form.contributionType === "deposit" ? (
                 <ArrowUpRight className="h-4 w-4" />
@@ -1378,7 +1433,7 @@ function FundManager({
                 type="button"
                 onClick={onCancelEdit}
                 disabled={busy}
-                className="rounded-2xl border border-[#14241e]/10 px-4 text-sm font-semibold"
+                className="discero-button-secondary rounded-2xl border px-4 text-sm font-semibold transition"
               >
                 Cancel
               </button>
@@ -1389,7 +1444,7 @@ function FundManager({
 
       <div className="mt-8">
         <div className="flex items-center gap-2">
-          <History className="h-4 w-4 text-[#167c5a]" />
+          <History className="h-4 w-4 text-[#6E4B63]" />
           <h3 className="text-lg font-semibold">Contribution history</h3>
         </div>
 
@@ -1398,7 +1453,7 @@ function FundManager({
             <PageLoading message="Loading contribution history..." />
           </div>
         ) : contributions.length === 0 ? (
-          <div className="mt-4 rounded-2xl border border-dashed border-[#14241e]/15 p-6 text-center text-sm text-[#66746e]">
+          <div className="mt-4 rounded-2xl border border-dashed border-[#181713]/15 p-6 text-center text-sm text-[#706961]">
             No contribution history yet.
           </div>
         ) : (
@@ -1433,14 +1488,14 @@ function ContributionRow({
   const isWithdrawal = item.contribution_type === "withdrawal";
 
   return (
-    <article className="rounded-2xl border border-[#14241e]/10 bg-white p-4">
+    <article className="rounded-2xl border border-[#181713]/10 bg-white p-4">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 gap-3">
           <span
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
               isWithdrawal
                 ? "bg-[#f8ddd5] text-[#923f32]"
-                : "bg-[#edf5ee] text-[#167c5a]"
+                : "bg-[#E8EEE7] text-[#6E4B63]"
             }`}
           >
             {isWithdrawal ? (
@@ -1453,18 +1508,18 @@ function ContributionRow({
           <div className="min-w-0">
             <p
               className={`text-sm font-semibold ${
-                isWithdrawal ? "text-[#923f32]" : "text-[#167c5a]"
+                isWithdrawal ? "text-[#923f32]" : "text-[#6E4B63]"
               }`}
             >
               {isWithdrawal ? "−" : "+"}
               {formatCents(item.amount_cents)}
             </p>
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-[#7b8781]">
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-[#8A8178]">
               <CalendarDays className="h-3.5 w-3.5" />
               {formatDate(item.contributed_on)}
             </p>
             {item.note && (
-              <p className="mt-2 break-words text-sm text-[#66746e]">
+              <p className="mt-2 break-words text-sm text-[#706961]">
                 {item.note}
               </p>
             )}
@@ -1477,7 +1532,7 @@ function ContributionRow({
             onClick={onEdit}
             disabled={busy}
             aria-label="Edit contribution"
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#14241e]/10 disabled:opacity-50"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#181713]/10 disabled:opacity-50"
           >
             <Edit3 className="h-3.5 w-3.5" />
           </button>
@@ -1504,7 +1559,7 @@ function SummaryCard({
   value: string;
 }) {
   return (
-    <div className="rounded-2xl bg-[#14241e] p-4 text-white">
+    <div className="rounded-2xl bg-[#181713] p-4 text-white">
       <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/45">
         {label}
       </p>
@@ -1522,7 +1577,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-[#66746e]">
+      <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-[#706961]">
         {label}
       </span>
       {children}

@@ -425,12 +425,20 @@ def test_exchange_token_handles_encryption_failure(
         "Token encryption key is not configured"
     )
 
-def test_disconnect_plaid_item_removes_connection_and_preserves_transactions(
+def test_disconnect_plaid_item_deletes_its_plaid_transactions(
     client: TestClient,
     user_id: int,
     auth_headers: dict[str, str],
     monkeypatch,
 ) -> None:
+    # Regression test for a production data-integrity bug: disconnecting
+    # a Plaid item used to delete the item's FinancialAccount rows (via
+    # the PlaidItem.accounts delete-orphan cascade) but leave that
+    # account's Plaid-imported transactions behind with
+    # financial_account_id set to NULL -- they'd resurface in the UI as
+    # stale, unlinked-looking "duplicate" transactions. Disconnecting
+    # must delete those Plaid transactions outright, not just orphan
+    # them.
     with TestingSessionLocal() as db:
         item = PlaidItem(
             user_id=user_id,
@@ -458,7 +466,7 @@ def test_disconnect_plaid_item_removes_connection_and_preserves_transactions(
             financial_account_id=account.id,
             provider_transaction_id="transaction-disconnect-1",
             posted_on=date(2026, 8, 1),
-            description="Preserved transaction",
+            description="Plaid transaction on disconnected account",
             amount_cents=-2500,
             category="Food",
             source="plaid",
@@ -468,6 +476,7 @@ def test_disconnect_plaid_item_removes_connection_and_preserves_transactions(
         db.commit()
 
         item_id = item.id
+        account_id = account.id
         transaction_id = transaction.id
 
     removed_tokens: list[str] = []
@@ -492,17 +501,230 @@ def test_disconnect_plaid_item_removes_connection_and_preserves_transactions(
     assert removed_tokens == ["plaintext-access-token"]
 
     with TestingSessionLocal() as db:
+        # D: the PlaidItem and its FinancialAccount rows are removed.
         assert db.get(PlaidItem, item_id) is None
+        assert db.get(FinancialAccount, account_id) is None
 
-        accounts = list(
-            db.scalars(select(FinancialAccount)).all()
+        # A: the item's Plaid transaction is deleted outright, not
+        # merely orphaned with financial_account_id set to NULL.
+        assert db.get(Transaction, transaction_id) is None
+
+
+def test_disconnect_plaid_item_preserves_other_items_plaid_transactions(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    with TestingSessionLocal() as db:
+        item_a = PlaidItem(
+            user_id=user_id,
+            provider_item_id="item-disconnect-a",
+            institution_name="Bank A",
+            access_token_ciphertext="encrypted-token-a",
+            status="active",
         )
-        assert accounts == []
+        item_b = PlaidItem(
+            user_id=user_id,
+            provider_item_id="item-disconnect-b",
+            institution_name="Bank B",
+            access_token_ciphertext="encrypted-token-b",
+            status="active",
+        )
+        db.add_all([item_a, item_b])
+        db.flush()
 
-        transaction = db.get(Transaction, transaction_id)
-        assert transaction is not None
-        assert transaction.financial_account_id is None
-        assert transaction.description == "Preserved transaction"
+        account_a = FinancialAccount(
+            plaid_item_id=item_a.id,
+            provider_account_id="account-disconnect-a",
+            name="Checking A",
+            account_type="depository",
+            account_subtype="checking",
+            currency="USD",
+        )
+        account_b = FinancialAccount(
+            plaid_item_id=item_b.id,
+            provider_account_id="account-disconnect-b",
+            name="Checking B",
+            account_type="depository",
+            account_subtype="checking",
+            currency="USD",
+        )
+        db.add_all([account_a, account_b])
+        db.flush()
+
+        transaction_a = Transaction(
+            user_id=user_id,
+            financial_account_id=account_a.id,
+            provider_transaction_id="transaction-disconnect-a",
+            posted_on=date(2026, 8, 1),
+            description="Item A transaction",
+            amount_cents=-1000,
+            category="Food",
+            source="plaid",
+            pending=False,
+        )
+        transaction_b = Transaction(
+            user_id=user_id,
+            financial_account_id=account_b.id,
+            provider_transaction_id="transaction-disconnect-b",
+            posted_on=date(2026, 8, 1),
+            description="Item B transaction",
+            amount_cents=-2000,
+            category="Food",
+            source="plaid",
+            pending=False,
+        )
+        db.add_all([transaction_a, transaction_b])
+        db.commit()
+
+        item_a_id = item_a.id
+        item_b_id = item_b.id
+        account_b_id = account_b.id
+        transaction_a_id = transaction_a.id
+        transaction_b_id = transaction_b.id
+
+    monkeypatch.setattr(
+        plaid_router,
+        "decrypt_token",
+        lambda ciphertext: "plaintext-access-token",
+    )
+    monkeypatch.setattr(
+        plaid_router,
+        "remove_item",
+        lambda access_token: None,
+    )
+
+    response = client.delete(
+        f"/users/{user_id}/plaid/items/{item_a_id}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 204
+
+    with TestingSessionLocal() as db:
+        # Item A's transaction is gone.
+        assert db.get(Transaction, transaction_a_id) is None
+
+        # B: item B (a different, untouched connection) and its Plaid
+        # transaction are completely unaffected.
+        assert db.get(PlaidItem, item_b_id) is not None
+        assert db.get(FinancialAccount, account_b_id) is not None
+        transaction_b = db.get(Transaction, transaction_b_id)
+        assert transaction_b is not None
+        assert transaction_b.financial_account_id == account_b_id
+        assert transaction_b.description == "Item B transaction"
+
+
+def test_disconnect_plaid_item_preserves_manual_and_csv_transactions(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    with TestingSessionLocal() as db:
+        item = PlaidItem(
+            user_id=user_id,
+            provider_item_id="item-disconnect-manual",
+            institution_name="Sandbox Bank",
+            access_token_ciphertext="encrypted-token",
+            status="active",
+        )
+        db.add(item)
+        db.flush()
+
+        account = FinancialAccount(
+            plaid_item_id=item.id,
+            provider_account_id="account-disconnect-manual",
+            name="Checking",
+            account_type="depository",
+            account_subtype="checking",
+            currency="USD",
+        )
+        db.add(account)
+        db.flush()
+
+        plaid_transaction = Transaction(
+            user_id=user_id,
+            financial_account_id=account.id,
+            provider_transaction_id="transaction-disconnect-manual-plaid",
+            posted_on=date(2026, 8, 1),
+            description="Plaid transaction",
+            amount_cents=-500,
+            category="Food",
+            source="plaid",
+            pending=False,
+        )
+        # C: a CSV/manual transaction that happens to be attached to the
+        # same account being disconnected -- and an unrelated manual
+        # transaction with no account at all -- must both survive.
+        csv_transaction_on_account = Transaction(
+            user_id=user_id,
+            financial_account_id=account.id,
+            posted_on=date(2026, 8, 2),
+            description="Manually tagged to this account",
+            amount_cents=-750,
+            category="Food",
+            source="csv",
+            pending=False,
+        )
+        unrelated_manual_transaction = Transaction(
+            user_id=user_id,
+            financial_account_id=None,
+            posted_on=date(2026, 8, 3),
+            description="Unrelated manual transaction",
+            amount_cents=-300,
+            category="Food",
+            source="csv",
+            pending=False,
+        )
+        db.add_all(
+            [
+                plaid_transaction,
+                csv_transaction_on_account,
+                unrelated_manual_transaction,
+            ]
+        )
+        db.commit()
+
+        item_id = item.id
+        plaid_transaction_id = plaid_transaction.id
+        csv_transaction_id = csv_transaction_on_account.id
+        unrelated_transaction_id = unrelated_manual_transaction.id
+
+    monkeypatch.setattr(
+        plaid_router,
+        "decrypt_token",
+        lambda ciphertext: "plaintext-access-token",
+    )
+    monkeypatch.setattr(
+        plaid_router,
+        "remove_item",
+        lambda access_token: None,
+    )
+
+    response = client.delete(
+        f"/users/{user_id}/plaid/items/{item_id}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 204
+
+    with TestingSessionLocal() as db:
+        assert db.get(Transaction, plaid_transaction_id) is None
+
+        csv_transaction = db.get(Transaction, csv_transaction_id)
+        assert csv_transaction is not None
+        assert csv_transaction.description == "Manually tagged to this account"
+        # The account it referenced is gone, so (like any other
+        # non-Plaid transaction) it falls back to NULL rather than being
+        # deleted -- disconnecting a bank must never delete manual/CSV
+        # data.
+        assert csv_transaction.financial_account_id is None
+
+        unrelated_transaction = db.get(Transaction, unrelated_transaction_id)
+        assert unrelated_transaction is not None
+        assert unrelated_transaction.description == "Unrelated manual transaction"
 
 
 def test_disconnect_plaid_item_returns_not_found(

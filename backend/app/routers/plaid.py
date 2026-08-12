@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -252,6 +252,32 @@ def disconnect_plaid_item(
         ) from exc
 
     try:
+        account_ids = list(
+            db.scalars(
+                select(FinancialAccount.id).where(
+                    FinancialAccount.plaid_item_id == plaid_item.id
+                )
+            ).all()
+        )
+
+        # Plaid-imported transactions belong to this item's accounts and
+        # have no independent existence once the item is disconnected --
+        # left in place, financial_account_id would go NULL (via the
+        # accounts' ON DELETE SET NULL) and they'd resurface in the UI as
+        # stale, unlinked-looking duplicates. CSV/manual transactions are
+        # untouched by the source filter even if they happen to reference
+        # one of these accounts.
+        if account_ids:
+            db.execute(
+                delete(Transaction)
+                .where(
+                    Transaction.user_id == user_id,
+                    Transaction.financial_account_id.in_(account_ids),
+                    Transaction.source == "plaid",
+                )
+                .execution_options(synchronize_session=False)
+            )
+
         db.delete(plaid_item)
         db.commit()
     except SQLAlchemyError as exc:

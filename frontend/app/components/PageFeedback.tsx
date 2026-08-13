@@ -12,12 +12,12 @@ export function PageLoading({
     <div
       role="status"
       aria-live="polite"
-      className="flex min-h-56 items-center justify-center rounded-xl border border-white/[0.08] bg-[#101916]"
+      className="flex min-h-56 items-center justify-center rounded-xl border border-[#181713]/10 bg-[#FFFCF7]"
     >
       <div className="text-center">
-        <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-[#55d6a7] border-t-transparent" />
+        <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-[#6E4B63] border-t-transparent" />
 
-        <p className="mt-4 text-sm text-slate-500">
+        <p className="mt-4 text-sm text-[#777168]">
           {message}
         </p>
       </div>
@@ -35,15 +35,15 @@ export function PageError({
   return (
     <div
       role="alert"
-      className="rounded-xl border border-[#c94a3a]/35 bg-[#fbe3df] px-4 py-4 shadow-sm"
+      className="rounded-xl border border-[#B75C50]/25 bg-[#F6E5E0] px-4 py-4 shadow-sm"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-semibold text-[#8f2f24]">
+          <p className="text-sm font-semibold text-[#96493F]">
             Something went wrong
           </p>
 
-          <p className="mt-1 text-sm font-medium text-[#6f2b24]">
+          <p className="mt-1 text-sm font-medium text-[#96493F]">
             {message}
           </p>
         </div>
@@ -52,7 +52,7 @@ export function PageError({
           <button
             type="button"
             onClick={onRetry}
-            className="focus-ring shrink-0 rounded-lg border border-[#8f2f24]/25 bg-white/60 px-3.5 py-2 text-sm font-semibold text-[#8f2f24] transition hover:bg-white"
+            className="focus-ring shrink-0 rounded-lg border border-[#B75C50]/25 bg-[#FFFCF7] px-3.5 py-2 text-sm font-semibold text-[#96493F] transition hover:bg-white"
           >
             Try again
           </button>
@@ -140,7 +140,7 @@ export function CardSkeleton({
       {Array.from({ length: count }).map((_, index) => (
         <div
           key={index}
-          className="h-28 animate-pulse rounded-xl border border-white/[0.06] bg-[#101916]"
+          className="h-28 animate-pulse rounded-xl border border-[#181713]/10 bg-[#181713]/[0.04]"
         />
       ))}
     </div>

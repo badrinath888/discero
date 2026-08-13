@@ -712,24 +712,21 @@ def test_exchange_token_does_not_block_on_another_users_accounts(
         assert this_user_item.user_id == user_id
 
 
-def test_exchange_token_cross_user_provider_account_id_collision_fails_safely(
+def test_exchange_token_allows_cross_user_provider_account_id_collision(
     client: TestClient,
     user_id: int,
     auth_headers: dict[str, str],
     monkeypatch,
 ) -> None:
-    # Documents a pre-existing, separate limitation (not fixed here,
-    # per instructions -- flagged in the report): FinancialAccount
-    # .provider_account_id is globally unique=True, not scoped per
-    # user. If Plaid ever returns the same account_id for two
-    # different Discero users (e.g. deterministic Sandbox test data),
-    # the second user's otherwise-legitimate, non-duplicate connection
-    # collides with the first user's row at the database level. This
-    # does not incorrectly reject as "already connected" (the dedup
-    # check here is unrelated -- different institution_id below) --
-    # it fails at insert time. This test proves that failure is
-    # handled safely: a clean 500, the transaction rolled back, and
-    # the newly exchanged Plaid item revoked rather than leaked.
+    # FinancialAccount.provider_account_id used to be globally
+    # unique=True, not scoped per item/user. Plaid does not guarantee
+    # account_id is globally unique -- Sandbox in particular returns
+    # identical account_id values for identical test credentials
+    # connected by different users -- so a second, otherwise-legitimate
+    # user connecting a different institution with the same account_id
+    # used to collide at the database level and fail with a 500. The
+    # uniqueness constraint is now scoped to (plaid_item_id,
+    # provider_account_id), so this must succeed for both users.
     other_user_id = user_id + 1
     shared_account_id = "globally-shared-account-id"
 
@@ -758,8 +755,6 @@ def test_exchange_token_cross_user_provider_account_id_collision_fails_safely(
             )
         )
         db.commit()
-
-    removed_tokens: list[str] = []
 
     monkeypatch.setattr(
         plaid_router,
@@ -792,11 +787,6 @@ def test_exchange_token_cross_user_provider_account_id_collision_fails_safely(
     monkeypatch.setattr(
         plaid_router, "encrypt_token", lambda token: "ciphertext-colliding"
     )
-    monkeypatch.setattr(
-        plaid_router,
-        "remove_item",
-        lambda access_token: removed_tokens.append(access_token),
-    )
 
     response = client.post(
         f"/users/{user_id}/plaid/exchange-token",
@@ -808,25 +798,27 @@ def test_exchange_token_cross_user_provider_account_id_collision_fails_safely(
         },
     )
 
-    assert response.status_code == 500
-    assert response.json()["detail"] == "Unable to save Plaid connection"
-    assert removed_tokens == ["access-token-colliding"]
+    assert response.status_code == 201
 
     with TestingSessionLocal() as db:
-        # Nothing for this user was persisted; the other user's
-        # original row is untouched.
         this_user_item = db.scalar(
             select(PlaidItem).where(PlaidItem.user_id == user_id)
         )
-        assert this_user_item is None
+        assert this_user_item is not None
 
-        remaining_accounts = list(
-            db.scalars(select(FinancialAccount)).all()
-        )
-        assert len(remaining_accounts) == 1
-        assert remaining_accounts[0].provider_account_id == (
-            shared_account_id
-        )
+        accounts_by_item = {
+            account.plaid_item_id: account
+            for account in db.scalars(
+                select(FinancialAccount).where(
+                    FinancialAccount.provider_account_id
+                    == shared_account_id
+                )
+            ).all()
+        }
+        # Both users now have their own row sharing the same
+        # provider_account_id, scoped by their own item.
+        assert len(accounts_by_item) == 2
+        assert this_user_item.id in accounts_by_item
 
 
 def test_exchange_token_allows_partial_account_overlap(

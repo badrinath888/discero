@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.database import get_db
 from app.models import FinancialAccount, PlaidItem, Transaction, User
+from app.rate_limit import rate_limiter
 from app.schemas import (
     FinancialAccountOut,
     PlaidConnectionOut,
@@ -62,6 +63,7 @@ def _authorize_user(
 def create_plaid_link_token(
     user_id: int,
     current_user: User = Depends(get_current_user),
+    _rate_limit: None = Depends(rate_limiter(max_attempts=20)),
 ) -> PlaidLinkTokenOut:
     _authorize_user(user_id, current_user)
 

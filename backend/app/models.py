@@ -504,6 +504,15 @@ class PlaidItem(Base):
 class FinancialAccount(Base):
     __tablename__ = "financial_accounts"
 
+    __table_args__ = (
+        # Plaid account IDs are scoped to an Item, not globally unique.
+        UniqueConstraint(
+            "plaid_item_id",
+            "provider_account_id",
+            name="uq_financial_account_item_provider_account_id",
+        ),
+    )
+
     id: Mapped[int] = mapped_column(primary_key=True)
 
     plaid_item_id: Mapped[int] = mapped_column(
@@ -516,7 +525,6 @@ class FinancialAccount(Base):
 
     provider_account_id: Mapped[str] = mapped_column(
         String(255),
-        unique=True,
         index=True,
     )
 

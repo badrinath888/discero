@@ -628,7 +628,7 @@ def main() -> int:
     for key, value in summary.items():
         print(f"  {key}: {value}")
     print()
-    print(f"Demo login -> email: {DEMO_EMAIL}  password: {DEMO_PASSWORD}")
+    print(f"Demo login -> email: {DEMO_EMAIL}")
     return 0
 
 

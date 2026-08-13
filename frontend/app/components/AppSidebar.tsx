@@ -97,17 +97,17 @@ export default function AppSidebar() {
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="flex h-14 items-center justify-between px-2">
+        <div className="flex h-20 items-center justify-between px-2">
           <Link
             href="/dashboard"
             onClick={closeMobileMenu}
             className="focus-ring flex min-w-0 items-center gap-3 rounded-xl text-left"
           >
             <span className="min-w-0">
-              <span className="block truncate text-[15px] font-semibold tracking-[-0.02em] text-white">
+              <span className="block truncate text-3xl font-bold tracking-[-0.02em] text-white">
                 Discero
               </span>
-              <span className="block truncate text-[11px] text-[#9C9188]">
+              <span className="block truncate text-lg text-[#9C9188]">
                 Decision intelligence
               </span>
             </span>

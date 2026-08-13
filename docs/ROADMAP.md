@@ -2,6 +2,17 @@
 
 Priority reflects MVP impact, risk and dependencies; it is guidance, not a commitment.
 
+## Known limitations
+
+- Recovery and resend endpoints do not yet have shared datastore-backed rate limiting.
+- Pending negative transactions count toward budget spending.
+- Budget category matching is exact and case-sensitive.
+- Arbitrary budget source-month copy and overwrite are API-only.
+- Plaid synchronization remains synchronous and covers all connected institutions for the user; a crashed request can delay another sync for up to 15 minutes.
+- Safe-to-Spend obligations come only from `RecurringItem` rows; budgets and one-off manual obligations are not yet included even though `SafeToSpendObligationOut.source` already allows `budget`/`manual` values.
+- Recurring items are created manually or promoted from a detected suggestion; there is no automatic promotion job.
+- There is no live Plaid, PostgreSQL concurrency, browser E2E, or production smoke suite.
+
 ## Immediate cleanup
 
 Potential Duplicates, the duplicated goal-schema declarations, atomic bulk category/delete, the stale landing-page test count, and Undo edge-case coverage (items formerly listed here) are complete: Potential Duplicates has seven backend tests plus a frontend compatibility test, the goal schema classes are defined once, bulk category/delete use dedicated atomic backend endpoints rather than `Promise.all`, the landing page reports the current verified backend test count, and the Transactions page has regression tests for overlapping-delete merging, Undo-after-overlap restoration, and deletion continuing after the Undo toast is closed (which also fixed a real data-loss bug: an overlapping delete used to silently drop the first batch instead of committing or restoring it). See [IMPLEMENTED_FEATURES.md](IMPLEMENTED_FEATURES.md).

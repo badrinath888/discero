@@ -350,7 +350,7 @@ def test_decline_out_of_scope() -> None:
                     "decline_out_of_scope",
                     {
                         "reason": (
-                            "I can only help with your FinSight finances."
+                            "I can only help with your Discero finances."
                         ),
                         "category": "non_financial",
                     },
@@ -369,7 +369,7 @@ def test_decline_out_of_scope() -> None:
         )
 
         assert result.kind == "out_of_scope"
-        assert "FinSight" in (result.answer or "")
+        assert "Discero" in (result.answer or "")
 
 
 def test_text_only_response_without_tool_use() -> None:

@@ -1,7 +1,7 @@
-"""Deterministic ("free mode") FinSight Copilot -- zero LLM cost.
+"""Deterministic ("free mode") Discero Copilot -- zero LLM cost.
 
 Pipeline: user message -> regex/keyword intent classifier -> allowlisted
-FinSight tool (the SAME dispatch table the Anthropic path uses) -> real
+Discero tool (the SAME dispatch table the Anthropic path uses) -> real
 deterministic service result -> deterministic explanation template.
 
 This module never sends user text anywhere and never executes anything
@@ -23,7 +23,7 @@ from app.schemas import CopilotMessageIn
 from app.services.goal_impact_service import _add_months
 
 CAPABILITY_EXPLANATION = (
-    "I can help with questions FinSight can calculate directly from "
+    "I can help with questions Discero can calculate directly from "
     "your real data: your safe-to-spend, whether you can afford a "
     "specific purchase, your monthly cash flow and savings insights, "
     "whether your savings goals are on track and which one is most "

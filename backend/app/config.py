@@ -11,7 +11,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "FinSight API"
+    app_name: str = "Discero API"
     database_url: str = "sqlite:///./finance.db"
     cors_origins: str = (
         "http://localhost:3000,http://localhost:3001"
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     app_env: Literal["development", "test", "production"] = "production"
     frontend_url: str = "http://localhost:3000"
     email_backend: Literal["console", "smtp", "resend"] = "console"
-    email_from: str = "FinSight <no-reply@example.com>"
+    email_from: str = "Discero <no-reply@example.com>"
     resend_api_key: str | None = None
     smtp_host: str | None = None
     smtp_port: int = 587

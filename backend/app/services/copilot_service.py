@@ -1,4 +1,4 @@
-"""FinSight AI Copilot orchestration.
+"""Discero AI Copilot orchestration.
 
 Design principle: the LLM never invents a financial number. Each user turn
 runs at most two Anthropic calls, both via tool-use (structured JSON, not
@@ -77,7 +77,7 @@ _FALLBACK_ANSWER = (
     "question."
 )
 _SCOPE_FALLBACK = (
-    "I can only help with questions about your FinSight finances."
+    "I can only help with questions about your Discero finances."
 )
 
 _STATUS_TONE = {
@@ -343,7 +343,7 @@ _TOOLS = [
             "questions. Omit essential_spending_cents if not stated "
             "by the user; it will then be a SPENDING BASELINE "
             "estimated from their recent total spending, NOT a true "
-            "essential-expense figure (FinSight does not yet classify "
+            "essential-expense figure (Discero does not yet classify "
             "essential vs. discretionary transactions) -- if you "
             "omit it, call the result 'your recent spending pace' or "
             "a 'spending baseline', never 'essential expenses', and "
@@ -431,9 +431,9 @@ _TOOLS = [
             "recurring bills/subscriptions: upcoming payments with due "
             "dates, meaningful amount changes (increased/decreased) "
             "detected from real transaction history, newly established "
-            "recurring payments, payments FinSight expected but has not "
+            "recurring payments, payments Discero expected but has not "
             "seen yet (never call these 'cancelled' -- only say "
-            "FinSight hasn't seen the payment), possible duplicate "
+            "Discero hasn't seen the payment), possible duplicate "
             "subscriptions, and the total monthly recurring burden "
             "(with 30/60/90-day known obligations). Use for questions "
             "like 'what changed in my recurring bills', 'did any "
@@ -491,9 +491,9 @@ _TOOLS = [
     {
         "name": "decline_out_of_scope",
         "description": (
-            "Use for questions unrelated to the user's FinSight "
+            "Use for questions unrelated to the user's Discero "
             "finances (non-financial), or financial questions "
-            "FinSight has no data/capability to analyze. Never "
+            "Discero has no data/capability to analyze. Never "
             "fabricate an answer instead."
         ),
         "input_schema": {
@@ -988,7 +988,7 @@ def _handle_buy_now_vs_wait(db, user_id, tool_input, as_of, current_user):
 
 _SPENDING_BASELINE_ESTIMATED_NOTE = (
     "Monthly spending baseline ({amount}) was estimated from your "
-    "recent total spending because FinSight does not yet classify "
+    "recent total spending because Discero does not yet classify "
     "essential vs. discretionary expenses. Tell me a specific "
     "essential-spending amount and I'll use that instead."
 )
@@ -1346,8 +1346,8 @@ def _build_system_prompt(db: Session, user_id: int, as_of: date) -> str:
     )
 
     return (
-        "You are FinSight's financial copilot. You answer questions "
-        "about the CURRENT user's real FinSight data using the "
+        "You are Discero's financial copilot. You answer questions "
+        "about the CURRENT user's real Discero data using the "
         "provided tools.\n\n"
         "Rules:\n"
         "- NEVER invent a dollar amount, date, percentage, or any "
@@ -1360,7 +1360,7 @@ def _build_system_prompt(db: Session, user_id: int, as_of: date) -> str:
         "be inferred from the conversation, call "
         "request_clarification instead of guessing.\n"
         "- For questions unrelated to the user's finances, or "
-        "financial questions FinSight has no capability to "
+        "financial questions Discero has no capability to "
         "analyze, call decline_out_of_scope.\n"
         "- Resolve follow-up questions (e.g. \"what about $3,000?\", "
         "\"why?\", \"which goal?\") against the immediately "
@@ -1375,7 +1375,7 @@ def _build_system_prompt(db: Session, user_id: int, as_of: date) -> str:
         "report ones present in a tool result -- if a tool returns no "
         "anomalies, say clearly that nothing unusual was found.\n"
         "- Never call a recurring payment 'cancelled' -- if it's "
-        "overdue, say FinSight hasn't seen the expected payment yet.\n"
+        "overdue, say Discero hasn't seen the expected payment yet.\n"
         "- Keep prose short: a few sentences per section, no "
         "filler.\n\n"
         f"Today's date: {as_of.isoformat()}\n"

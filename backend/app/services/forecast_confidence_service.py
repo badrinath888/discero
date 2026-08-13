@@ -57,7 +57,7 @@ _RECOMMENDATION_TEXT: dict[str, str] = {
         "spending."
     ),
     "linked_accounts": (
-        "Connect a checking or cash account so FinSight can track "
+        "Connect a checking or cash account so Discero can track "
         "your real balance."
     ),
     "recurring_confidence": (

@@ -100,4 +100,4 @@ def readiness(db: Session = Depends(get_db)) -> dict[str, str]:
     return {"status": "ok"}
 
 
-logger.info("FinSight API configured (app_env=%s)", settings.app_env)
+logger.info("Discero API configured (app_env=%s)", settings.app_env)

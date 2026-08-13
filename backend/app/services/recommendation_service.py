@@ -119,7 +119,7 @@ def _rule_no_recurring_detected(
         priority=0,
         title="No recurring bills detected yet",
         summary=(
-            "FinSight hasn't identified any recurring bills or "
+            "Discero hasn't identified any recurring bills or "
             "subscriptions from your transaction history."
         ),
         why=(

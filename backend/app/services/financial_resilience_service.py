@@ -12,7 +12,7 @@ Monthly burn is either:
   spending (the same trailing-window averaging convention already
   used by `_average_monthly_income_cents` elsewhere in this codebase).
 
-FinSight does not yet classify transactions as "essential" vs.
+Discero does not yet classify transactions as "essential" vs.
 "discretionary". A derived figure is a spending BASELINE, not an
 essential-only number, and every user-facing string (`headline`,
 `why`, `what_this_means`, `suggested_actions`, `spending_basis_label`)
@@ -62,7 +62,7 @@ _STATUS_LABEL = {
 # Only the user-provided path may call itself an "emergency runway"
 # over "essential spending" -- a derived figure is reframed as
 # "spending coverage" at a recent "spending pace" throughout, per the
-# product requirement to never present total spending as if FinSight
+# product requirement to never present total spending as if Discero
 # knows which transactions are essential.
 _WHAT_THIS_MEANS_USER_PROVIDED = {
     "critical": (
@@ -360,7 +360,7 @@ def _build_explanation(
             f"covers approximately {runway_display} at your recent "
             f"spending pace of {_currency(monthly_essential_cents)}"
             "/month, estimated from your total spending because "
-            "FinSight does not yet classify essential vs. "
+            "Discero does not yet classify essential vs. "
             "discretionary expenses."
         )
 

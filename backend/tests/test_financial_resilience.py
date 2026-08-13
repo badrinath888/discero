@@ -507,9 +507,9 @@ def test_derived_uses_spending_baseline_terminology_not_essential() -> (
         assert "emergency runway" not in result.headline.lower()
 
         # `headline`/`what_this_means`/`suggested_actions` may never
-        # claim FinSight knows what is "essential". `why` may mention
+        # claim Discero knows what is "essential". `why` may mention
         # "essential vs. discretionary" ONLY as part of the explicit
-        # disclosure that FinSight does NOT classify them.
+        # disclosure that Discero does NOT classify them.
         never_essential = " ".join(
             [result.headline, result.what_this_means]
             + result.suggested_actions

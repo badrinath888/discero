@@ -12,7 +12,7 @@ from app.services import email_service
 def configure_resend(monkeypatch) -> None:
     monkeypatch.setattr(settings, "email_backend", "resend")
     monkeypatch.setattr(settings, "resend_api_key", "re_test_secret")
-    monkeypatch.setattr(settings, "email_from", "FinSight <mail@example.com>")
+    monkeypatch.setattr(settings, "email_from", "Discero <mail@example.com>")
     monkeypatch.setattr(settings, "frontend_url", "https://app.example.com/")
 
 
@@ -25,9 +25,9 @@ def test_resend_sends_password_reset(monkeypatch) -> None:
 
     send.assert_called_once_with(
         {
-            "from": "FinSight <mail@example.com>",
+            "from": "Discero <mail@example.com>",
             "to": ["user@example.com"],
-            "subject": "Reset your FinSight password",
+            "subject": "Reset your Discero password",
             "text": (
                 "Reset your password within 30 minutes:\n"
                 "https://app.example.com/reset-password?token=reset-token"
@@ -47,9 +47,9 @@ def test_resend_sends_email_verification(monkeypatch) -> None:
 
     send.assert_called_once_with(
         {
-            "from": "FinSight <mail@example.com>",
+            "from": "Discero <mail@example.com>",
             "to": ["user@example.com"],
-            "subject": "Verify your FinSight email",
+            "subject": "Verify your Discero email",
             "text": (
                 "Verify your email within 24 hours:\n"
                 "https://app.example.com/verify-email?token=verification-token"
@@ -156,6 +156,6 @@ def test_console_delivery_remains_available_in_development(
         email_service.send_password_reset("user@example.com", "reset-token")
 
     assert "Development email to user@example.com" in caplog.text
-    assert "Reset your FinSight password" in caplog.text
+    assert "Reset your Discero password" in caplog.text
     assert "reset-token" not in caplog.text
     assert "reset-password?token=" not in caplog.text

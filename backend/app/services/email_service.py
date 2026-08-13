@@ -14,7 +14,7 @@ def send_password_reset(email: str, token: str) -> None:
     link = f"{settings.frontend_url.rstrip('/')}/reset-password?token={token}"
     _send(
         email,
-        "Reset your FinSight password",
+        "Reset your Discero password",
         f"Reset your password within {settings.password_reset_expire_minutes} minutes:\n{link}",
     )
 
@@ -23,7 +23,7 @@ def send_email_verification(email: str, token: str) -> None:
     link = f"{settings.frontend_url.rstrip('/')}/verify-email?token={token}"
     _send(
         email,
-        "Verify your FinSight email",
+        "Verify your Discero email",
         f"Verify your email within {settings.email_verification_expire_hours} hours:\n{link}",
     )
 

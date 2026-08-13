@@ -120,7 +120,7 @@ _SEVERITY_THRESHOLDS = (
 )
 
 _DATA_DISCLAIMER = (
-    "This is a simulation based on your current FinSight data, not "
+    "This is a simulation based on your current Discero data, not "
     "a probabilistic forecast or financial advice."
 )
 

@@ -395,7 +395,7 @@ def _possibly_missing(
                 expected_date=item.next_payment,
                 days_overdue=(as_of - item.next_payment).days,
                 message=(
-                    f"FinSight has not seen the expected {item.merchant} "
+                    f"Discero has not seen the expected {item.merchant} "
                     f"payment yet -- it was due "
                     f"{item.next_payment.isoformat()}."
                 ),

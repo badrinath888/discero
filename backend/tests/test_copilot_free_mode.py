@@ -1648,8 +1648,13 @@ def test_duplicate_subscription_question_works_without_key() -> None:
         )
 
         assert result.tool_used == "Recurring Intelligence"
-        assert "Netflix" in result.answer
-        assert "Netflix.com" in result.answer
+        # Exact match on the deterministic render (not a substring/domain
+        # containment check) -- proves both distinct duplicate merchant
+        # names, "Netflix" and "Netflix.com", are surfaced together.
+        assert result.answer == (
+            "Netflix and Netflix.com look like they might be the same "
+            "subscription tracked twice."
+        )
 
 
 def test_duplicate_subscription_question_no_duplicate_found() -> None:

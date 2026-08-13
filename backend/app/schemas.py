@@ -825,7 +825,7 @@ class SafeToSpendOut(BaseModel):
 
 
 class FinancialResilienceRequest(BaseModel):
-    # None means "derive it from FinSight data"; an explicit value
+    # None means "derive it from Discero data"; an explicit value
     # (including a legitimate $0) is always used as-is and labeled
     # user-provided rather than estimated.
     essential_spending_cents: int | None = Field(default=None, ge=0)
@@ -849,7 +849,7 @@ class FinancialResilienceOut(BaseModel):
     # every consumer (Forecast UI, Copilot, Recommendations) shows the
     # exact same wording rather than each re-deriving it: "Monthly
     # essential spending" only when the user actually said so, else
-    # "Monthly spending baseline" -- never presented as if FinSight
+    # "Monthly spending baseline" -- never presented as if Discero
     # knows which transactions are essential.
     spending_basis_label: str
     months_of_spending_data: int

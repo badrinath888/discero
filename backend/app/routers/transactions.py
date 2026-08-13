@@ -17,6 +17,7 @@ from app.models import (
     Transaction,
     User,
 )
+from app.rate_limit import rate_limiter
 from app.recurring import detect_recurring
 from app.schemas import (
     BulkTransactionCategoriesUpdate,
@@ -140,6 +141,7 @@ async def upload_transactions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     categorizer: LLMCategorizer = Depends(get_categorizer),
+    _rate_limit: None = Depends(rate_limiter(max_attempts=10)),
 ) -> UploadSummary:
     _authorize_user(user_id, current_user)
 

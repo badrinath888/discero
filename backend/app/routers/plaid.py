@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, or_, select, update
@@ -18,6 +19,7 @@ from app.schemas import (
     PlaidSyncStatusOut,
 )
 from app.services.plaid_service import (
+    PlaidAccountData,
     PlaidConfigurationError,
     PlaidServiceError,
     create_link_token,
@@ -36,6 +38,8 @@ router = APIRouter(
     prefix="/users/{user_id}/plaid",
     tags=["plaid"],
 )
+
+logger = logging.getLogger(__name__)
 
 SYNC_CLAIM_TIMEOUT = timedelta(minutes=15)
 
@@ -135,14 +139,47 @@ def exchange_plaid_token(
             detail="Plaid connection already belongs to another user",
         )
 
+    institution_id = _clean_optional(payload.institution_id)
+
+    # Plaid issues a brand-new item_id *and* fresh per-account account_id
+    # values every time a standard (non-update-mode) Link session is
+    # completed, even when the user re-selects the exact same real-world
+    # accounts at an institution they already connected -- so neither
+    # provider_item_id nor provider_account_id can be reused to detect
+    # this. Plaid's own cross-Item stable identifier (persistent_account_id)
+    # isn't a fit here: it requires no extra product, but per Plaid's
+    # accounts response is only populated for Tokenized-Account-Number
+    # institutions (Chase/PNC/US Bank in production; four specific sandbox
+    # institutions), which excludes the institution in the incident this
+    # guards against -- and Plaid explicitly documents that `mask` is not
+    # guaranteed unique even within a single Item, so a single matching
+    # (mask, account_type, account_subtype) is not, by itself, reliable
+    # evidence of a duplicate. Instead, this only rejects when the
+    # *entire* incoming account-fingerprint set is identical to the
+    # entire fingerprint set already on file for one existing item at the
+    # same institution_id for this user: a one-field coincidence across
+    # two genuinely different accounts is plausible, but two independent
+    # Items coincidentally sharing an entire identical set of (mask,
+    # type, subtype) tuples is not. institution_name is never used.
+    if plaid_item is None and _is_duplicate_connection(
+        db=db,
+        user_id=user_id,
+        institution_id=institution_id,
+        accounts=plaid_accounts,
+    ):
+        _safe_remove_item(exchange.access_token)
+
+        raise HTTPException(
+            status_code=409,
+            detail="This bank account is already connected",
+        )
+
     try:
         if plaid_item is None:
             plaid_item = PlaidItem(
                 user_id=user_id,
                 provider_item_id=exchange.item_id,
-                institution_id=_clean_optional(
-                    payload.institution_id
-                ),
+                institution_id=institution_id,
                 institution_name=_clean_optional(
                     payload.institution_name
                 ),
@@ -183,6 +220,7 @@ def exchange_plaid_token(
         db.refresh(plaid_item)
     except SQLAlchemyError as exc:
         db.rollback()
+        _safe_remove_item(exchange.access_token)
 
         raise HTTPException(
             status_code=500,
@@ -691,3 +729,74 @@ def _clean_optional(
     cleaned = value.strip()
 
     return cleaned or None
+
+
+def _is_duplicate_connection(
+    db: Session,
+    user_id: int,
+    institution_id: str | None,
+    accounts: list[PlaidAccountData],
+) -> bool:
+    # Without a stable institution identifier there is nothing safe to
+    # compare against -- fail open rather than risk blocking a
+    # legitimate connection.
+    if institution_id is None:
+        return False
+
+    incoming_fingerprint = {
+        (account.mask, account.account_type, account.account_subtype)
+        for account in accounts
+        if account.mask
+    }
+
+    if not incoming_fingerprint:
+        return False
+
+    existing_accounts = db.scalars(
+        select(FinancialAccount)
+        .join(
+            PlaidItem,
+            FinancialAccount.plaid_item_id == PlaidItem.id,
+        )
+        .where(
+            PlaidItem.user_id == user_id,
+            PlaidItem.institution_id == institution_id,
+            FinancialAccount.mask.is_not(None),
+        )
+    ).all()
+
+    existing_fingerprints_by_item: dict[int, set] = {}
+    for existing in existing_accounts:
+        existing_fingerprints_by_item.setdefault(
+            existing.plaid_item_id, set()
+        ).add(
+            (
+                existing.mask,
+                existing.account_type,
+                existing.account_subtype,
+            )
+        )
+
+    # A single matching (mask, type, subtype) is not enough -- Plaid
+    # does not guarantee mask uniqueness even within one Item, so a
+    # one-account coincidence must not block a genuinely different
+    # connection. Only an exact match of the *entire* incoming account
+    # set against the entire set already on file for one existing item
+    # counts as the same underlying connection.
+    return any(
+        incoming_fingerprint == existing_fingerprint
+        for existing_fingerprint in existing_fingerprints_by_item.values()
+    )
+
+
+def _safe_remove_item(access_token: str) -> None:
+    try:
+        remove_item(access_token)
+    except PlaidServiceError:
+        # Best-effort cleanup -- the caller is already returning an
+        # error response either way, and a failure to revoke a Plaid
+        # item we're about to discard must never mask or replace that
+        # response (and must never log the access token itself).
+        logger.warning(
+            "Unable to revoke a Plaid item during error cleanup"
+        )

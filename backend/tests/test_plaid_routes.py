@@ -351,6 +351,674 @@ def test_exchange_token_updates_existing_item_and_account(
         assert accounts[0].current_balance_cents == 25000
 
 
+def test_exchange_token_rejects_duplicate_account_reconnect(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    # Regression test for the production incident: relinking the same
+    # Sandbox Tartan Bank connection via a fresh (non-update-mode) Link
+    # session returns a brand-new item_id *and* brand-new
+    # provider_account_id values -- so this must be caught by
+    # institution_id + mask/type/subtype fingerprinting, not by
+    # comparing provider_item_id or provider_account_id.
+    with TestingSessionLocal() as db:
+        item = PlaidItem(
+            user_id=user_id,
+            provider_item_id="item-tartan-1",
+            institution_id="ins_tartan",
+            institution_name="Tartan Bank",
+            access_token_ciphertext="ciphertext-1",
+            status="active",
+            sync_status="succeeded",
+        )
+        db.add(item)
+        db.flush()
+
+        db.add(
+            FinancialAccount(
+                plaid_item_id=item.id,
+                provider_account_id="tartan-account-1",
+                name="Plaid Checking",
+                account_type="depository",
+                account_subtype="checking",
+                mask="0000",
+                current_balance_cents=100000,
+                currency="USD",
+            )
+        )
+        db.commit()
+
+    removed_tokens: list[str] = []
+
+    monkeypatch.setattr(
+        plaid_router,
+        "exchange_public_token",
+        lambda public_token: PlaidExchangeResult(
+            # A different item_id, exactly as Plaid returns for a fresh
+            # Link session against the same institution.
+            access_token="access-token-duplicate",
+            item_id="item-tartan-2",
+        ),
+    )
+    monkeypatch.setattr(
+        plaid_router,
+        "get_accounts",
+        lambda access_token: [
+            PlaidAccountData(
+                # A different provider_account_id too -- the whole
+                # point of this test is that account_id alone can't be
+                # used to detect the duplicate.
+                provider_account_id="tartan-account-1-relinked",
+                name="Plaid Checking",
+                official_name=None,
+                account_type="depository",
+                account_subtype="checking",
+                mask="0000",
+                current_balance_cents=100000,
+                available_balance_cents=100000,
+                currency="USD",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        plaid_router, "encrypt_token", lambda token: "ciphertext-2"
+    )
+    monkeypatch.setattr(
+        plaid_router,
+        "remove_item",
+        lambda access_token: removed_tokens.append(access_token),
+    )
+
+    response = client.post(
+        f"/users/{user_id}/plaid/exchange-token",
+        headers=auth_headers,
+        json={
+            "public_token": "public-sandbox-token",
+            "institution_id": "ins_tartan",
+            "institution_name": "Tartan Bank",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "This bank account is already connected"
+    )
+    # The newly exchanged item's access token was revoked at Plaid so
+    # no unused item/token is left behind there.
+    assert removed_tokens == ["access-token-duplicate"]
+
+    with TestingSessionLocal() as db:
+        items = list(db.scalars(select(PlaidItem)).all())
+        accounts = list(db.scalars(select(FinancialAccount)).all())
+
+        assert len(items) == 1
+        assert items[0].provider_item_id == "item-tartan-1"
+        assert len(accounts) == 1
+        assert accounts[0].provider_account_id == "tartan-account-1"
+
+
+def test_exchange_token_allows_genuinely_different_connection(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    with TestingSessionLocal() as db:
+        item = PlaidItem(
+            user_id=user_id,
+            provider_item_id="item-tartan-1",
+            institution_id="ins_tartan",
+            institution_name="Tartan Bank",
+            access_token_ciphertext="ciphertext-1",
+            status="active",
+        )
+        db.add(item)
+        db.flush()
+
+        db.add(
+            FinancialAccount(
+                plaid_item_id=item.id,
+                provider_account_id="tartan-account-1",
+                name="Plaid Checking",
+                account_type="depository",
+                account_subtype="checking",
+                mask="0000",
+                current_balance_cents=100000,
+                currency="USD",
+            )
+        )
+        db.commit()
+
+    monkeypatch.setattr(
+        plaid_router,
+        "exchange_public_token",
+        lambda public_token: PlaidExchangeResult(
+            access_token="access-token-other-bank",
+            item_id="item-other-bank",
+        ),
+    )
+    monkeypatch.setattr(
+        plaid_router,
+        "get_accounts",
+        lambda access_token: [
+            PlaidAccountData(
+                provider_account_id="other-bank-account-1",
+                name="Savings",
+                official_name=None,
+                account_type="depository",
+                account_subtype="savings",
+                mask="9999",
+                current_balance_cents=500000,
+                available_balance_cents=500000,
+                currency="USD",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        plaid_router, "encrypt_token", lambda token: "ciphertext-other"
+    )
+
+    response = client.post(
+        f"/users/{user_id}/plaid/exchange-token",
+        headers=auth_headers,
+        json={
+            "public_token": "public-sandbox-token",
+            "institution_id": "ins_other_bank",
+            "institution_name": "Other Bank",
+        },
+    )
+
+    assert response.status_code == 201
+
+    with TestingSessionLocal() as db:
+        items = list(db.scalars(select(PlaidItem)).all())
+        assert len(items) == 2
+        accounts = list(db.scalars(select(FinancialAccount)).all())
+        assert len(accounts) == 2
+
+
+def test_exchange_token_same_institution_name_different_accounts_succeeds(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    # Proves the dedup check is not keyed on institution_name: two
+    # connections sharing a display name but with a different
+    # institution_id and non-overlapping accounts must both succeed.
+    with TestingSessionLocal() as db:
+        item = PlaidItem(
+            user_id=user_id,
+            provider_item_id="item-bank-a",
+            institution_id="ins_aaa",
+            institution_name="Community Bank",
+            access_token_ciphertext="ciphertext-1",
+            status="active",
+        )
+        db.add(item)
+        db.flush()
+
+        db.add(
+            FinancialAccount(
+                plaid_item_id=item.id,
+                provider_account_id="bank-a-account-1",
+                name="Checking",
+                account_type="depository",
+                account_subtype="checking",
+                mask="1234",
+                current_balance_cents=100000,
+                currency="USD",
+            )
+        )
+        db.commit()
+
+    monkeypatch.setattr(
+        plaid_router,
+        "exchange_public_token",
+        lambda public_token: PlaidExchangeResult(
+            access_token="access-token-bank-b",
+            item_id="item-bank-b",
+        ),
+    )
+    monkeypatch.setattr(
+        plaid_router,
+        "get_accounts",
+        lambda access_token: [
+            PlaidAccountData(
+                provider_account_id="bank-b-account-1",
+                name="Checking",
+                official_name=None,
+                account_type="depository",
+                account_subtype="checking",
+                mask="5678",
+                current_balance_cents=200000,
+                available_balance_cents=200000,
+                currency="USD",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        plaid_router, "encrypt_token", lambda token: "ciphertext-2"
+    )
+
+    response = client.post(
+        f"/users/{user_id}/plaid/exchange-token",
+        headers=auth_headers,
+        json={
+            "public_token": "public-sandbox-token",
+            # Different institution_id, same display name.
+            "institution_id": "ins_bbb",
+            "institution_name": "Community Bank",
+        },
+    )
+
+    assert response.status_code == 201
+
+    with TestingSessionLocal() as db:
+        assert len(list(db.scalars(select(PlaidItem)).all())) == 2
+        assert (
+            len(list(db.scalars(select(FinancialAccount)).all())) == 2
+        )
+
+
+def test_exchange_token_does_not_block_on_another_users_accounts(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    # A different user already has an account with the same
+    # institution_id/mask/type/subtype fingerprint (plausible with
+    # deterministic Sandbox test data). The dedup check must be scoped
+    # to the authenticated user and must not block them.
+    other_user_id = user_id + 1
+
+    with TestingSessionLocal() as db:
+        item = PlaidItem(
+            user_id=other_user_id,
+            provider_item_id="item-other-user",
+            institution_id="ins_tartan",
+            institution_name="Tartan Bank",
+            access_token_ciphertext="ciphertext-other-user",
+            status="active",
+        )
+        db.add(item)
+        db.flush()
+
+        db.add(
+            FinancialAccount(
+                plaid_item_id=item.id,
+                provider_account_id="other-user-account-1",
+                name="Plaid Checking",
+                account_type="depository",
+                account_subtype="checking",
+                mask="0000",
+                current_balance_cents=100000,
+                currency="USD",
+            )
+        )
+        db.commit()
+
+    monkeypatch.setattr(
+        plaid_router,
+        "exchange_public_token",
+        lambda public_token: PlaidExchangeResult(
+            access_token="access-token-this-user",
+            item_id="item-this-user",
+        ),
+    )
+    monkeypatch.setattr(
+        plaid_router,
+        "get_accounts",
+        lambda access_token: [
+            PlaidAccountData(
+                provider_account_id="this-user-account-1",
+                name="Plaid Checking",
+                official_name=None,
+                account_type="depository",
+                account_subtype="checking",
+                mask="0000",
+                current_balance_cents=100000,
+                available_balance_cents=100000,
+                currency="USD",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        plaid_router, "encrypt_token", lambda token: "ciphertext-this-user"
+    )
+
+    response = client.post(
+        f"/users/{user_id}/plaid/exchange-token",
+        headers=auth_headers,
+        json={
+            "public_token": "public-sandbox-token",
+            "institution_id": "ins_tartan",
+            "institution_name": "Tartan Bank",
+        },
+    )
+
+    assert response.status_code == 201
+
+    with TestingSessionLocal() as db:
+        this_user_item = db.scalar(
+            select(PlaidItem).where(
+                PlaidItem.provider_item_id == "item-this-user"
+            )
+        )
+        assert this_user_item is not None
+        assert this_user_item.user_id == user_id
+
+
+def test_exchange_token_cross_user_provider_account_id_collision_fails_safely(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    # Documents a pre-existing, separate limitation (not fixed here,
+    # per instructions -- flagged in the report): FinancialAccount
+    # .provider_account_id is globally unique=True, not scoped per
+    # user. If Plaid ever returns the same account_id for two
+    # different Discero users (e.g. deterministic Sandbox test data),
+    # the second user's otherwise-legitimate, non-duplicate connection
+    # collides with the first user's row at the database level. This
+    # does not incorrectly reject as "already connected" (the dedup
+    # check here is unrelated -- different institution_id below) --
+    # it fails at insert time. This test proves that failure is
+    # handled safely: a clean 500, the transaction rolled back, and
+    # the newly exchanged Plaid item revoked rather than leaked.
+    other_user_id = user_id + 1
+    shared_account_id = "globally-shared-account-id"
+
+    with TestingSessionLocal() as db:
+        item = PlaidItem(
+            user_id=other_user_id,
+            provider_item_id="item-other-user",
+            institution_id="ins_other_user_bank",
+            institution_name="Other User's Bank",
+            access_token_ciphertext="ciphertext-other-user",
+            status="active",
+        )
+        db.add(item)
+        db.flush()
+
+        db.add(
+            FinancialAccount(
+                plaid_item_id=item.id,
+                provider_account_id=shared_account_id,
+                name="Checking",
+                account_type="depository",
+                account_subtype="checking",
+                mask="4321",
+                current_balance_cents=100000,
+                currency="USD",
+            )
+        )
+        db.commit()
+
+    removed_tokens: list[str] = []
+
+    monkeypatch.setattr(
+        plaid_router,
+        "exchange_public_token",
+        lambda public_token: PlaidExchangeResult(
+            access_token="access-token-colliding",
+            item_id="item-this-user-colliding",
+        ),
+    )
+    monkeypatch.setattr(
+        plaid_router,
+        "get_accounts",
+        lambda access_token: [
+            PlaidAccountData(
+                # Same account_id as another user's row -- a
+                # genuinely different institution, so the
+                # institution_id-scoped dedup check does not fire.
+                provider_account_id=shared_account_id,
+                name="Checking",
+                official_name=None,
+                account_type="depository",
+                account_subtype="checking",
+                mask="8765",
+                current_balance_cents=250000,
+                available_balance_cents=250000,
+                currency="USD",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        plaid_router, "encrypt_token", lambda token: "ciphertext-colliding"
+    )
+    monkeypatch.setattr(
+        plaid_router,
+        "remove_item",
+        lambda access_token: removed_tokens.append(access_token),
+    )
+
+    response = client.post(
+        f"/users/{user_id}/plaid/exchange-token",
+        headers=auth_headers,
+        json={
+            "public_token": "public-sandbox-token",
+            "institution_id": "ins_this_user_bank",
+            "institution_name": "This User's Bank",
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Unable to save Plaid connection"
+    assert removed_tokens == ["access-token-colliding"]
+
+    with TestingSessionLocal() as db:
+        # Nothing for this user was persisted; the other user's
+        # original row is untouched.
+        this_user_item = db.scalar(
+            select(PlaidItem).where(PlaidItem.user_id == user_id)
+        )
+        assert this_user_item is None
+
+        remaining_accounts = list(
+            db.scalars(select(FinancialAccount)).all()
+        )
+        assert len(remaining_accounts) == 1
+        assert remaining_accounts[0].provider_account_id == (
+            shared_account_id
+        )
+
+
+def test_exchange_token_allows_partial_account_overlap(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    # Only one of two incoming accounts happens to share a (mask, type,
+    # subtype) fingerprint with an existing connection -- Plaid does not
+    # guarantee mask uniqueness, so a single-account coincidence must
+    # not block the whole new item. Only an exact full-set match is
+    # treated as a duplicate reconnect; a partial (or coincidental)
+    # overlap proceeds normally.
+    with TestingSessionLocal() as db:
+        item = PlaidItem(
+            user_id=user_id,
+            provider_item_id="item-tartan-1",
+            institution_id="ins_tartan",
+            institution_name="Tartan Bank",
+            access_token_ciphertext="ciphertext-1",
+            status="active",
+        )
+        db.add(item)
+        db.flush()
+
+        db.add(
+            FinancialAccount(
+                plaid_item_id=item.id,
+                provider_account_id="tartan-account-1",
+                name="Plaid Checking",
+                account_type="depository",
+                account_subtype="checking",
+                mask="0000",
+                current_balance_cents=100000,
+                currency="USD",
+            )
+        )
+        db.commit()
+
+    monkeypatch.setattr(
+        plaid_router,
+        "exchange_public_token",
+        lambda public_token: PlaidExchangeResult(
+            access_token="access-token-partial",
+            item_id="item-tartan-2",
+        ),
+    )
+    monkeypatch.setattr(
+        plaid_router,
+        "get_accounts",
+        lambda access_token: [
+            PlaidAccountData(
+                provider_account_id="tartan-account-1-relinked",
+                name="Plaid Checking",
+                official_name=None,
+                account_type="depository",
+                account_subtype="checking",
+                mask="0000",
+                current_balance_cents=100000,
+                available_balance_cents=100000,
+                currency="USD",
+            ),
+            PlaidAccountData(
+                provider_account_id="tartan-account-2-new",
+                name="Plaid Savings",
+                official_name=None,
+                account_type="depository",
+                account_subtype="savings",
+                mask="1111",
+                current_balance_cents=300000,
+                available_balance_cents=300000,
+                currency="USD",
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        plaid_router, "encrypt_token", lambda token: "ciphertext-2"
+    )
+
+    response = client.post(
+        f"/users/{user_id}/plaid/exchange-token",
+        headers=auth_headers,
+        json={
+            "public_token": "public-sandbox-token",
+            "institution_id": "ins_tartan",
+            "institution_name": "Tartan Bank",
+        },
+    )
+
+    assert response.status_code == 201
+
+    with TestingSessionLocal() as db:
+        accounts = list(db.scalars(select(FinancialAccount)).all())
+        assert len(accounts) == 3
+        items = list(db.scalars(select(PlaidItem)).all())
+        assert len(items) == 2
+
+
+def test_exchange_token_duplicate_rejection_survives_cleanup_failure(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    with TestingSessionLocal() as db:
+        item = PlaidItem(
+            user_id=user_id,
+            provider_item_id="item-tartan-1",
+            institution_id="ins_tartan",
+            institution_name="Tartan Bank",
+            access_token_ciphertext="ciphertext-1",
+            status="active",
+        )
+        db.add(item)
+        db.flush()
+
+        db.add(
+            FinancialAccount(
+                plaid_item_id=item.id,
+                provider_account_id="tartan-account-1",
+                name="Plaid Checking",
+                account_type="depository",
+                account_subtype="checking",
+                mask="0000",
+                current_balance_cents=100000,
+                currency="USD",
+            )
+        )
+        db.commit()
+
+    monkeypatch.setattr(
+        plaid_router,
+        "exchange_public_token",
+        lambda public_token: PlaidExchangeResult(
+            access_token="access-token-duplicate",
+            item_id="item-tartan-2",
+        ),
+    )
+    monkeypatch.setattr(
+        plaid_router,
+        "get_accounts",
+        lambda access_token: [
+            PlaidAccountData(
+                provider_account_id="tartan-account-1-relinked",
+                name="Plaid Checking",
+                official_name=None,
+                account_type="depository",
+                account_subtype="checking",
+                mask="0000",
+                current_balance_cents=100000,
+                available_balance_cents=100000,
+                currency="USD",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        plaid_router, "encrypt_token", lambda token: "ciphertext-2"
+    )
+
+    def raise_on_remove(access_token: str) -> None:
+        raise PlaidServiceError("Unable to disconnect Plaid institution")
+
+    monkeypatch.setattr(
+        plaid_router, "remove_item", raise_on_remove
+    )
+
+    response = client.post(
+        f"/users/{user_id}/plaid/exchange-token",
+        headers=auth_headers,
+        json={
+            "public_token": "public-sandbox-token",
+            "institution_id": "ins_tartan",
+            "institution_name": "Tartan Bank",
+        },
+    )
+
+    # The user still gets a clean 409, not a 500 -- cleanup failing at
+    # Plaid must not surface as, or be conflated with, an unrelated
+    # server error, and must never leak the access token.
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "This bank account is already connected"
+    )
+    assert "access-token-duplicate" not in response.text
+
+    with TestingSessionLocal() as db:
+        items = list(db.scalars(select(PlaidItem)).all())
+        assert len(items) == 1
+        assert items[0].provider_item_id == "item-tartan-1"
+
+
 def test_exchange_token_handles_plaid_failure(
     client: TestClient,
     user_id: int,

@@ -1,3 +1,5 @@
+import time
+import unittest.mock
 from datetime import date, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
@@ -1909,3 +1911,125 @@ def test_why_spending_higher_question_works_without_key() -> None:
 
         assert result.tool_used == "Spending Anomalies"
         assert "Dining" in result.answer
+
+
+# --- ReDoS-hardening regression tests -----------------------------------
+#
+# _RESILIENCE_HORIZON_DAYS_RE / _RESILIENCE_HORIZON_MONTHS_RE (used by
+# _resilience_emphasis) and _FOLLOW_UP_AMOUNT_RE (used by resolve_intent)
+# run over raw, unbounded chat text and were flagged by CodeQL as
+# potential ReDoS surfaces. The fix bounds how much text is inspected
+# rather than changing matching behavior for realistic input.
+
+
+def test_resilience_emphasis_recognizes_all_supported_day_and_month_wording() -> (
+    None
+):
+    assert copilot_free_mode._resilience_emphasis(
+        "Can I cover 30 days without income?"
+    ) == "horizon_30"
+    assert copilot_free_mode._resilience_emphasis(
+        "Can I cover 60 days without income?"
+    ) == "horizon_60"
+    assert copilot_free_mode._resilience_emphasis(
+        "Can I cover 90 days without income?"
+    ) == "horizon_90"
+    assert copilot_free_mode._resilience_emphasis(
+        "What if my income stops for 1 month?"
+    ) == "horizon_30"
+    assert copilot_free_mode._resilience_emphasis(
+        "What if my income stops for 2 months?"
+    ) == "horizon_60"
+    assert copilot_free_mode._resilience_emphasis(
+        "What if my income stops for 3 months?"
+    ) == "horizon_90"
+
+
+def test_resilience_emphasis_bounds_adversarially_long_input() -> None:
+    # A long run of digits with no trailing "days"/"months" keyword is
+    # exactly the shape that makes an unbounded `\d+\s*days?\b` search
+    # expensive: every starting offset within the digit run is a fresh,
+    # ultimately-failing match attempt. This must stay fast and must not
+    # find a match beyond the inspected prefix.
+    adversarial = ("1" * 500_000) + " nope"
+
+    start = time.perf_counter()
+    result = copilot_free_mode._resilience_emphasis(adversarial)
+    elapsed = time.perf_counter() - start
+
+    assert result is None
+    assert elapsed < 1.0
+
+
+def test_resilience_emphasis_ignores_horizon_wording_past_inspected_window() -> (
+    None
+):
+    # Wording far beyond the bounded prefix is not required to be found
+    # -- this is the accepted, documented tradeoff for bounding input.
+    padded = ("x" * 1000) + " 90 days"
+
+    assert copilot_free_mode._resilience_emphasis(padded) is None
+
+
+def test_follow_up_amount_still_resolves_for_normal_short_replies() -> None:
+    prior = ("simulate_major_purchase", {"purchase_amount_cents": 150_000})
+
+    with unittest.mock.patch.object(
+        copilot_free_mode,
+        "_find_prior_tool",
+        return_value=prior,
+    ):
+        result = copilot_free_mode.resolve_intent(
+            _messages("Can I afford a $1,500 laptop?", "What about $3,000?"),
+            TEST_DATE,
+        )
+
+    assert isinstance(result, copilot_free_mode.Resolution)
+    assert result.tool_name == "simulate_major_purchase"
+    assert result.tool_input["purchase_amount_cents"] == 300_000
+
+
+def test_follow_up_amount_falls_back_to_unknown_for_adversarially_long_message() -> (
+    None
+):
+    # Anchored ^...$ matching normally limits backtracking, but this must
+    # not depend on being lucky -- a very long message is never a valid
+    # short follow-up amount and must safely resolve to None (normal/
+    # unknown handling) rather than being evaluated against the regex at
+    # all. Bounded by CopilotMessageIn's own 4000-char schema limit --
+    # well past the 200-char regex-inspection bound this fix adds.
+    adversarial = "$" + ("1" * 3_999)
+
+    start = time.perf_counter()
+    result = copilot_free_mode.resolve_intent(
+        _messages("Can I afford a $1,500 laptop?", adversarial),
+        TEST_DATE,
+    )
+    elapsed = time.perf_counter() - start
+
+    assert result is None
+    assert elapsed < 1.0
+
+
+def test_resolve_intent_handles_extreme_input_bypassing_schema_limit() -> (
+    None
+):
+    # resolve_intent() itself takes plain strings and has no guarantee
+    # every caller went through CopilotMessageIn's schema validation --
+    # the regex-level bound must hold on its own regardless.
+    adversarial = "$" + ("1" * 2_000_000)
+
+    start = time.perf_counter()
+    result = copilot_free_mode.resolve_intent(
+        [
+            CopilotMessageIn(
+                role="user", content="Can I afford a $1,500 laptop?"
+            ),
+            SimpleNamespace(role="user", content=adversarial),
+        ],
+        TEST_DATE,
+    )
+    elapsed = time.perf_counter() - start
+
+    assert result is None
+    assert elapsed < 1.0

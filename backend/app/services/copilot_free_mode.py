@@ -41,6 +41,14 @@ _GOAL_STATUS_RANK = {
     "impossible": 0,
 }
 
+# Some regexes below run over raw, unbounded user chat text. The wording
+# they look for (a horizon like "90 days", or a short bare-amount
+# follow-up) is always near the start of a realistic message, so bounding
+# the inspected slice to this many characters is behavior-preserving for
+# real input while keeping worst-case regex work independent of message
+# length (defends against adversarially long input, e.g. CodeQL ReDoS).
+_MAX_REGEX_INSPECT_CHARS = 200
+
 
 @dataclass
 class Clarify:
@@ -388,11 +396,13 @@ def extract_essential_spending_cents(text: str) -> tuple[bool, int | None]:
 
 
 def _resilience_emphasis(text: str) -> str | None:
-    days_match = _RESILIENCE_HORIZON_DAYS_RE.search(text)
+    bounded = text[:_MAX_REGEX_INSPECT_CHARS]
+
+    days_match = _RESILIENCE_HORIZON_DAYS_RE.search(bounded)
     if days_match and int(days_match.group(1)) in (30, 60, 90):
         return f"horizon_{days_match.group(1)}"
 
-    months_match = _RESILIENCE_HORIZON_MONTHS_RE.search(text)
+    months_match = _RESILIENCE_HORIZON_MONTHS_RE.search(bounded)
     if months_match:
         mapped = _MONTHS_TO_HORIZON_DAYS.get(int(months_match.group(1)))
         if mapped:
@@ -630,7 +640,14 @@ def resolve_intent(
             return Resolution(prior[0], prior[1], "goals")
         return None
 
-    if _FOLLOW_UP_AMOUNT_RE.match(stripped):
+    # A genuine short follow-up amount (e.g. "$500", "20k?") is never
+    # long; a long message is by definition not a bare-amount reply, so
+    # skip the match instead of running it against unbounded text and
+    # let this safely fall through to normal/unknown handling below.
+    if (
+        len(stripped) <= _MAX_REGEX_INSPECT_CHARS
+        and _FOLLOW_UP_AMOUNT_RE.match(stripped)
+    ):
         amount = extract_amount_cents(stripped) or _bare_number_cents(
             stripped
         )

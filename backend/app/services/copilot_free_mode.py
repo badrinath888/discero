@@ -374,9 +374,17 @@ _ESSENTIAL_SPENDING_VERB_RE = re.compile(
     r"\b(essential spending|my spending (is|were|would be))\b",
     re.IGNORECASE,
 )
-_RESILIENCE_HORIZON_DAYS_RE = re.compile(r"(\d+)\s*days?\b", re.IGNORECASE)
+# The caller only ever accepts 30/60/90-day and 1/2/3-month horizons, so
+# the number is matched as a fixed literal alternation rather than an
+# unbounded `\d+` -- there is no quantified repetition left to match a
+# variable-length run of digits, so this cannot backtrack polynomially
+# (CodeQL py/polynomial-redos). The leading/trailing `\b` still prevents
+# a false match inside a larger number, e.g. "130 days" or "1230".
+_RESILIENCE_HORIZON_DAYS_RE = re.compile(
+    r"\b(30|60|90)\s*days?\b", re.IGNORECASE
+)
 _RESILIENCE_HORIZON_MONTHS_RE = re.compile(
-    r"(\d+)\s*months?\b", re.IGNORECASE
+    r"\b([123])\s*months?\b", re.IGNORECASE
 )
 _MONTHS_TO_HORIZON_DAYS = {1: 30, 2: 60, 3: 90}
 
@@ -399,14 +407,13 @@ def _resilience_emphasis(text: str) -> str | None:
     bounded = text[:_MAX_REGEX_INSPECT_CHARS]
 
     days_match = _RESILIENCE_HORIZON_DAYS_RE.search(bounded)
-    if days_match and int(days_match.group(1)) in (30, 60, 90):
+    if days_match:
         return f"horizon_{days_match.group(1)}"
 
     months_match = _RESILIENCE_HORIZON_MONTHS_RE.search(bounded)
     if months_match:
-        mapped = _MONTHS_TO_HORIZON_DAYS.get(int(months_match.group(1)))
-        if mapped:
-            return f"horizon_{mapped}"
+        mapped = _MONTHS_TO_HORIZON_DAYS[int(months_match.group(1))]
+        return f"horizon_{mapped}"
 
     return None
 
@@ -534,11 +541,49 @@ def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
 
 _WHY_RE = re.compile(r"^\s*why\b", re.IGNORECASE)
 _WHICH_GOAL_RE = re.compile(r"\bwhich goal|what goal\b", re.IGNORECASE)
-_FOLLOW_UP_AMOUNT_RE = re.compile(
-    r"^(?:what about|how about|and|or)?\s*\$?\s*[\d][\d,]*(?:\.\d{1,2})?"
-    r"\s*[kK]?\s*\??$",
-    re.IGNORECASE,
-)
+
+# A bare-amount follow-up (e.g. "$3,000", "what about $500?", "20k?") used
+# to be recognized with a single anchored regex. CodeQL still flagged it
+# as py/polynomial-redos even after bounding the input length, so this is
+# now plain, linear-time string parsing instead of a regex: every step
+# below is a fixed-cost prefix/suffix check or a single O(n) scan, with
+# no backtracking possible. The actual amount value is still parsed by
+# the existing extract_amount_cents/_bare_number_cents helpers.
+_FOLLOW_UP_AMOUNT_PREFIXES = ("what about", "how about", "and", "or")
+
+
+def _looks_like_follow_up_amount(stripped: str) -> bool:
+    remainder = stripped
+    lowered = remainder.lower()
+    for prefix in _FOLLOW_UP_AMOUNT_PREFIXES:
+        if lowered.startswith(prefix):
+            remainder = remainder[len(prefix) :].lstrip()
+            break
+
+    if remainder.startswith("$"):
+        remainder = remainder[1:].lstrip()
+
+    if remainder.endswith("?"):
+        remainder = remainder[:-1].rstrip()
+
+    if remainder.endswith(("k", "K")):
+        remainder = remainder[:-1].rstrip()
+
+    if not remainder:
+        return False
+
+    if "." in remainder:
+        whole, _, fraction = remainder.partition(".")
+        if not (1 <= len(fraction) <= 2) or not fraction.isdigit():
+            return False
+    else:
+        whole = remainder
+
+    return bool(whole) and whole[0].isdigit() and all(
+        char.isdigit() or char == "," for char in whole
+    )
+
+
 _FOLLOW_UP_DATE_RE = re.compile(
     r"^(?:what about|how about|and|or)?\s*"
     r"(?:" + "|".join(_MONTH_NAMES) + r"|in \d+\s*(?:day|week|month)s?|"
@@ -642,11 +687,13 @@ def resolve_intent(
 
     # A genuine short follow-up amount (e.g. "$500", "20k?") is never
     # long; a long message is by definition not a bare-amount reply, so
-    # skip the match instead of running it against unbounded text and
-    # let this safely fall through to normal/unknown handling below.
+    # skip it and let this safely fall through to normal/unknown
+    # handling below. The length check is defense-in-depth only --
+    # _looks_like_follow_up_amount is plain linear-time string parsing,
+    # not a regex, so it has no polynomial-time behavior to bound.
     if (
         len(stripped) <= _MAX_REGEX_INSPECT_CHARS
-        and _FOLLOW_UP_AMOUNT_RE.match(stripped)
+        and _looks_like_follow_up_amount(stripped)
     ):
         amount = extract_amount_cents(stripped) or _bare_number_cents(
             stripped

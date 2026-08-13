@@ -1916,10 +1916,16 @@ def test_why_spending_higher_question_works_without_key() -> None:
 # --- ReDoS-hardening regression tests -----------------------------------
 #
 # _RESILIENCE_HORIZON_DAYS_RE / _RESILIENCE_HORIZON_MONTHS_RE (used by
-# _resilience_emphasis) and _FOLLOW_UP_AMOUNT_RE (used by resolve_intent)
-# run over raw, unbounded chat text and were flagged by CodeQL as
-# potential ReDoS surfaces. The fix bounds how much text is inspected
-# rather than changing matching behavior for realistic input.
+# _resilience_emphasis) were flagged by CodeQL (py/polynomial-redos) for
+# their unbounded `(\d+)` capture; they're now a fixed literal
+# alternation over the only values the caller accepts (30/60/90 days,
+# 1/2/3 months), which has no quantified repetition to backtrack over.
+#
+# _FOLLOW_UP_AMOUNT_RE (used by resolve_intent) was flagged too, and
+# CodeQL still flagged it after only bounding the input length (static
+# analysis of the pattern itself doesn't see runtime length guards). It
+# has been replaced entirely by _looks_like_follow_up_amount, plain
+# linear-time string parsing with no regex at all.
 
 
 def test_resilience_emphasis_recognizes_all_supported_day_and_month_wording() -> (
@@ -1945,12 +1951,23 @@ def test_resilience_emphasis_recognizes_all_supported_day_and_month_wording() ->
     ) == "horizon_90"
 
 
+def test_resilience_emphasis_rejects_unsupported_numbers() -> None:
+    # The literal alternation must not match a value embedded in a
+    # larger number (e.g. "30" inside "130"), and unsupported values
+    # (4 months) must not match at all.
+    assert copilot_free_mode._resilience_emphasis(
+        "What if income stops for 130 days?"
+    ) is None
+    assert copilot_free_mode._resilience_emphasis(
+        "What if income stops for 4 months?"
+    ) is None
+
+
 def test_resilience_emphasis_bounds_adversarially_long_input() -> None:
     # A long run of digits with no trailing "days"/"months" keyword is
-    # exactly the shape that makes an unbounded `\d+\s*days?\b` search
-    # expensive: every starting offset within the digit run is a fresh,
-    # ultimately-failing match attempt. This must stay fast and must not
-    # find a match beyond the inspected prefix.
+    # the classic ReDoS shape for an unbounded quantifier; the literal
+    # alternation regex has no such quantifier, so this must stay fast
+    # (and the 200-char defense-in-depth slice makes it fast regardless).
     adversarial = ("1" * 500_000) + " nope"
 
     start = time.perf_counter()
@@ -1969,6 +1986,62 @@ def test_resilience_emphasis_ignores_horizon_wording_past_inspected_window() -> 
     padded = ("x" * 1000) + " 90 days"
 
     assert copilot_free_mode._resilience_emphasis(padded) is None
+
+
+def test_looks_like_follow_up_amount_recognizes_valid_forms() -> None:
+    for text in (
+        "$3,000",
+        "what about $500?",
+        "How about $500?",
+        "20k?",
+        "3000",
+        "$1,500.50",
+        "and $75",
+        "or 40k",
+    ):
+        assert copilot_free_mode._looks_like_follow_up_amount(text), text
+
+
+def test_looks_like_follow_up_amount_rejects_invalid_or_non_amount_text() -> (
+    None
+):
+    for text in (
+        "",
+        "what about",
+        "130 days",
+        "1.234",
+        "1.2.3",
+        "$5 00",
+        "not an amount",
+        ",123",
+    ):
+        assert not copilot_free_mode._looks_like_follow_up_amount(text), (
+            text
+        )
+
+
+def test_looks_like_follow_up_amount_is_linear_time_on_adversarial_input() -> (
+    None
+):
+    # This is the actual CodeQL fix: called directly (bypassing
+    # resolve_intent's own length guard, which is defense-in-depth
+    # only), a huge digit run must resolve in linear time because there
+    # is no regex backtracking left to exploit.
+    huge_valid_looking = "$" + ("1" * 5_000_000)
+    huge_invalid = ("1" * 5_000_000) + "x"
+
+    start = time.perf_counter()
+    valid_result = copilot_free_mode._looks_like_follow_up_amount(
+        huge_valid_looking
+    )
+    invalid_result = copilot_free_mode._looks_like_follow_up_amount(
+        huge_invalid
+    )
+    elapsed = time.perf_counter() - start
+
+    assert valid_result is True
+    assert invalid_result is False
+    assert elapsed < 1.0
 
 
 def test_follow_up_amount_still_resolves_for_normal_short_replies() -> None:
@@ -1992,12 +2065,10 @@ def test_follow_up_amount_still_resolves_for_normal_short_replies() -> None:
 def test_follow_up_amount_falls_back_to_unknown_for_adversarially_long_message() -> (
     None
 ):
-    # Anchored ^...$ matching normally limits backtracking, but this must
-    # not depend on being lucky -- a very long message is never a valid
-    # short follow-up amount and must safely resolve to None (normal/
-    # unknown handling) rather than being evaluated against the regex at
-    # all. Bounded by CopilotMessageIn's own 4000-char schema limit --
-    # well past the 200-char regex-inspection bound this fix adds.
+    # A very long message is never a valid short follow-up amount and
+    # must safely resolve to None (normal/unknown handling). Bounded by
+    # CopilotMessageIn's own 4000-char schema limit -- well past the
+    # 200-char defense-in-depth bound in resolve_intent.
     adversarial = "$" + ("1" * 3_999)
 
     start = time.perf_counter()
@@ -2016,7 +2087,9 @@ def test_resolve_intent_handles_extreme_input_bypassing_schema_limit() -> (
 ):
     # resolve_intent() itself takes plain strings and has no guarantee
     # every caller went through CopilotMessageIn's schema validation --
-    # the regex-level bound must hold on its own regardless.
+    # this must stay fast and safe on its own regardless, both because
+    # of the defense-in-depth length guard and because the underlying
+    # amount check is linear-time even without it.
     adversarial = "$" + ("1" * 2_000_000)
 
     start = time.perf_counter()

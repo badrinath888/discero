@@ -53,13 +53,13 @@ from app.services.buy_now_vs_wait_service import (
     _currency as _bnw_currency,
 )
 
-DEMO_EMAIL = "portfolio-demo@finsigh.vercel.app"
+DEMO_EMAIL = "portfolio-demo@discero-app.vercel.app"
 # Prior fixed demo email, retired because "local.test" doesn't pass the
 # app's real EmailStr validation (used by both registration and
 # login). Kept only so seeding can find and remove that exact old user
 # -- never any other user -- on machines/environments where it was
 # already seeded before this change.
-_LEGACY_DEMO_EMAIL = "portfolio-demo@local.test"
+_LEGACY_DEMO_EMAIL = "portfolio-demo@finsigh.vercel.app"
 # Local/manual portfolio-demo login only -- never treated as a real
 # secret, and only ever printed once, explicitly, at the very end of a
 # --confirm-demo run.

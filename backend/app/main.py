@@ -26,6 +26,7 @@ from app.routers import (
     spending_anomalies,
     transactions,
     users,
+    what_if,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -81,6 +82,7 @@ app.include_router(decisions.router)
 app.include_router(financial_resilience.router)
 app.include_router(recurring_intelligence.router)
 app.include_router(spending_anomalies.router)
+app.include_router(what_if.router)
 
 
 @app.get("/health", tags=["meta"])

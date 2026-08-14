@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -166,6 +166,61 @@ def test_save_stress_test_decision() -> None:
             "strained",
             "critical",
         )
+
+
+def _what_if_input() -> dict:
+    return {
+        "scenario_type": "one_time_expense",
+        "scenario_name": "New laptop",
+        "amount_cents": 200_000,
+        "effective_date": (TEST_DATE + timedelta(days=5)).isoformat(),
+    }
+
+
+def test_save_what_if_decision_stores_real_result() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+
+        request = SaveDecisionRequest(
+            decision_type="what_if",
+            title="What if I buy a laptop?",
+            input=_what_if_input(),
+        )
+
+        decision = decision_history_service.save_decision(
+            db, user.id, request, as_of=TEST_DATE
+        )
+
+        assert decision.decision_type == "what_if"
+        assert "baseline" in decision.result_snapshot
+        assert "scenario" in decision.result_snapshot
+        assert "impact" in decision.result_snapshot
+
+
+def test_rerun_what_if_decision() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+
+        decision = decision_history_service.save_decision(
+            db,
+            user.id,
+            SaveDecisionRequest(
+                decision_type="what_if",
+                title="What if I buy a laptop?",
+                input=_what_if_input(),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        outcome = decision_history_service.rerun_decision(
+            db, user.id, decision.id, as_of=TEST_DATE
+        )
+
+        assert outcome is not None
+        _, _, result_snapshot = outcome
+        assert "baseline" in result_snapshot
 
 
 def _buy_now_vs_wait_input() -> dict:

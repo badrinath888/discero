@@ -674,6 +674,54 @@ export type FinancialStressTestResult = {
   goal_impacts: GoalImpact[];
 };
 
+export type WhatIfScenarioType =
+  | "one_time_expense"
+  | "monthly_expense_change"
+  | "monthly_income_change"
+  | "monthly_savings_change"
+  | "temporary_income_loss";
+
+export type WhatIfSimulationRequest = {
+  scenario_type: WhatIfScenarioType;
+  scenario_name: string;
+  amount_cents?: number | null;
+  effective_date?: string | null;
+  monthly_amount_change_cents?: number | null;
+  monthly_income_loss_cents?: number | null;
+  duration_months?: number | null;
+  safety_reserve_cents: number;
+  essential_spending_cents: number;
+  horizon_days: number;
+};
+
+export type WhatIfOutcome = {
+  safe_to_spend_cents: number;
+  shortfall_cents: number;
+  confidence_score: number;
+  confidence_level: "high" | "medium" | "low";
+};
+
+export type WhatIfImpact = {
+  safe_to_spend_delta_cents: number;
+  shortfall_delta_cents: number;
+  confidence_delta: number;
+  level: "positive" | "neutral" | "caution" | "negative";
+};
+
+export type WhatIfSimulationResult = {
+  scenario_type: WhatIfScenarioType;
+  scenario_name: string;
+  as_of: string;
+  through_date: string;
+  horizon_days: number;
+  baseline: WhatIfOutcome;
+  scenario: WhatIfOutcome;
+  impact: WhatIfImpact;
+  explanation: SafeToSpendExplanationItem[];
+  goal_impacts: GoalImpact[];
+  safe_to_spend: SafeToSpendResult;
+};
+
 export type UploadSummary = {
   imported: number;
   rejected: number;
@@ -920,7 +968,8 @@ export type DecisionType =
   | "major_purchase"
   | "scenario_comparison"
   | "stress_test"
-  | "buy_now_vs_wait";
+  | "buy_now_vs_wait"
+  | "what_if";
 
 export type SaveDecisionRequest = {
   decision_type: DecisionType;
@@ -1637,6 +1686,19 @@ runFinancialStressTest: (
   ).then((res) =>
     handle<FinancialStressTestResult>(res)
   ),
+
+simulateWhatIf: (
+  userId: number,
+  payload: WhatIfSimulationRequest
+): Promise<WhatIfSimulationResult> =>
+  fetchWithTimeout(
+    `${API_URL}/users/${userId}/what-if`,
+    {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }
+  ).then((res) => handle<WhatIfSimulationResult>(res)),
 
   getBudgets: (
     userId: number,

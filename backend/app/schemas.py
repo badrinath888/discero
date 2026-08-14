@@ -1189,6 +1189,126 @@ class FinancialStressTestOut(BaseModel):
     goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
 
 
+WhatIfScenarioType = Literal[
+    "one_time_expense",
+    "monthly_expense_change",
+    "monthly_income_change",
+    "monthly_savings_change",
+    "temporary_income_loss",
+]
+
+
+class WhatIfSimulationRequest(BaseModel):
+    scenario_type: WhatIfScenarioType
+    scenario_name: str = Field(min_length=1, max_length=120)
+
+    # one_time_expense
+    amount_cents: int | None = Field(default=None, gt=0)
+    effective_date: date | None = Field(default=None)
+
+    # monthly_expense_change / monthly_income_change /
+    # monthly_savings_change -- positive is an increase, negative is
+    # a decrease. Never zero: a no-op scenario isn't a hypothetical.
+    monthly_amount_change_cents: int | None = Field(default=None)
+
+    # temporary_income_loss
+    monthly_income_loss_cents: int | None = Field(default=None, gt=0)
+    duration_months: int | None = Field(default=None, ge=1, le=24)
+
+    safety_reserve_cents: int = Field(default=0, ge=0)
+    essential_spending_cents: int = Field(default=0, ge=0)
+    horizon_days: int = Field(default=30, ge=1, le=90)
+
+    @field_validator("scenario_name")
+    @classmethod
+    def validate_scenario_name(cls, value: str) -> str:
+        scenario_name = value.strip()
+
+        if not scenario_name:
+            raise ValueError("scenario_name cannot be blank")
+
+        return scenario_name
+
+    @field_validator("monthly_amount_change_cents")
+    @classmethod
+    def validate_monthly_amount_change(
+        cls, value: int | None
+    ) -> int | None:
+        if value == 0:
+            raise ValueError(
+                "monthly_amount_change_cents cannot be zero"
+            )
+
+        return value
+
+    @model_validator(mode="after")
+    def validate_scenario_fields(self) -> "WhatIfSimulationRequest":
+        scenario_type = self.scenario_type
+
+        if scenario_type == "one_time_expense":
+            if self.amount_cents is None:
+                raise ValueError(
+                    "amount_cents is required for a one-time "
+                    "expense scenario"
+                )
+            if self.effective_date is None:
+                raise ValueError(
+                    "effective_date is required for a one-time "
+                    "expense scenario"
+                )
+        elif scenario_type in (
+            "monthly_expense_change",
+            "monthly_income_change",
+            "monthly_savings_change",
+        ):
+            if self.monthly_amount_change_cents is None:
+                raise ValueError(
+                    "monthly_amount_change_cents is required for "
+                    f"the {scenario_type} scenario"
+                )
+        elif scenario_type == "temporary_income_loss":
+            if self.monthly_income_loss_cents is None:
+                raise ValueError(
+                    "monthly_income_loss_cents is required for a "
+                    "temporary income loss scenario"
+                )
+            if self.duration_months is None:
+                raise ValueError(
+                    "duration_months is required for a temporary "
+                    "income loss scenario"
+                )
+
+        return self
+
+
+class WhatIfOutcomeOut(BaseModel):
+    safe_to_spend_cents: int
+    shortfall_cents: int
+    confidence_score: float
+    confidence_level: Literal["high", "medium", "low"]
+
+
+class WhatIfImpactOut(BaseModel):
+    safe_to_spend_delta_cents: int
+    shortfall_delta_cents: int
+    confidence_delta: float
+    level: Literal["positive", "neutral", "caution", "negative"]
+
+
+class WhatIfSimulationOut(BaseModel):
+    scenario_type: WhatIfScenarioType
+    scenario_name: str
+    as_of: date
+    through_date: date
+    horizon_days: int
+    baseline: WhatIfOutcomeOut
+    scenario: WhatIfOutcomeOut
+    impact: WhatIfImpactOut
+    explanation: list[SafeToSpendExplanationOut]
+    goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
+    safe_to_spend: SafeToSpendOut
+
+
 class GoalConflictDetectionRequest(BaseModel):
     monthly_savings_capacity_cents: int | None = Field(
         default=None,
@@ -1365,7 +1485,11 @@ class RecommendationsOut(BaseModel):
 
 
 DecisionType = Literal[
-    "major_purchase", "scenario_comparison", "stress_test", "buy_now_vs_wait"
+    "major_purchase",
+    "scenario_comparison",
+    "stress_test",
+    "buy_now_vs_wait",
+    "what_if",
 ]
 
 

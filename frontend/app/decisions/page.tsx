@@ -24,6 +24,7 @@ import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
 import GoalImpactList from "../components/GoalImpactList";
 import { PageReveal, Reveal } from "../components/PremiumMotion";
+import WhatIfSimulator from "../components/WhatIfSimulator";
 import {
   api,
   BuyNowVsWaitRequest,
@@ -41,7 +42,12 @@ import {
   session,
 } from "../lib/api";
 
-type DecisionMode = "single" | "compare" | "stress" | "buy_now_wait";
+type DecisionMode =
+  | "single"
+  | "compare"
+  | "stress"
+  | "buy_now_wait"
+  | "what_if";
 
 const SCENARIO_OPTIONS: {
   value: FinancialStressScenarioType;
@@ -548,7 +554,9 @@ export default function DecisionsPage() {
                   ? "Financial stress test"
                   : mode === "buy_now_wait"
                     ? "Buy now vs wait"
-                    : "Major purchase simulator"}
+                    : mode === "what_if"
+                      ? "What-if simulator"
+                      : "Major purchase simulator"}
               </h1>
 
               <p className="mt-3 max-w-3xl text-sm leading-6 text-[#706961]">
@@ -556,7 +564,9 @@ export default function DecisionsPage() {
                   ? "Model how an emergency expense, income loss, delayed paycheck, or bill increase would affect your safe-to-spend position."
                   : mode === "buy_now_wait"
                     ? "Compare buying a purchase today against waiting until a later date, and see which timing leaves you better off."
-                    : "Test a purchase before making it. Discero compares the cost with your liquid balance, active obligations, safety reserve, and essential spending."}
+                    : mode === "what_if"
+                      ? "Model a hypothetical change -- a purchase, a bill increase, a change in income -- and see the effect on your safe-to-spend position before it happens."
+                      : "Test a purchase before making it. Discero compares the cost with your liquid balance, active obligations, safety reserve, and essential spending."}
               </p>
 
               <div
@@ -584,6 +594,11 @@ export default function DecisionsPage() {
                     onClick={() => handleModeChange("stress")}
                     label="Financial stress test"
                   />
+                  <ModeButton
+                    active={mode === "what_if"}
+                    onClick={() => handleModeChange("what_if")}
+                    label="What-if simulator"
+                  />
                 </div>
 
                 <Link
@@ -597,6 +612,9 @@ export default function DecisionsPage() {
             </header>
           </Reveal>
 
+          {mode === "what_if" ? (
+            <WhatIfSimulator userId={userId} />
+          ) : (
           <section className="mt-8 grid gap-8 xl:grid-cols-[0.76fr_1.24fr]">
             <Reveal>
               <form
@@ -1017,6 +1035,7 @@ export default function DecisionsPage() {
               )}
             </Reveal>
           </section>
+          )}
         </PageReveal>
       </div>
     </main>

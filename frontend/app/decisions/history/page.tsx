@@ -24,6 +24,7 @@ const TYPE_LABEL: Record<DecisionType, string> = {
   scenario_comparison: "Scenario Comparison",
   stress_test: "Stress Test",
   buy_now_vs_wait: "Buy Now vs Wait",
+  what_if: "What-If",
 };
 
 const STATUS_TONE: Record<string, string> = {
@@ -37,6 +38,9 @@ const STATUS_TONE: Record<string, string> = {
   wait: "bg-[#dff6c7] text-[#315d31]",
   either: "bg-[#f5d66f] text-[#66500f]",
   neither: "bg-[#f0b8a8] text-[#7b3528]",
+  positive: "bg-[#dff6c7] text-[#315d31]",
+  neutral: "bg-[#eef1ec] text-[#5F5751]",
+  negative: "bg-[#f0b8a8] text-[#7b3528]",
 };
 
 function formatDate(iso: string): string {
@@ -146,6 +150,29 @@ function summaryChips(
     return chips;
   }
 
+  if (decision.decision_type === "what_if") {
+    const impact = r.impact as Record<string, unknown> | undefined;
+    const scenario = r.scenario as Record<string, unknown> | undefined;
+
+    const delta = asNumber(impact?.safe_to_spend_delta_cents);
+    if (delta !== undefined) {
+      chips.push({
+        label: "Safe-to-spend impact",
+        value: `${delta >= 0 ? "+" : ""}${formatCents(delta)}`,
+      });
+    }
+
+    const confidence = asNumber(scenario?.confidence_score);
+    if (confidence !== undefined) {
+      chips.push({
+        label: "Confidence",
+        value: `${Math.round(confidence)}%`,
+      });
+    }
+
+    return chips;
+  }
+
   // stress_test (and any other/future decision type)
   const resilience = asNumber(r.resilience_score);
   if (resilience !== undefined) {
@@ -168,10 +195,12 @@ function summaryChips(
 
 function statusLabel(decision: SavedDecision): string | null {
   const r = decision.result_snapshot as Record<string, unknown>;
+  const impact = r.impact as Record<string, unknown> | undefined;
   const status =
     asNonEmptyString(r.affordability_status) ??
     asNonEmptyString(r.risk_level) ??
-    asNonEmptyString(r.recommended_timing);
+    asNonEmptyString(r.recommended_timing) ??
+    asNonEmptyString(impact?.level);
   return status ? humanize(status) : null;
 }
 

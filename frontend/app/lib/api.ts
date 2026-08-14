@@ -413,6 +413,8 @@ export type SafeToSpendRequest = {
   safety_reserve_cents: number;
   essential_spending_cents: number;
   horizon_days: number;
+  include_projected_income?: boolean;
+  include_goal_reserve?: boolean;
 };
 
 export type SafeToSpendObligation = {
@@ -426,9 +428,23 @@ export type SafeToSpendObligation = {
 
 export type SafeToSpendBreakdown = {
   liquid_balance_cents: number;
+  projected_income_cents: number;
   upcoming_obligations_cents: number;
   essential_spending_cents: number;
+  goal_reserve_cents: number;
   safety_reserve_cents: number;
+};
+
+export type SafeToSpendConfidenceDriver = {
+  code: string;
+  direction: "positive" | "negative";
+  message: string;
+};
+
+export type SafeToSpendExplanationItem = {
+  code: string;
+  amount_cents: number | null;
+  message: string;
 };
 
 export type SafeToSpendResult = {
@@ -439,8 +455,11 @@ export type SafeToSpendResult = {
   shortfall_cents: number;
   status: "safe" | "limited" | "negative";
   confidence_score: number;
+  confidence_level: "high" | "medium" | "low";
+  confidence_drivers: SafeToSpendConfidenceDriver[];
   breakdown: SafeToSpendBreakdown;
   obligations: SafeToSpendObligation[];
+  explanation: SafeToSpendExplanationItem[];
   warnings: string[];
 };
 

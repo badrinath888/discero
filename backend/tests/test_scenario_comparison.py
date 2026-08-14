@@ -79,13 +79,18 @@ def _make_simulation(
             shortfall_cents=0,
             status="safe",
             confidence_score=confidence_score,
+            confidence_level="high",
+            confidence_drivers=[],
             breakdown=SafeToSpendBreakdownOut(
                 liquid_balance_cents=safe_before,
+                projected_income_cents=0,
                 upcoming_obligations_cents=0,
                 essential_spending_cents=0,
+                goal_reserve_cents=0,
                 safety_reserve_cents=0,
             ),
             obligations=[],
+            explanation=[],
             warnings=[],
         ),
     )

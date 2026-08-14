@@ -785,6 +785,14 @@ class SafeToSpendRequest(BaseModel):
         ge=1,
         le=90,
     )
+    # Both default False so every existing caller (Buy Now vs Wait,
+    # Major Purchase, Scenario Comparison, Financial Stress Test,
+    # Copilot, Recommendations) keeps its exact current numeric
+    # behavior. Only a caller that explicitly opts in gets income and
+    # goal commitments folded into the calculation -- avoids silently
+    # changing the result those already-tested features depend on.
+    include_projected_income: bool = Field(default=False)
+    include_goal_reserve: bool = Field(default=False)
 
 
 class SafeToSpendObligationOut(BaseModel):
@@ -802,9 +810,23 @@ class SafeToSpendObligationOut(BaseModel):
 
 class SafeToSpendBreakdownOut(BaseModel):
     liquid_balance_cents: int
+    projected_income_cents: int
     upcoming_obligations_cents: int
     essential_spending_cents: int
+    goal_reserve_cents: int
     safety_reserve_cents: int
+
+
+class SafeToSpendConfidenceDriverOut(BaseModel):
+    code: str
+    direction: Literal["positive", "negative"]
+    message: str
+
+
+class SafeToSpendExplanationOut(BaseModel):
+    code: str
+    amount_cents: int | None
+    message: str
 
 
 class SafeToSpendOut(BaseModel):
@@ -819,8 +841,11 @@ class SafeToSpendOut(BaseModel):
         "negative",
     ]
     confidence_score: float
+    confidence_level: Literal["high", "medium", "low"]
+    confidence_drivers: list[SafeToSpendConfidenceDriverOut]
     breakdown: SafeToSpendBreakdownOut
     obligations: list[SafeToSpendObligationOut]
+    explanation: list[SafeToSpendExplanationOut]
     warnings: list[str] = Field(default_factory=list)
 
 

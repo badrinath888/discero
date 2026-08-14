@@ -98,7 +98,7 @@ def create_link_token(
             Products(product)
             for product in app_settings.plaid_product_list
         ],
-        "client_name": app_settings.app_name,
+        "client_name": "Discero",
         "country_codes": [
             CountryCode(code)
             for code in app_settings.plaid_country_code_list

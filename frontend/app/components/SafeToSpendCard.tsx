@@ -20,6 +20,7 @@ export default function SafeToSpendCard({
   const [result, setResult] = useState<SafeToSpendResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [whyExpanded, setWhyExpanded] = useState(false);
   const [error, setError] = useState("");
   const [reserveAmount, setReserveAmount] = useState("0");
   const [essentialAmount, setEssentialAmount] = useState("0");
@@ -48,6 +49,8 @@ export default function SafeToSpendCard({
           horizon_days: Number.isFinite(parsedHorizonDays)
             ? Math.min(Math.max(Math.round(parsedHorizonDays), 1), 365)
             : 30,
+          include_projected_income: true,
+          include_goal_reserve: true,
         })
       );
     } catch (err) {
@@ -75,6 +78,15 @@ export default function SafeToSpendCard({
     limited: { label: "Limited", className: "bg-[#fff3d6] text-[#976716]" },
     negative: { label: "At risk", className: "bg-[#fbe9e5] text-[#ad4b3d]" },
   }[result?.status ?? "safe"];
+
+  const confidenceLabel = {
+    high: "High",
+    medium: "Medium",
+    low: "Low",
+  }[result?.confidence_level ?? "high"];
+
+  const hasShortfall = (result?.shortfall_cents ?? 0) > 0;
+  const breakdownRows = result ? buildBreakdownRows(result) : [];
 
   return (
     <section className="mt-8 overflow-hidden border-y border-[#181713]/10 bg-[#FFFCF7]">
@@ -104,20 +116,89 @@ export default function SafeToSpendCard({
           )}
 
           <p className="mt-3 text-sm text-[#706961]">
-            {result ? `${Math.round(result.confidence_score)}% confidence · through ${new Date(`${result.through_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "Based on your liquid balance and known obligations."}
+            {result ? `Through ${new Date(`${result.through_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })} · ${confidenceLabel} confidence (${Math.round(result.confidence_score)}%)` : "Based on your liquid balance and known obligations."}
           </p>
+
+          {result && hasShortfall && (
+            <p className="mt-3 max-w-md rounded-lg bg-[#fbe9e5] px-3 py-2 text-sm text-[#ad4b3d]">
+              You are projected to be short by {formatCents(result.shortfall_cents)} this period, so nothing is available to spend right now.
+            </p>
+          )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => setExpanded((value) => !value)}
-          aria-expanded={expanded}
-          className="focus-ring flex w-fit items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-[#6E4B63] transition hover:bg-[#F0E9EE]"
-        >
-          Adjust assumptions
-          <span aria-hidden="true" className={`transition-transform ${expanded ? "rotate-180" : ""}`}>⌄</span>
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setWhyExpanded((value) => !value)}
+            aria-expanded={whyExpanded}
+            className="focus-ring flex w-fit items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-[#6E4B63] transition hover:bg-[#F0E9EE]"
+          >
+            Why this amount?
+            <span aria-hidden="true" className={`transition-transform ${whyExpanded ? "rotate-180" : ""}`}>⌄</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            aria-expanded={expanded}
+            className="focus-ring flex w-fit items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-[#6E4B63] transition hover:bg-[#F0E9EE]"
+          >
+            Adjust assumptions
+            <span aria-hidden="true" className={`transition-transform ${expanded ? "rotate-180" : ""}`}>⌄</span>
+          </button>
+        </div>
       </div>
+
+      <AnimatePresence initial={false}>
+        {whyExpanded && result && (
+          <motion.div
+            initial={reduceMotion ? false : { height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={reduceMotion ? undefined : { height: 0, opacity: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden border-t border-[#181713]/[0.07] bg-[#F5F1EA]/70"
+          >
+            <div className="px-6 py-5 sm:px-8">
+              <dl className="divide-y divide-[#181713]/[0.06]">
+                {breakdownRows.map((row) => (
+                  <div key={row.label} className="flex items-center justify-between py-2 text-sm">
+                    <dt className="text-[#706961]">{row.label}</dt>
+                    <dd className="font-medium text-[#181713]">
+                      {row.sign === "+" ? "+ " : row.sign === "-" ? "− " : ""}
+                      {formatCents(row.cents)}
+                    </dd>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between py-2.5 text-sm font-semibold">
+                  <dt className="text-[#181713]">Safe to spend</dt>
+                  <dd className="text-[#181713]">{formatCents(result.safe_to_spend_cents)}</dd>
+                </div>
+              </dl>
+
+              {result.confidence_drivers.length > 0 && (
+                <div className="mt-4 border-t border-[#181713]/[0.07] pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#706961]">
+                    Confidence drivers
+                  </p>
+                  <ul className="mt-2 space-y-1.5">
+                    {result.confidence_drivers.map((driver) => (
+                      <li key={driver.code} className="flex items-start gap-2 text-sm text-[#4a453f]">
+                        <span
+                          aria-hidden="true"
+                          className={`mt-1.5 h-1.5 w-1.5 flex-none rounded-full ${
+                            driver.direction === "positive" ? "bg-[#58715A]" : "bg-[#C59A52]"
+                          }`}
+                        />
+                        {driver.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence initial={false}>
         {expanded && (
@@ -152,6 +233,37 @@ export default function SafeToSpendCard({
       )}
     </section>
   );
+}
+
+type BreakdownRow = {
+  label: string;
+  cents: number;
+  sign: "" | "+" | "-";
+};
+
+function buildBreakdownRows(result: SafeToSpendResult): BreakdownRow[] {
+  const { breakdown } = result;
+  const rows: BreakdownRow[] = [
+    { label: "Liquid balance", cents: breakdown.liquid_balance_cents, sign: "" },
+  ];
+
+  if (breakdown.projected_income_cents > 0) {
+    rows.push({ label: "Expected income", cents: breakdown.projected_income_cents, sign: "+" });
+  }
+  if (breakdown.upcoming_obligations_cents > 0) {
+    rows.push({ label: "Upcoming obligations", cents: breakdown.upcoming_obligations_cents, sign: "-" });
+  }
+  if (breakdown.essential_spending_cents > 0) {
+    rows.push({ label: "Essential spending", cents: breakdown.essential_spending_cents, sign: "-" });
+  }
+  if (breakdown.goal_reserve_cents > 0) {
+    rows.push({ label: "Goal commitments", cents: breakdown.goal_reserve_cents, sign: "-" });
+  }
+  if (breakdown.safety_reserve_cents > 0) {
+    rows.push({ label: "Safety reserve", cents: breakdown.safety_reserve_cents, sign: "-" });
+  }
+
+  return rows;
 }
 
 function AssumptionInput({

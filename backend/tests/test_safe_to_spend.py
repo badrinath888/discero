@@ -10,6 +10,7 @@ from app.models import (
     FinancialAccount,
     PlaidItem,
     RecurringItem,
+    SavingsGoal,
     Transaction,
     User,
 )
@@ -153,6 +154,52 @@ def create_spend_transaction(
     db.refresh(transaction)
 
     return transaction
+
+
+def create_income_transaction(
+    db: Session,
+    user: User,
+    *,
+    posted_on: date,
+    amount_cents: int,
+) -> Transaction:
+    transaction = Transaction(
+        user_id=user.id,
+        posted_on=posted_on,
+        description="Test income",
+        amount_cents=abs(amount_cents),
+        category="Income",
+    )
+
+    db.add(transaction)
+    db.commit()
+    db.refresh(transaction)
+
+    return transaction
+
+
+def create_goal(
+    db: Session,
+    user: User,
+    *,
+    target_cents: int,
+    target_date: date | None,
+    saved_cents: int = 0,
+    name: str = "Test Goal",
+) -> SavingsGoal:
+    goal = SavingsGoal(
+        user_id=user.id,
+        name=name,
+        target_cents=target_cents,
+        saved_cents=saved_cents,
+        target_date=target_date,
+    )
+
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+
+    return goal
 
 
 def test_calculates_safe_to_spend() -> None:
@@ -1512,3 +1559,343 @@ def test_unsupported_frequency_falls_back_to_single_occurrence() -> None:
         assert result.breakdown.upcoming_obligations_cents == 150_000
         recurring = [o for o in result.obligations if o.source == "recurring"]
         assert len(recurring) == 1
+
+
+def test_goal_reserve_ignored_unless_requested() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "goal-reserve-default")
+
+        create_account(db, user, available_balance_cents=500_000)
+        create_goal(
+            db,
+            user,
+            target_cents=200_000,
+            target_date=date(2026, 10, 4),
+        )
+
+        default_result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert default_result.breakdown.goal_reserve_cents == 0
+        assert default_result.safe_to_spend_cents == 500_000
+
+
+def test_goal_reserve_included_when_requested() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "goal-reserve-included")
+
+        create_account(db, user, available_balance_cents=500_000)
+        # 200,000 remaining over 2 months (Aug 4 -> Oct 4) -> 100,000/mo,
+        # fully within a 30-day horizon.
+        create_goal(
+            db,
+            user,
+            target_cents=200_000,
+            target_date=date(2026, 10, 4),
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(include_goal_reserve=True),
+            as_of=TEST_DATE,
+        )
+
+        assert result.breakdown.goal_reserve_cents == 100_000
+        assert result.safe_to_spend_cents == 400_000
+
+
+def test_multiple_goals_combine_into_goal_reserve() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "multi-goal-reserve")
+
+        create_account(db, user, available_balance_cents=1_000_000)
+        create_goal(
+            db,
+            user,
+            target_cents=200_000,
+            target_date=date(2026, 10, 4),
+        )
+        create_goal(
+            db,
+            user,
+            target_cents=90_000,
+            target_date=date(2026, 9, 4),
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(include_goal_reserve=True),
+            as_of=TEST_DATE,
+        )
+
+        # goal 1: 200,000 / 2 months = 100,000; goal 2: 90,000 / 1 month
+        # = 90,000.
+        assert result.breakdown.goal_reserve_cents == 190_000
+
+
+def test_completed_goal_is_not_reserved() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "completed-goal")
+
+        create_account(db, user, available_balance_cents=500_000)
+        create_goal(
+            db,
+            user,
+            target_cents=100_000,
+            saved_cents=100_000,
+            target_date=date(2026, 10, 4),
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(include_goal_reserve=True),
+            as_of=TEST_DATE,
+        )
+
+        assert result.breakdown.goal_reserve_cents == 0
+
+
+def test_projected_income_ignored_unless_requested() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "income-default")
+
+        create_account(db, user, available_balance_cents=200_000)
+        create_income_transaction(
+            db,
+            user,
+            posted_on=date(2026, 7, 15),
+            amount_cents=300_000,
+        )
+
+        default_result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert default_result.breakdown.projected_income_cents == 0
+
+
+def test_projected_income_included_when_requested() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "income-included")
+
+        create_account(db, user, available_balance_cents=200_000)
+        create_income_transaction(
+            db,
+            user,
+            posted_on=date(2026, 7, 15),
+            amount_cents=300_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(include_projected_income=True),
+            as_of=TEST_DATE,
+        )
+
+        assert result.breakdown.projected_income_cents == 300_000
+        assert result.safe_to_spend_cents == 500_000
+
+
+def test_projected_income_excludes_current_month() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "income-current-month")
+
+        create_account(db, user, available_balance_cents=200_000)
+        create_income_transaction(
+            db,
+            user,
+            posted_on=TEST_DATE,
+            amount_cents=900_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(include_projected_income=True),
+            as_of=TEST_DATE,
+        )
+
+        # Only COMPLETED months are averaged -- the in-progress current
+        # month is never counted as realized income.
+        assert result.breakdown.projected_income_cents == 0
+
+
+def test_safe_to_spend_never_negative_with_goals_and_income() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "shortfall-with-goal-and-income")
+
+        create_account(db, user, available_balance_cents=100_000)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=TEST_DATE + timedelta(days=5),
+        )
+        create_goal(
+            db,
+            user,
+            target_cents=200_000,
+            target_date=date(2026, 10, 4),
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(
+                include_goal_reserve=True,
+                include_projected_income=True,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.safe_to_spend_cents == 0
+        assert result.shortfall_cents == 150_000
+
+
+def test_confidence_drivers_reflect_recognized_data() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "confidence-drivers-positive")
+
+        create_account(db, user, available_balance_cents=500_000)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=TEST_DATE + timedelta(days=5),
+            confidence_score=95.0,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.confidence_level in {"high", "medium", "low"}
+        codes = {driver.code for driver in result.confidence_drivers}
+        assert "LIQUID_BALANCE_FOUND" in codes
+        assert "OBLIGATIONS_WELL_RECOGNIZED" in codes
+
+
+def test_confidence_drivers_flag_missing_data() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "confidence-drivers-negative")
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        codes = {driver.code for driver in result.confidence_drivers}
+        assert "NO_LIQUID_BALANCE" in codes
+        assert "NO_OBLIGATIONS_RECOGNIZED" in codes
+
+
+def test_explanation_reflects_shortfall() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "explanation-shortfall")
+
+        create_account(db, user, available_balance_cents=50_000)
+        create_recurring_item(
+            db,
+            user,
+            merchant="Rent",
+            amount_cents=150_000,
+            next_payment=TEST_DATE + timedelta(days=5),
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        codes = [item.code for item in result.explanation]
+        assert "SHORTFALL" in codes
+        assert "RESULT" not in codes
+
+
+def test_explanation_reflects_positive_result() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "explanation-positive")
+
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        codes = [item.code for item in result.explanation]
+        assert "RESULT" in codes
+        assert "SHORTFALL" not in codes
+        assert codes[-1] == "CONFIDENCE"
+
+
+def test_safe_to_spend_endpoint_includes_income_and_goal_reserve(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(
+        client,
+        "safe-to-spend-v2-endpoint",
+    )
+
+    with TestingSessionLocal() as db:
+        user = db.get(User, user_id)
+
+        assert user is not None
+
+        create_account(db, user, available_balance_cents=500_000)
+        create_goal(
+            db,
+            user,
+            target_cents=200_000,
+            target_date=date.today() + timedelta(days=200),
+        )
+        create_income_transaction(
+            db,
+            user,
+            posted_on=date.today().replace(day=1) - timedelta(days=1),
+            amount_cents=100_000,
+        )
+
+    response = client.post(
+        f"/users/{user_id}/safe-to-spend",
+        headers=headers,
+        json={
+            "safety_reserve_cents": 0,
+            "essential_spending_cents": 0,
+            "horizon_days": 30,
+            "include_projected_income": True,
+            "include_goal_reserve": True,
+        },
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert payload["breakdown"]["goal_reserve_cents"] > 0
+    assert payload["breakdown"]["projected_income_cents"] == 100_000
+    assert payload["confidence_level"] in {"high", "medium", "low"}
+    assert isinstance(payload["confidence_drivers"], list)
+    assert isinstance(payload["explanation"], list)

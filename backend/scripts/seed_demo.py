@@ -190,6 +190,8 @@ def seed_demo_user(db: Session, as_of: date | None = None) -> dict:
     user = _find_demo_user(db)
     if user is not None:
         _wipe_demo_user_data(db, user)
+        user.password_hash = hash_password(DEMO_PASSWORD)
+        user.email_verified = True
     else:
         user = User(
             email=DEMO_EMAIL,

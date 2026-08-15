@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.models import Budget, FinancialAccount, Transaction
 from app.schemas import (
+    ForecastConfidenceDriverOut,
     ForecastConfidenceFactorOut,
     ForecastConfidenceOut,
+    ForecastDataQualityOut,
     MonthlyForecastConfidenceOut,
 )
 
@@ -96,6 +98,19 @@ _MAX_RECOMMENDATIONS = 5
 _HIGH_CONFIDENCE_THRESHOLD = 80.0
 _MEDIUM_CONFIDENCE_THRESHOLD = 55.0
 
+# A recurring item is "recognized" once it clears the same confidence
+# bar the cash-flow-forecast route already uses to decide whether a
+# detected payment is trustworthy enough to show as an upcoming bill.
+RECOGNIZED_RECURRING_CONFIDENCE_THRESHOLD = 60.0
+
+_UNCATEGORIZED_CATEGORY = "Uncategorized"
+
+# Top-weighted factors surfaced as concise confidence drivers, capped
+# per direction so both strengths and weaknesses are represented
+# rather than one direction crowding the other out.
+_MAX_POSITIVE_DRIVERS = 3
+_MAX_NEGATIVE_DRIVERS = 2
+
 
 def calculate_forecast_confidence(
     db: Session,
@@ -168,6 +183,8 @@ def calculate_forecast_confidence(
         factors=factors,
         recommendations=_build_recommendations(factors),
         monthly_confidence=_monthly_confidence(transactions, as_of),
+        drivers=_build_drivers(factors),
+        data_quality=_data_quality(transactions, as_of, recurring_items),
     )
 
 
@@ -191,6 +208,17 @@ def _confidence_level(score: float) -> str:
     return "low"
 
 
+def _history_days(transactions: list[Transaction], as_of: date) -> int:
+    if not transactions:
+        return 0
+
+    earliest = min(
+        transaction.posted_on for transaction in transactions
+    )
+
+    return max((as_of - earliest).days, 0)
+
+
 def _transaction_history_factor(
     transactions: list[Transaction],
     as_of: date,
@@ -198,10 +226,7 @@ def _transaction_history_factor(
     if not transactions:
         return 0.0, "No transaction history is available yet."
 
-    earliest = min(
-        transaction.posted_on for transaction in transactions
-    )
-    span_days = max((as_of - earliest).days, 0)
+    span_days = _history_days(transactions, as_of)
     score = min(
         span_days / _TRANSACTION_HISTORY_TARGET_DAYS * 100,
         100.0,
@@ -424,6 +449,76 @@ def _budget_coverage_factor(
         f"{budget_count} budget categor"
         f"{'y' if budget_count == 1 else 'ies'} set for the "
         "current month."
+    )
+
+
+def _build_drivers(
+    factors: list[ForecastConfidenceFactorOut],
+) -> list[ForecastConfidenceDriverOut]:
+    positive = sorted(
+        (factor for factor in factors if factor.impact == "positive"),
+        key=lambda factor: factor.weight,
+        reverse=True,
+    )[:_MAX_POSITIVE_DRIVERS]
+    negative = sorted(
+        (factor for factor in factors if factor.impact == "negative"),
+        key=lambda factor: factor.weight,
+        reverse=True,
+    )[:_MAX_NEGATIVE_DRIVERS]
+
+    return [
+        ForecastConfidenceDriverOut(
+            code=f"{factor.key.upper()}_STRONG",
+            direction="positive",
+            message=factor.detail,
+        )
+        for factor in positive
+    ] + [
+        ForecastConfidenceDriverOut(
+            code=f"{factor.key.upper()}_WEAK",
+            direction="negative",
+            message=factor.detail,
+        )
+        for factor in negative
+    ]
+
+
+def _uncategorized_share(transactions: list[Transaction]) -> float:
+    spending = [
+        transaction
+        for transaction in transactions
+        if transaction.amount_cents < 0
+    ]
+
+    if not spending:
+        return 0.0
+
+    uncategorized = sum(
+        1
+        for transaction in spending
+        if transaction.category == _UNCATEGORIZED_CATEGORY
+    )
+
+    return round(uncategorized / len(spending), 4)
+
+
+def _data_quality(
+    transactions: list[Transaction],
+    as_of: date,
+    recurring_items: list[dict],
+) -> ForecastDataQualityOut:
+    recognized_recurring_items = sum(
+        1
+        for item in recurring_items
+        if float(item["confidence_score"])
+        >= RECOGNIZED_RECURRING_CONFIDENCE_THRESHOLD
+    )
+
+    return ForecastDataQualityOut(
+        history_days=_history_days(transactions, as_of),
+        transaction_count=len(transactions),
+        recognized_recurring_items=recognized_recurring_items,
+        uncategorized_share=_uncategorized_share(transactions),
     )
 
 

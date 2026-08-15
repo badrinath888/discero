@@ -340,12 +340,27 @@ export type MonthlyForecastConfidence = {
   transaction_count: number;
 };
 
+export type ForecastConfidenceDriver = {
+  code: string;
+  direction: "positive" | "negative";
+  message: string;
+};
+
+export type ForecastDataQuality = {
+  history_days: number;
+  transaction_count: number;
+  recognized_recurring_items: number;
+  uncategorized_share: number;
+};
+
 export type ForecastConfidence = {
   score: number;
   level: "high" | "medium" | "low";
   factors: ForecastConfidenceFactor[];
   recommendations: string[];
   monthly_confidence: MonthlyForecastConfidence[];
+  drivers: ForecastConfidenceDriver[];
+  data_quality: ForecastDataQuality;
 };
 
 export type CashFlowHorizon = {

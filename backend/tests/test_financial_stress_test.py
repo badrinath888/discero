@@ -364,6 +364,115 @@ def test_temporary_income_loss_preserves_exact_entered_amount() -> None:
         assert "$1,999" not in result.explanation
 
 
+def test_temporary_income_loss_derives_amount_from_income_history() -> None:
+    # No stress_amount_cents supplied -- backend derives it from real
+    # trailing-average income rather than requiring the user (or the
+    # model) to state a dollar figure for "no income for ~2 months".
+    with TestingSessionLocal() as db:
+        user = create_user(db, "income-loss-derived")
+
+        create_account(db, user, available_balance_cents=1_000_000)
+        seed_income(db, user)  # $3,000/mo average, see seed_income()
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="temporary_income_loss",
+                scenario_name="No income for two months",
+                event_date=TEST_DATE + timedelta(days=2),
+                duration_days=60,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        # 300_000 cents/mo x 60 days / 30 days-per-month.
+        assert result.total_financial_impact_cents == 600_000
+
+
+def test_temporary_income_loss_explicit_amount_not_overridden_by_derivation() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db, "income-loss-explicit-wins")
+
+        create_account(db, user, available_balance_cents=1_000_000)
+        seed_income(db, user)  # would derive to 600_000 over 60 days
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="temporary_income_loss",
+                scenario_name="No income for two months",
+                stress_amount_cents=150_000,
+                event_date=TEST_DATE + timedelta(days=2),
+                duration_days=60,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.total_financial_impact_cents == 150_000
+
+
+def test_temporary_income_loss_with_no_income_history_gives_human_readable_error() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db, "income-loss-no-history")
+
+        create_account(db, user, available_balance_cents=1_000_000)
+        # No income transactions seeded -- nothing to derive from.
+
+        try:
+            run_financial_stress_test(
+                db,
+                user.id,
+                FinancialStressTestRequest(
+                    scenario_type="temporary_income_loss",
+                    scenario_name="No income for two months",
+                    event_date=TEST_DATE + timedelta(days=2),
+                    duration_days=60,
+                ),
+                as_of=TEST_DATE,
+            )
+        except ValueError as exc:
+            # Never leaks the internal field name to the user.
+            assert "stress_amount_cents" not in str(exc)
+            assert "income" in str(exc).lower()
+        else:
+            raise AssertionError("expected ValueError")
+
+
+def test_emergency_expense_still_requires_explicit_amount() -> None:
+    # Only temporary_income_loss gained derivation -- other scenarios
+    # that never had a derivable authoritative source must stay strict.
+    with TestingSessionLocal() as db:
+        user = create_user(db, "emergency-still-strict")
+
+        create_account(db, user, available_balance_cents=1_000_000)
+        seed_income(db, user)
+
+        try:
+            run_financial_stress_test(
+                db,
+                user.id,
+                FinancialStressTestRequest(
+                    scenario_type="emergency_expense",
+                    scenario_name="Car repair",
+                    event_date=TEST_DATE + timedelta(days=3),
+                ),
+                as_of=TEST_DATE,
+            )
+        except ValueError as exc:
+            assert str(exc) == (
+                "stress_amount_cents is required for the "
+                "emergency expense scenario"
+            )
+        else:
+            raise AssertionError("expected ValueError")
+
+
 def test_emergency_expense_does_not_mention_duration() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db, "emergency-no-duration")

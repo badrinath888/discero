@@ -414,6 +414,30 @@ def _estimate_recovery_days(
     return None
 
 
+def _derive_temporary_income_loss_cents(
+    payload: FinancialStressTestRequest,
+    average_monthly_income_cents: int,
+) -> int | None:
+    """Total income lost across the requested duration when the
+    caller didn't supply an explicit stress_amount_cents.
+
+    Models a full (100%) loss of the same authoritative trailing-
+    average monthly income income_reduction/combined already use --
+    never a model-invented figure, never a partial-loss guess. Returns
+    None (never a fabricated 0) when there isn't enough income history
+    or duration to derive from, so the caller can raise instead of
+    silently modeling a $0 loss.
+    """
+    if average_monthly_income_cents <= 0 or not payload.duration_days:
+        return None
+
+    return round(
+        average_monthly_income_cents
+        * payload.duration_days
+        / _DAYS_PER_MONTH
+    )
+
+
 def _resolve_stress_amount(
     payload: FinancialStressTestRequest,
     *,
@@ -429,13 +453,31 @@ def _resolve_stress_amount(
     scenario_type = payload.scenario_type
 
     if scenario_type not in _DERIVED_AMOUNT_SCENARIOS:
-        if not payload.stress_amount_cents:
+        stress_amount_cents = payload.stress_amount_cents
+
+        # A full income-loss scenario doesn't force the user to state
+        # a dollar amount -- the same authoritative trailing-average
+        # income this module already uses for income_reduction/
+        # combined stands in for it. An explicitly supplied amount
+        # always wins; this only fills a gap.
+        if not stress_amount_cents and scenario_type == "temporary_income_loss":
+            stress_amount_cents = _derive_temporary_income_loss_cents(
+                payload, average_monthly_income_cents
+            )
+
+        if not stress_amount_cents:
+            if scenario_type == "temporary_income_loss":
+                raise ValueError(
+                    "I don't have enough income history to estimate "
+                    "your normal monthly income for this scenario"
+                )
+
             raise ValueError(
                 "stress_amount_cents is required for the "
                 f"{_SCENARIO_LABELS[scenario_type]} scenario"
             )
 
-        return payload.stress_amount_cents, 0
+        return stress_amount_cents, 0
 
     if scenario_type == "income_reduction":
         return _income_reduction_amount(

@@ -141,6 +141,7 @@ def detect_goal_conflicts(
                 saved_cents=goal.saved_cents,
                 remaining_cents=remaining_cents,
                 target_date=goal.target_date,
+                created_at=goal.created_at.date(),
                 months_remaining=months_remaining,
                 required_monthly_cents=required_monthly_cents,
                 allocated_monthly_cents=allocated_monthly_cents,

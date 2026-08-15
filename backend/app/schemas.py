@@ -1502,6 +1502,7 @@ class GoalConflictGoalOut(BaseModel):
     saved_cents: int
     remaining_cents: int
     target_date: date | None
+    created_at: date
     months_remaining: int | None
     required_monthly_cents: int
     allocated_monthly_cents: int
@@ -1518,6 +1519,7 @@ class GoalConflictGoalOut(BaseModel):
 class GoalConflictRecommendationOut(BaseModel):
     type: Literal[
         "increase_monthly_capacity",
+        "increase_goal_allocation",
         "reduce_goal_contribution",
         "extend_target_date",
         "reprioritize_goal",
@@ -1571,8 +1573,10 @@ class GoalIntelligenceGoalOut(BaseModel):
     monthly_gap_cents: int
     status: Literal[
         "on_track",
+        "ahead",
         "at_risk",
         "conflict",
+        "not_feasible",
         "completed",
         "no_deadline",
     ]
@@ -1582,6 +1586,19 @@ class GoalIntelligenceGoalOut(BaseModel):
     urgency_rank: int | None
     confidence_score: float
     explanation: str
+    key_driver: Literal[
+        "goal_already_completed",
+        "no_target_date_set",
+        "ahead_of_schedule",
+        "on_track",
+        "target_date_passed",
+        "competing_goal_priority",
+        "insufficient_monthly_capacity",
+    ]
+    recommended_action: GoalConflictRecommendationOut
+    alternative_actions: list[GoalConflictRecommendationOut] = Field(
+        default_factory=list
+    )
 
 
 class GoalIntelligenceOut(BaseModel):

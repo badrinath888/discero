@@ -928,6 +928,7 @@ export type GoalConflictKeyDriver =
 export type GoalConflictRecommendation = {
   type:
     | "increase_monthly_capacity"
+    | "increase_goal_allocation"
     | "reduce_goal_contribution"
     | "extend_target_date"
     | "reprioritize_goal"
@@ -958,10 +959,21 @@ export type GoalConflictDetection = {
 
 export type GoalIntelligenceStatus =
   | "on_track"
+  | "ahead"
   | "at_risk"
   | "conflict"
+  | "not_feasible"
   | "completed"
   | "no_deadline";
+
+export type GoalIntelligenceKeyDriver =
+  | "goal_already_completed"
+  | "no_target_date_set"
+  | "ahead_of_schedule"
+  | "on_track"
+  | "target_date_passed"
+  | "competing_goal_priority"
+  | "insufficient_monthly_capacity";
 
 export type GoalIntelligenceGoal = {
   goal_id: number;
@@ -981,6 +993,9 @@ export type GoalIntelligenceGoal = {
   urgency_rank: number | null;
   confidence_score: number;
   explanation: string;
+  key_driver: GoalIntelligenceKeyDriver;
+  recommended_action: GoalConflictRecommendation;
+  alternative_actions: GoalConflictRecommendation[];
 };
 
 export type GoalIntelligence = {

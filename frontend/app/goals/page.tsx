@@ -872,8 +872,10 @@ useEffect(() => {
 
 const GOAL_INTELLIGENCE_STATUS_STYLE: Record<string, string> = {
   on_track: "bg-[#E3EBE1] text-[#48634B]",
+  ahead: "bg-[#DCEBDD] text-[#3B5A3E]",
   at_risk: "bg-[#fbeecb] text-[#8b6518]",
   conflict: "bg-[#f8ddd5] text-[#923f32]",
+  not_feasible: "bg-[#f3c2b6] text-[#7a2e23]",
   completed: "bg-[#e8ecea] text-[#4b5a54]",
   no_deadline: "bg-[#e8ecea] text-[#4b5a54]",
 };
@@ -1095,6 +1097,28 @@ function GoalConflictPanel({
                   </p>
                 </div>
               </div>
+
+              {goal.recommended_action.type !== "no_change_needed" && (
+                <div className="mt-3 rounded-xl bg-[#F5F1EA] p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8A8178]">
+                    Best action
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-[#3f4b46]">
+                    {goal.recommended_action.message}
+                  </p>
+
+                  {goal.alternative_actions[0] && (
+                    <>
+                      <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8A8178]">
+                        Alternative
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-[#706961]">
+                        {goal.alternative_actions[0].message}
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
             </article>
           ))}
         </div>

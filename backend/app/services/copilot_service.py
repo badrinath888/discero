@@ -98,10 +98,12 @@ _STATUS_TONE = {
     "conflict": "danger",
     "unaffected": "positive",
     "on_track": "positive",
+    "ahead": "positive",
     "reduced": "warning",
     "delayed": "warning",
     "at_risk": "warning",
     "unfunded": "danger",
+    "not_feasible": "danger",
     "impossible": "danger",
     "completed": "positive",
     "no_deadline": "neutral",
@@ -346,17 +348,25 @@ _TOOLS = [
         "description": (
             "Get detailed per-goal intelligence: which goal is most "
             "urgent, which goal is causing a savings shortfall, each "
-            "goal's required monthly contribution, on-track/at-risk "
-            "status, and a realistic projected completion date. Use "
-            "for 'which goal is most urgent', 'which goal is causing "
-            "my shortfall', 'how much should I save for this goal', "
-            "'when can I realistically finish this goal', or 'what "
-            "if I move this goal's target date' questions. Omit "
-            "monthly_capacity_cents if not stated by the user; it "
-            "will be estimated from real income history -- if you "
-            "omit it, explicitly tell the user the capacity figure "
-            "was estimated from their financial data and that they "
-            "can state a specific monthly amount instead. If the "
+            "goal's required vs. currently affordable monthly "
+            "contribution, on-track/ahead/at-risk/not-feasible status, "
+            "a realistic projected completion date and delay, the "
+            "deterministic key_driver for why a goal is at risk, and "
+            "its recommended_action plus up to two alternative_actions "
+            "(e.g. increase this goal's allocation by the exact gap, or "
+            "move its target date). Use for 'which goal is most "
+            "urgent', 'which goal is causing my shortfall', 'how much "
+            "should I save for this goal', 'when can I realistically "
+            "finish this goal', 'what is the smallest change that gets "
+            "this goal back on track', or 'what if I move this goal's "
+            "target date' questions. Always narrate recommended_action "
+            "and key_driver from this result verbatim in meaning -- "
+            "never invent a different dollar amount, date, or reason "
+            "yourself. Omit monthly_capacity_cents if not stated by "
+            "the user; it will be estimated from real income history "
+            "-- if you omit it, explicitly tell the user the capacity "
+            "figure was estimated from their financial data and that "
+            "they can state a specific monthly amount instead. If the "
             "user did state an amount and you passed it through, "
             "never call it estimated."
         ),

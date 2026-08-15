@@ -72,10 +72,13 @@ def _sanitize_metadata(
 
 
 def classify_provider_error(exc: Exception) -> str:
-    """Maps an Anthropic SDK exception to a stable error code."""
+    """Maps a provider SDK exception (Anthropic or Groq) to a stable
+    error code -- callers never need to know which provider raised it.
+    """
     import anthropic
+    import groq
 
-    if isinstance(exc, anthropic.APITimeoutError):
+    if isinstance(exc, (anthropic.APITimeoutError, groq.APITimeoutError)):
         return MODEL_TIMEOUT
     if isinstance(
         exc,
@@ -83,11 +86,20 @@ def classify_provider_error(exc: Exception) -> str:
             anthropic.APIConnectionError,
             anthropic.InternalServerError,
             anthropic.RateLimitError,
+            groq.APIConnectionError,
+            groq.InternalServerError,
+            groq.RateLimitError,
         ),
     ):
         return MODEL_UNAVAILABLE
     if isinstance(
-        exc, (anthropic.APIResponseValidationError, anthropic.APIStatusError)
+        exc,
+        (
+            anthropic.APIResponseValidationError,
+            anthropic.APIStatusError,
+            groq.APIResponseValidationError,
+            groq.APIStatusError,
+        ),
     ):
         return MODEL_INVALID_RESPONSE
     return UNKNOWN_ERROR

@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     llm_model: str = "claude-sonnet-4-6"
     copilot_model_timeout_seconds: float = 20.0
 
+    # Default "anthropic" preserves pre-existing deployments' behavior
+    # (Anthropic if ANTHROPIC_API_KEY is set, deterministic free mode
+    # otherwise) for anyone who upgrades without setting this var.
+    copilot_provider: Literal["groq", "anthropic", "free"] = "anthropic"
+    groq_api_key: str | None = None
+    copilot_groq_model: str = "llama-3.3-70b-versatile"
+
     plaid_client_id: str | None = None
     plaid_secret: str | None = None
     plaid_env: Literal["sandbox", "production"] = "sandbox"

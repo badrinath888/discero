@@ -22,6 +22,7 @@ $3,000?" resolve for free with no bespoke intent/slot-filling code.
 
 from __future__ import annotations
 
+import time
 from datetime import date
 
 from pydantic import BaseModel, ValidationError
@@ -57,7 +58,7 @@ from app.services.major_purchase_service import (
     _average_monthly_income_cents,
     simulate_major_purchase,
 )
-from app.services import copilot_free_mode
+from app.services import copilot_audit, copilot_free_mode
 from app.services.recommendation_service import evaluate_recommendations
 from app.services.recurring_intelligence_service import (
     evaluate_recurring_intelligence,
@@ -176,10 +177,19 @@ class CopilotClient:
     """Thin Anthropic wrapper. Network call isolated for testability."""
 
     def __init__(
-        self, api_key: str | None, model: str = "claude-sonnet-4-6"
+        self,
+        api_key: str | None,
+        model: str = "claude-sonnet-4-6",
+        timeout: float = 20.0,
     ) -> None:
         self.api_key = api_key
         self.model = model
+        # Bounds how long a single DECIDE/NARRATE call can hang -- a
+        # synchronous request endpoint must never wait on the SDK's
+        # much longer default. max_retries=1 caps the SDK's own
+        # transient-error retry (its default is 2) so a flaky
+        # provider can't silently double a turn's latency/cost.
+        self.timeout = timeout
 
     @property
     def enabled(self) -> bool:
@@ -195,7 +205,11 @@ class CopilotClient:
     ):
         import anthropic
 
-        client = anthropic.Anthropic(api_key=self.api_key)
+        client = anthropic.Anthropic(
+            api_key=self.api_key,
+            timeout=self.timeout,
+            max_retries=1,
+        )
 
         return client.messages.create(
             model=self.model,
@@ -1509,6 +1523,32 @@ def _extract_text(response) -> str:
     return " ".join(p.strip() for p in parts).strip()
 
 
+def _extract_intent(tool_input: dict) -> str | None:
+    """Bounded, enum-constrained scenario label -- never free text."""
+    value = tool_input.get("scenario_type")
+    return value if isinstance(value, str) else None
+
+
+def _timed_model_call(client: CopilotClient, **kwargs):
+    """Runs a DECIDE/NARRATE call, timing it and classifying failure.
+
+    Returns (response_or_None, latency_ms, error_code_or_None). Never
+    raises -- any provider/network/timeout exception is caught and
+    classified into a stable error code so callers can audit it
+    without ever surfacing a stack trace to the user.
+    """
+    start = time.monotonic()
+
+    try:
+        response = client.call(**kwargs)
+    except Exception as exc:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        return None, latency_ms, copilot_audit.classify_provider_error(exc)
+
+    latency_ms = int((time.monotonic() - start) * 1000)
+    return response, latency_ms, None
+
+
 def _narrate(
     client: CopilotClient,
     system: str,
@@ -1516,6 +1556,10 @@ def _narrate(
     decision,
     tool_use,
     result: BaseModel,
+    *,
+    db: Session,
+    user_id: int,
+    request_id: str,
 ) -> dict:
     followup_messages = history + [
         {"role": "assistant", "content": decision.content},
@@ -1531,22 +1575,47 @@ def _narrate(
         },
     ]
 
-    try:
-        response = client.call(
-            system=system,
-            messages=followup_messages,
-            tools=[_NARRATION_TOOL],
-            tool_choice={
-                "type": "tool",
-                "name": "present_financial_answer",
-            },
+    response, latency_ms, error_code = _timed_model_call(
+        client,
+        system=system,
+        messages=followup_messages,
+        tools=[_NARRATION_TOOL],
+        tool_choice={
+            "type": "tool",
+            "name": "present_financial_answer",
+        },
+    )
+
+    if response is None:
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode="anthropic",
+            event_type="provider_failure",
+            success=False,
+            error_code=error_code,
+            latency_ms=latency_ms,
+            model=client.model,
+            metadata={"stage": "narrate"},
         )
-    except Exception:
         return {}
 
     narrate_use = _first_tool_use(response)
 
     if narrate_use is None or narrate_use.name != "present_financial_answer":
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode="anthropic",
+            event_type="provider_failure",
+            success=False,
+            error_code=copilot_audit.MODEL_INVALID_RESPONSE,
+            latency_ms=latency_ms,
+            model=client.model,
+            metadata={"stage": "narrate"},
+        )
         return {}
 
     return narrate_use.input or {}
@@ -1558,11 +1627,24 @@ def _run_free_mode(
     current_user: User,
     messages: list[CopilotMessageIn],
     as_of: date,
+    *,
+    request_id: str,
 ) -> CopilotResponseOut:
     """Deterministic, zero-cost fallback -- see copilot_free_mode."""
     resolution = copilot_free_mode.resolve_intent(messages, as_of)
 
     if resolution is None:
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode="free",
+            event_type="answer",
+            success=True,
+            tool_call_count=0,
+            response_kind="out_of_scope",
+            provenance="deterministic",
+        )
         return CopilotResponseOut(
             kind="out_of_scope",
             answer=copilot_free_mode.CAPABILITY_EXPLANATION,
@@ -1570,6 +1652,17 @@ def _run_free_mode(
         )
 
     if isinstance(resolution, copilot_free_mode.Clarify):
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode="free",
+            event_type="clarification",
+            success=True,
+            tool_call_count=0,
+            response_kind="clarifying_question",
+            provenance="deterministic",
+        )
         return CopilotResponseOut(
             kind="clarifying_question",
             clarifying_question=resolution.question,
@@ -1580,17 +1673,47 @@ def _run_free_mode(
     handler = _TOOL_HANDLERS.get(resolution.tool_name)
 
     if handler is None:
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode="free",
+            event_type="tool_failure",
+            success=False,
+            error_code=copilot_audit.TOOL_NOT_REGISTERED,
+            tool_name=resolution.tool_name,
+            tool_call_count=1,
+            response_kind="answer",
+            provenance="deterministic",
+        )
         return CopilotResponseOut(
             kind="answer",
             answer=_FALLBACK_ANSWER,
             provenance="deterministic",
         )
 
+    tool_start = time.monotonic()
+
     try:
         result, chips, confidence, low_data_warning = handler(
             db, user_id, resolution.tool_input, as_of, current_user
         )
     except (ValidationError, ValueError) as exc:
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode="free",
+            event_type="tool_failure",
+            success=False,
+            error_code=copilot_audit.TOOL_VALIDATION_FAILED,
+            tool_name=resolution.tool_name,
+            latency_ms=int((time.monotonic() - tool_start) * 1000),
+            tool_call_count=1,
+            response_kind="clarifying_question",
+            provenance="deterministic",
+            intent=_extract_intent(resolution.tool_input),
+        )
         return CopilotResponseOut(
             kind="clarifying_question",
             clarifying_question=(
@@ -1600,10 +1723,27 @@ def _run_free_mode(
             provenance="deterministic",
         )
 
+    tool_latency_ms = int((time.monotonic() - tool_start) * 1000)
+
     answer, why, what_this_means, actions = (
         copilot_free_mode.deterministic_narration(
             resolution.tool_name, result, resolution.emphasize
         )
+    )
+
+    copilot_audit.record_event(
+        db,
+        user_id=user_id,
+        request_id=request_id,
+        mode="free",
+        event_type="tool_success",
+        success=True,
+        tool_name=resolution.tool_name,
+        latency_ms=tool_latency_ms,
+        tool_call_count=1,
+        response_kind="answer",
+        provenance="deterministic",
+        intent=_extract_intent(resolution.tool_input),
     )
 
     return CopilotResponseOut(
@@ -1628,12 +1768,19 @@ def run_copilot_turn(
     client: CopilotClient,
     *,
     as_of: date | None = None,
+    request_id: str | None = None,
 ) -> CopilotResponseOut:
     calculation_date = as_of or date.today()
+    request_id = request_id or copilot_audit.new_request_id()
 
     if not client.enabled:
         return _run_free_mode(
-            db, user_id, current_user, messages, calculation_date
+            db,
+            user_id,
+            current_user,
+            messages,
+            calculation_date,
+            request_id=request_id,
         )
 
     history = [
@@ -1643,22 +1790,53 @@ def run_copilot_turn(
 
     system = _build_system_prompt(db, user_id, calculation_date)
 
-    try:
-        decision = client.call(
-            system=system, messages=history, tools=_TOOLS
-        )
-    except Exception:
+    decision, decide_latency_ms, decide_error_code = _timed_model_call(
+        client, system=system, messages=history, tools=_TOOLS
+    )
+
+    if decision is None:
         # Anthropic unreachable/timed out/rate-limited -- fall back to
         # the free deterministic pipeline instead of failing the
-        # request.
+        # request. Never fabricates a financial answer either way.
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode="anthropic",
+            event_type="provider_failure",
+            success=False,
+            error_code=decide_error_code,
+            latency_ms=decide_latency_ms,
+            model=client.model,
+            tool_call_count=0,
+            metadata={"stage": "decide"},
+        )
         return _run_free_mode(
-            db, user_id, current_user, messages, calculation_date
+            db,
+            user_id,
+            current_user,
+            messages,
+            calculation_date,
+            request_id=request_id,
         )
 
     tool_use = _first_tool_use(decision)
 
     if tool_use is None:
         text = _extract_text(decision)
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode="anthropic",
+            event_type="answer",
+            success=True,
+            latency_ms=decide_latency_ms,
+            model=client.model,
+            tool_call_count=0,
+            response_kind="answer",
+            provenance="ai_enhanced",
+        )
         return CopilotResponseOut(
             kind="answer",
             answer=text or _FALLBACK_ANSWER,
@@ -1673,6 +1851,19 @@ def run_copilot_turn(
         raw_options = tool_input.get("options") or []
         options = [str(o) for o in raw_options][:4] or None
 
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode="anthropic",
+            event_type="clarification",
+            success=True,
+            latency_ms=decide_latency_ms,
+            model=client.model,
+            tool_call_count=0,
+            response_kind="clarifying_question",
+            provenance="ai_enhanced",
+        )
         return CopilotResponseOut(
             kind="clarifying_question",
             clarifying_question=question or "Could you clarify that?",
@@ -1682,7 +1873,22 @@ def run_copilot_turn(
 
     if name == "decline_out_of_scope":
         reason = str(tool_input.get("reason", "")).strip()
+        category = tool_input.get("category")
 
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode="anthropic",
+            event_type="answer",
+            success=True,
+            latency_ms=decide_latency_ms,
+            model=client.model,
+            tool_call_count=0,
+            response_kind="out_of_scope",
+            provenance="ai_enhanced",
+            intent=category if isinstance(category, str) else None,
+        )
         return CopilotResponseOut(
             kind="out_of_scope",
             answer=reason or _SCOPE_FALLBACK,
@@ -1692,17 +1898,52 @@ def run_copilot_turn(
     handler = _TOOL_HANDLERS.get(name)
 
     if handler is None:
+        # The model named a tool outside our registry -- never
+        # executed, only ever answered from the fixed fallback text.
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode="anthropic",
+            event_type="safety_rejection",
+            success=False,
+            error_code=copilot_audit.TOOL_NOT_REGISTERED,
+            tool_name=name,
+            latency_ms=decide_latency_ms,
+            model=client.model,
+            tool_call_count=1,
+            response_kind="answer",
+            provenance="ai_enhanced",
+        )
         return CopilotResponseOut(
             kind="answer",
             answer=_FALLBACK_ANSWER,
             provenance="ai_enhanced",
         )
 
+    tool_start = time.monotonic()
+
     try:
         result, chips, confidence, low_data_warning = handler(
             db, user_id, tool_input, calculation_date, current_user
         )
     except (ValidationError, ValueError) as exc:
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode="anthropic",
+            event_type="tool_failure",
+            success=False,
+            error_code=copilot_audit.TOOL_VALIDATION_FAILED,
+            tool_name=name,
+            latency_ms=int((time.monotonic() - tool_start) * 1000),
+            model=client.model,
+            tool_call_count=1,
+            response_kind="clarifying_question",
+            provenance="ai_enhanced",
+            intent=_extract_intent(tool_input),
+        )
         return CopilotResponseOut(
             kind="clarifying_question",
             clarifying_question=(
@@ -1712,8 +1953,18 @@ def run_copilot_turn(
             provenance="ai_enhanced",
         )
 
+    tool_latency_ms = int((time.monotonic() - tool_start) * 1000)
+
     narration = _narrate(
-        client, system, history, decision, tool_use, result
+        client,
+        system,
+        history,
+        decision,
+        tool_use,
+        result,
+        db=db,
+        user_id=user_id,
+        request_id=request_id,
     )
 
     if narration:
@@ -1730,6 +1981,22 @@ def run_copilot_turn(
             copilot_free_mode.deterministic_narration(name, result)
         )
         provenance = "deterministic"
+
+    copilot_audit.record_event(
+        db,
+        user_id=user_id,
+        request_id=request_id,
+        mode="anthropic",
+        event_type="tool_success",
+        success=True,
+        tool_name=name,
+        latency_ms=tool_latency_ms,
+        model=client.model,
+        tool_call_count=1,
+        response_kind="answer",
+        provenance=provenance,
+        intent=_extract_intent(tool_input),
+    )
 
     return CopilotResponseOut(
         kind="answer",

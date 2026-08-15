@@ -16,5 +16,7 @@ def get_categorizer() -> LLMCategorizer:
 @lru_cache
 def get_copilot_client() -> CopilotClient:
     return CopilotClient(
-        api_key=settings.anthropic_api_key, model=settings.llm_model
+        api_key=settings.anthropic_api_key,
+        model=settings.llm_model,
+        timeout=settings.copilot_model_timeout_seconds,
     )

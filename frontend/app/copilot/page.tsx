@@ -228,9 +228,14 @@ export default function CopilotPage() {
         ...prev,
         { role: "assistant", content: assistantHistoryText(response) },
       ]);
-    } catch {
+    } catch (caught) {
+      const isRateLimited =
+        caught instanceof Error && caught.message.includes("429");
+
       setError(
-        "Ask Discero couldn't respond just now. Please try again."
+        isRateLimited
+          ? "You've sent a lot of questions in a short time. Please wait a moment before asking again."
+          : "I couldn't complete that just now. Your financial data wasn't changed. Please try again."
       );
     } finally {
       setSending(false);

@@ -39,6 +39,7 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str | None = None
     llm_model: str = "claude-sonnet-4-6"
+    copilot_model_timeout_seconds: float = 20.0
 
     plaid_client_id: str | None = None
     plaid_secret: str | None = None

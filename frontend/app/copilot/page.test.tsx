@@ -470,11 +470,31 @@ describe("Copilot auto-scroll", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "Ask Discero couldn't respond just now. Please try again."
+          "I couldn't complete that just now. Your financial data wasn't changed. Please try again."
         )
       ).toBeInTheDocument()
     );
     expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("shows a distinct message when the request is rate-limited", async () => {
+    mocks.sendCopilotChat.mockRejectedValue(
+      new Error("too many attempts, please try again later (429 Too Many Requests)")
+    );
+
+    render(<CopilotPage />);
+
+    const input = await screen.findByLabelText("Message");
+    fireEvent.change(input, { target: { value: "Hello" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "You've sent a lot of questions in a short time. Please wait a moment before asking again."
+        )
+      ).toBeInTheDocument()
+    );
   });
 
   it("a programmatic/scroll event mid-flight does not cancel follow for the active request", async () => {

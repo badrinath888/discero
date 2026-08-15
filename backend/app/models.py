@@ -611,3 +611,53 @@ class SavedDecision(Base):
         default=_utcnow,
         index=True,
     )
+
+
+class CopilotAuditEvent(Base):
+    """Operational/security audit trail for one Copilot turn.
+
+    Deliberately stores only bounded metadata -- never the user's
+    prompt text, the model's prose answer, chain-of-thought, or raw
+    financial payloads. See app/services/copilot_audit.py.
+    """
+
+    __tablename__ = "copilot_audit_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+
+    request_id: Mapped[str] = mapped_column(String(36))
+
+    mode: Mapped[str] = mapped_column(String(16))
+
+    event_type: Mapped[str] = mapped_column(String(32))
+
+    tool_name: Mapped[str | None] = mapped_column(String(64))
+
+    intent: Mapped[str | None] = mapped_column(String(64))
+
+    success: Mapped[bool | None] = mapped_column(Boolean)
+
+    error_code: Mapped[str | None] = mapped_column(String(32))
+
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+
+    model: Mapped[str | None] = mapped_column(String(64))
+
+    tool_call_count: Mapped[int | None] = mapped_column(Integer)
+
+    response_kind: Mapped[str | None] = mapped_column(String(32))
+
+    provenance: Mapped[str | None] = mapped_column(String(16))
+
+    event_metadata: Mapped[dict | None] = mapped_column(JSON)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utcnow,
+        index=True,
+    )

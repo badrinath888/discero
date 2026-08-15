@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
@@ -7,6 +7,7 @@ from app.deps import get_copilot_client
 from app.models import User
 from app.rate_limit import rate_limiter
 from app.schemas import CopilotChatRequest, CopilotResponseOut
+from app.services import copilot_audit
 from app.services.copilot_service import CopilotClient, run_copilot_turn
 
 router = APIRouter(
@@ -33,6 +34,7 @@ def _authorize_user(
 def chat(
     user_id: int,
     payload: CopilotChatRequest,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     client: CopilotClient = Depends(get_copilot_client),
@@ -42,10 +44,17 @@ def chat(
 ) -> CopilotResponseOut:
     _authorize_user(user_id, current_user)
 
+    # Scoped to this Copilot request only (not global tracing): lets
+    # every audit row this turn produces be tied together, and gives
+    # support a correlation id without exposing any request content.
+    request_id = copilot_audit.new_request_id()
+    response.headers["X-Request-Id"] = request_id
+
     return run_copilot_turn(
         db,
         user_id,
         current_user,
         payload.messages,
         client,
+        request_id=request_id,
     )

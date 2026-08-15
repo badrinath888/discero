@@ -23,6 +23,7 @@ from app.schemas import (
     GoalIntelligenceOut,
 )
 from app.services.goal_conflict_detection_service import (
+    _months_remaining,
     detect_goal_conflicts,
 )
 from app.services.goal_impact_service import _add_months, _months_to_complete
@@ -178,6 +179,23 @@ def evaluate_goal_intelligence(
             else None
         )
 
+        # How many months late the goal is projected to finish,
+        # reusing `_months_remaining` (already the single source of
+        # truth for month-counting elsewhere in the app) to measure
+        # the gap between the goal's own target date and its
+        # currently-funded projected completion date. Left `None`
+        # when there's no funded projection to compare against (goal
+        # has no deadline, or is completely unfunded) so a delay is
+        # never fabricated -- see `calculate_feasible_target_date`.
+        projected_delay_months = (
+            _months_remaining(
+                goal_result.target_date, projected_completion_date
+            )
+            if goal_result.target_date is not None
+            and projected_completion_date is not None
+            else None
+        )
+
         pairs.append(
             (
                 GoalIntelligenceGoalOut(
@@ -194,6 +212,7 @@ def evaluate_goal_intelligence(
                     status=status,
                     projected_completion_date=projected_completion_date,
                     suggested_feasible_target_date=suggested_feasible_target_date,
+                    projected_delay_months=projected_delay_months,
                     urgency_rank=None,
                     confidence_score=conflict.confidence_score,
                     explanation=_goal_explanation(
@@ -239,10 +258,15 @@ def evaluate_goal_intelligence(
         total_capacity_cents=conflict.monthly_savings_capacity_cents,
         total_required_cents=conflict.total_required_monthly_cents,
         total_shortfall_cents=conflict.monthly_shortfall_cents,
+        monthly_headroom_cents=conflict.monthly_headroom_cents,
+        key_driver=conflict.key_driver,
         largest_pressure_goal_id=largest_pressure_goal_id,
         confidence_score=conflict.confidence_score,
         explanation=conflict.explanation,
         suggestions=suggestions,
+        recommendation=conflict.recommendation,
+        recommendation_alternatives=conflict.recommendation_alternatives,
+        warnings=conflict.warnings,
         goals=sorted(
             enriched,
             key=lambda g: (g.urgency_rank is None, g.urgency_rank or 0),

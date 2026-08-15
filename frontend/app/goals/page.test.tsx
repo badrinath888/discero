@@ -132,6 +132,10 @@ beforeEach(() => {
   });
   mocks.getSavingsGoals.mockResolvedValue([goal]);
   mocks.getGoalContributions.mockResolvedValue([contribution]);
+  // Goal intelligence now auto-runs on load whenever goals exist, so
+  // every test implicitly triggers it -- reset so a value set by one
+  // test never leaks into the next.
+  mocks.getGoalIntelligence.mockReset();
 });
 
 describe("goals loading and error states", () => {
@@ -204,10 +208,22 @@ describe("goal intelligence panel", () => {
       total_capacity_cents: 50_000,
       total_required_cents: 200_000,
       total_shortfall_cents: 150_000,
+      monthly_headroom_cents: 0,
+      key_driver: "largest_required_goal",
       largest_pressure_goal_id: 1,
       confidence_score: 90,
       explanation: "Your goals require more than your current capacity.",
       suggestions: ["Increase monthly savings by $1,500.00."],
+      recommendation: {
+        type: "increase_monthly_capacity",
+        message: "Increase available monthly savings by $1,500.00.",
+        goal_id: null,
+        amount_cents: 150_000,
+        extension_months: null,
+        resulting_monthly_gap_cents: 0,
+      },
+      recommendation_alternatives: [],
+      warnings: [],
       goals: [
         {
           goal_id: 1,
@@ -223,6 +239,7 @@ describe("goal intelligence panel", () => {
           status: "conflict",
           projected_completion_date: "2027-02-08",
           suggested_feasible_target_date: "2027-02-08",
+          projected_delay_months: 2,
           urgency_rank: 1,
           confidence_score: 90,
           explanation: "Emergency fund needs $1,000.00/month.",
@@ -231,16 +248,161 @@ describe("goal intelligence panel", () => {
     };
     mocks.getGoalIntelligence.mockResolvedValue(intelligence);
 
-    fireEvent.change(screen.getByPlaceholderText("1000.00"), {
-      target: { value: "500" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Analyze my goals" }));
+    fireEvent.change(
+      screen.getByPlaceholderText("Estimated automatically if left blank"),
+      { target: { value: "500" } }
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Re-analyze my goals" })
+    );
 
     expect(await screen.findByText("Most urgent")).toBeInTheDocument();
     expect(
       screen.getByText("Largest contributor to shortfall")
     ).toBeInTheDocument();
+    expect(screen.getByText("2 mo late")).toBeInTheDocument();
+    expect(
+      screen.getByText("Increase available monthly savings by $1,500.00.")
+    ).toBeInTheDocument();
     expect(mocks.getGoalIntelligence).toHaveBeenCalledWith(1, 50_000);
+  });
+
+  it("auto-analyzes on load and shows headroom when goals are on track", async () => {
+    const intelligence: GoalIntelligence = {
+      as_of: "2026-08-08",
+      conflict_status: "no_conflict",
+      total_capacity_cents: 150_000,
+      total_required_cents: 100_000,
+      total_shortfall_cents: 0,
+      monthly_headroom_cents: 50_000,
+      key_driver: "no_conflict",
+      largest_pressure_goal_id: null,
+      confidence_score: 90,
+      explanation: "Your available monthly savings capacity is sufficient.",
+      suggestions: [],
+      recommendation: {
+        type: "no_change_needed",
+        message: "Your current goals are jointly fundable.",
+        goal_id: null,
+        amount_cents: null,
+        extension_months: null,
+        resulting_monthly_gap_cents: 0,
+      },
+      recommendation_alternatives: [],
+      warnings: [],
+      goals: [
+        {
+          goal_id: 1,
+          name: "Vacation fund",
+          target_amount_cents: 500_000,
+          saved_amount_cents: 100_000,
+          remaining_amount_cents: 400_000,
+          target_date: "2026-12-08",
+          months_remaining: 4,
+          required_monthly_cents: 100_000,
+          allocated_monthly_cents: 100_000,
+          monthly_gap_cents: 0,
+          status: "on_track",
+          projected_completion_date: "2026-12-08",
+          suggested_feasible_target_date: null,
+          projected_delay_months: 0,
+          urgency_rank: 1,
+          confidence_score: 90,
+          explanation: "Vacation fund is funded on time.",
+        },
+      ],
+    };
+    mocks.getGoalIntelligence.mockResolvedValue(intelligence);
+
+    await renderPage();
+
+    // Fired automatically on load, with no capacity override.
+    await waitFor(() =>
+      expect(mocks.getGoalIntelligence).toHaveBeenCalledWith(1, undefined)
+    );
+    expect(await screen.findByText("Goals are on track")).toBeInTheDocument();
+    expect(screen.getByText("Headroom")).toBeInTheDocument();
+    // no_change_needed recommendation renders nothing.
+    expect(
+      screen.queryByText("Suggested adjustment")
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a bounded list of recommendation alternatives when present", async () => {
+    const intelligence: GoalIntelligence = {
+      as_of: "2026-08-08",
+      conflict_status: "conflict",
+      total_capacity_cents: 50_000,
+      total_required_cents: 200_000,
+      total_shortfall_cents: 150_000,
+      monthly_headroom_cents: 0,
+      key_driver: "largest_required_goal",
+      largest_pressure_goal_id: 1,
+      confidence_score: 90,
+      explanation: "Your goals require more than your current capacity.",
+      suggestions: [],
+      recommendation: {
+        type: "increase_monthly_capacity",
+        message: "Increase available monthly savings by $1,500.00.",
+        goal_id: null,
+        amount_cents: 150_000,
+        extension_months: null,
+        resulting_monthly_gap_cents: 0,
+      },
+      recommendation_alternatives: [
+        {
+          type: "extend_target_date",
+          message: "Extend Rainy day fund's target date by 2 months.",
+          goal_id: 1,
+          amount_cents: null,
+          extension_months: 2,
+          resulting_monthly_gap_cents: 50_000,
+        },
+        {
+          type: "reprioritize_goal",
+          message: "Reallocate $200.00/month from Vacation.",
+          goal_id: 2,
+          amount_cents: 20_000,
+          extension_months: null,
+          resulting_monthly_gap_cents: 130_000,
+        },
+      ],
+      warnings: [],
+      goals: [
+        {
+          goal_id: 1,
+          name: "Rainy day fund",
+          target_amount_cents: 500_000,
+          saved_amount_cents: 100_000,
+          remaining_amount_cents: 400_000,
+          target_date: "2026-12-08",
+          months_remaining: 4,
+          required_monthly_cents: 100_000,
+          allocated_monthly_cents: 50_000,
+          monthly_gap_cents: 50_000,
+          status: "conflict",
+          projected_completion_date: "2027-02-08",
+          suggested_feasible_target_date: "2027-02-08",
+          projected_delay_months: 2,
+          urgency_rank: 1,
+          confidence_score: 90,
+          explanation: "Rainy day fund needs $1,000.00/month.",
+        },
+      ],
+    };
+    mocks.getGoalIntelligence.mockResolvedValue(intelligence);
+
+    await renderPage();
+
+    expect(
+      await screen.findByText("Suggested adjustment")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Extend Rainy day fund's target date by 2 months.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Reallocate $200.00/month from Vacation.")
+    ).toBeInTheDocument();
   });
 });
 

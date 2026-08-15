@@ -881,16 +881,40 @@ export type GoalConflictGoal = {
     | "completed";
 };
 
+export type GoalConflictKeyDriver =
+  | "no_goals"
+  | "no_conflict"
+  | "insufficient_capacity"
+  | "largest_required_goal";
+
+export type GoalConflictRecommendation = {
+  type:
+    | "increase_monthly_capacity"
+    | "reduce_goal_contribution"
+    | "extend_target_date"
+    | "reprioritize_goal"
+    | "no_change_needed";
+  message: string;
+  goal_id: number | null;
+  amount_cents: number | null;
+  extension_months: number | null;
+  resulting_monthly_gap_cents: number;
+};
+
 export type GoalConflictDetection = {
   as_of: string;
   conflict_status: "no_conflict" | "strained" | "conflict";
   monthly_savings_capacity_cents: number;
   total_required_monthly_cents: number;
   monthly_shortfall_cents: number;
+  monthly_headroom_cents: number;
+  key_driver: GoalConflictKeyDriver;
   confidence_score: number;
   goals: GoalConflictGoal[];
   explanation: string;
   recommendations: string[];
+  recommendation: GoalConflictRecommendation;
+  recommendation_alternatives: GoalConflictRecommendation[];
   warnings: string[];
 };
 
@@ -915,6 +939,7 @@ export type GoalIntelligenceGoal = {
   status: GoalIntelligenceStatus;
   projected_completion_date: string | null;
   suggested_feasible_target_date: string | null;
+  projected_delay_months: number | null;
   urgency_rank: number | null;
   confidence_score: number;
   explanation: string;
@@ -926,10 +951,15 @@ export type GoalIntelligence = {
   total_capacity_cents: number;
   total_required_cents: number;
   total_shortfall_cents: number;
+  monthly_headroom_cents: number;
+  key_driver: GoalConflictKeyDriver;
   largest_pressure_goal_id: number | null;
   confidence_score: number;
   explanation: string;
   suggestions: string[];
+  recommendation: GoalConflictRecommendation;
+  recommendation_alternatives: GoalConflictRecommendation[];
+  warnings: string[];
   goals: GoalIntelligenceGoal[];
 };
 

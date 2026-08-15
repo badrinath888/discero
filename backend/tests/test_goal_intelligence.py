@@ -314,3 +314,138 @@ def test_goal_intelligence_endpoint_returns_real_data(
     body = response.json()
     assert body["total_capacity_cents"] == 50_000
     assert body["goals"] == []
+
+
+def test_projected_delay_months_when_underfunded() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_goal(
+            db,
+            user,
+            name="Laptop fund",
+            target_cents=200_000,
+            saved_cents=0,
+            target_date=date(2026, 10, 8),
+        )
+
+        result = evaluate_goal_intelligence(
+            db, user.id, monthly_capacity_cents=70_000, as_of=TEST_DATE
+        )
+
+        goal = result.goals[0]
+        # target 2026-10-08, projected completion 2026-11-08 -> 1 month late.
+        assert goal.projected_completion_date == date(2026, 11, 8)
+        assert goal.projected_delay_months == 1
+
+
+def test_projected_delay_months_zero_when_on_track() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_goal(
+            db,
+            user,
+            name="Vacation",
+            target_cents=120_000,
+            saved_cents=0,
+            target_date=date(2026, 10, 8),
+        )
+
+        result = evaluate_goal_intelligence(
+            db, user.id, monthly_capacity_cents=100_000, as_of=TEST_DATE
+        )
+
+        goal = result.goals[0]
+        assert goal.projected_delay_months == 0
+
+
+def test_projected_delay_months_none_when_completely_unfunded() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_goal(
+            db,
+            user,
+            name="Goal",
+            target_cents=60_000,
+            saved_cents=0,
+            target_date=date(2026, 10, 8),
+        )
+
+        result = evaluate_goal_intelligence(
+            db, user.id, monthly_capacity_cents=0, as_of=TEST_DATE
+        )
+
+        goal = result.goals[0]
+        assert goal.projected_completion_date is None
+        assert goal.projected_delay_months is None
+
+
+def test_projected_delay_months_none_without_target_date() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_goal(
+            db,
+            user,
+            name="Someday goal",
+            target_cents=60_000,
+            saved_cents=0,
+            target_date=None,
+        )
+
+        result = evaluate_goal_intelligence(
+            db, user.id, monthly_capacity_cents=50_000, as_of=TEST_DATE
+        )
+
+        goal = result.goals[0]
+        assert goal.projected_delay_months is None
+
+
+def test_headroom_key_driver_and_recommendation_pass_through() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_goal(
+            db,
+            user,
+            name="Near goal",
+            target_cents=100_000,
+            saved_cents=0,
+            target_date=date(2026, 9, 8),
+        )
+        create_goal(
+            db,
+            user,
+            name="Far goal",
+            target_cents=300_000,
+            saved_cents=0,
+            target_date=date(2026, 11, 8),
+        )
+
+        result = evaluate_goal_intelligence(
+            db, user.id, monthly_capacity_cents=50_000, as_of=TEST_DATE
+        )
+
+        assert result.key_driver == "largest_required_goal"
+        assert result.monthly_headroom_cents == 0
+        assert result.recommendation.type == "increase_monthly_capacity"
+        assert result.recommendation.amount_cents == 150_000
+
+
+def test_no_conflict_recommendation_is_no_change_needed() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_goal(
+            db,
+            user,
+            name="Vacation",
+            target_cents=120_000,
+            saved_cents=0,
+            target_date=date(2026, 10, 8),
+        )
+
+        result = evaluate_goal_intelligence(
+            db, user.id, monthly_capacity_cents=100_000, as_of=TEST_DATE
+        )
+
+        assert result.key_driver == "no_conflict"
+        assert result.monthly_headroom_cents == 40_000
+        assert result.recommendation.type == "no_change_needed"
+        assert result.recommendation_alternatives == []

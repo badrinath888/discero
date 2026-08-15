@@ -243,6 +243,26 @@ describe("goal intelligence panel", () => {
           urgency_rank: 1,
           confidence_score: 90,
           explanation: "Emergency fund needs $1,000.00/month.",
+          key_driver: "competing_goal_priority",
+          recommended_action: {
+            type: "increase_goal_allocation",
+            message:
+              "Increase Emergency fund's monthly allocation by $500.00 to stay on track for its target date.",
+            goal_id: 1,
+            amount_cents: 50_000,
+            extension_months: null,
+            resulting_monthly_gap_cents: 0,
+          },
+          alternative_actions: [
+            {
+              type: "extend_target_date",
+              message: "Or move Emergency fund's target date to 2027-02-08.",
+              goal_id: 1,
+              amount_cents: null,
+              extension_months: null,
+              resulting_monthly_gap_cents: 0,
+            },
+          ],
         },
       ],
     };
@@ -263,6 +283,14 @@ describe("goal intelligence panel", () => {
     expect(screen.getByText("2 mo late")).toBeInTheDocument();
     expect(
       screen.getByText("Increase available monthly savings by $1,500.00.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Increase Emergency fund's monthly allocation by $500.00 to stay on track for its target date."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Or move Emergency fund's target date to 2027-02-08.")
     ).toBeInTheDocument();
     expect(mocks.getGoalIntelligence).toHaveBeenCalledWith(1, 50_000);
   });
@@ -309,6 +337,16 @@ describe("goal intelligence panel", () => {
           urgency_rank: 1,
           confidence_score: 90,
           explanation: "Vacation fund is funded on time.",
+          key_driver: "on_track",
+          recommended_action: {
+            type: "no_change_needed",
+            message: "Vacation fund is funded to reach its target on time.",
+            goal_id: null,
+            amount_cents: null,
+            extension_months: null,
+            resulting_monthly_gap_cents: 0,
+          },
+          alternative_actions: [],
         },
       ],
     };
@@ -326,6 +364,8 @@ describe("goal intelligence panel", () => {
     expect(
       screen.queryByText("Suggested adjustment")
     ).not.toBeInTheDocument();
+    // no_change_needed per-goal action also renders nothing.
+    expect(screen.queryByText("Best action")).not.toBeInTheDocument();
   });
 
   it("shows a bounded list of recommendation alternatives when present", async () => {
@@ -387,6 +427,17 @@ describe("goal intelligence panel", () => {
           urgency_rank: 1,
           confidence_score: 90,
           explanation: "Rainy day fund needs $1,000.00/month.",
+          key_driver: "competing_goal_priority",
+          recommended_action: {
+            type: "increase_goal_allocation",
+            message:
+              "Increase Rainy day fund's monthly allocation by $500.00 to stay on track for its target date.",
+            goal_id: 1,
+            amount_cents: 50_000,
+            extension_months: null,
+            resulting_monthly_gap_cents: 0,
+          },
+          alternative_actions: [],
         },
       ],
     };
@@ -402,6 +453,110 @@ describe("goal intelligence panel", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText("Reallocate $200.00/month from Vacation.")
+    ).toBeInTheDocument();
+  });
+
+  it("shows ahead and not-feasible statuses with their key drivers", async () => {
+    const intelligence: GoalIntelligence = {
+      as_of: "2026-08-08",
+      conflict_status: "no_conflict",
+      total_capacity_cents: 200_000,
+      total_required_cents: 40_000,
+      total_shortfall_cents: 0,
+      monthly_headroom_cents: 160_000,
+      key_driver: "no_conflict",
+      largest_pressure_goal_id: null,
+      confidence_score: 90,
+      explanation: "Your available monthly savings capacity is sufficient.",
+      suggestions: [],
+      recommendation: {
+        type: "no_change_needed",
+        message: "Your current goals are jointly fundable.",
+        goal_id: null,
+        amount_cents: null,
+        extension_months: null,
+        resulting_monthly_gap_cents: 0,
+      },
+      recommendation_alternatives: [],
+      warnings: [],
+      goals: [
+        {
+          goal_id: 1,
+          name: "Ahead fund",
+          target_amount_cents: 500_000,
+          saved_amount_cents: 400_000,
+          remaining_amount_cents: 100_000,
+          target_date: "2026-12-08",
+          months_remaining: 4,
+          required_monthly_cents: 25_000,
+          allocated_monthly_cents: 25_000,
+          monthly_gap_cents: 0,
+          status: "ahead",
+          projected_completion_date: "2026-12-08",
+          suggested_feasible_target_date: null,
+          projected_delay_months: 0,
+          urgency_rank: 1,
+          confidence_score: 90,
+          explanation:
+            "Ahead fund has already saved more than its original even pace would require, and is ahead of its target date.",
+          key_driver: "ahead_of_schedule",
+          recommended_action: {
+            type: "no_change_needed",
+            message: "Ahead fund is ahead of its original pace and remains on track.",
+            goal_id: null,
+            amount_cents: null,
+            extension_months: null,
+            resulting_monthly_gap_cents: 0,
+          },
+          alternative_actions: [],
+        },
+        {
+          goal_id: 2,
+          name: "Overdue fund",
+          target_amount_cents: 100_000,
+          saved_amount_cents: 50_000,
+          remaining_amount_cents: 50_000,
+          target_date: "2026-07-01",
+          months_remaining: 0,
+          required_monthly_cents: 50_000,
+          allocated_monthly_cents: 15_000,
+          monthly_gap_cents: 35_000,
+          status: "not_feasible",
+          projected_completion_date: "2026-11-08",
+          suggested_feasible_target_date: "2026-11-08",
+          projected_delay_months: null,
+          urgency_rank: 2,
+          confidence_score: 90,
+          explanation:
+            "Overdue fund's target date has already passed with $500.00 still needed.",
+          key_driver: "target_date_passed",
+          recommended_action: {
+            type: "extend_target_date",
+            message:
+              "Overdue fund's target date has already passed -- move it to 2026-11-08 to match its current funding pace.",
+            goal_id: 2,
+            amount_cents: null,
+            extension_months: null,
+            resulting_monthly_gap_cents: 0,
+          },
+          alternative_actions: [],
+        },
+      ],
+    };
+    mocks.getGoalIntelligence.mockResolvedValue(intelligence);
+
+    await renderPage();
+
+    await waitFor(() =>
+      expect(mocks.getGoalIntelligence).toHaveBeenCalledWith(1, undefined)
+    );
+
+    expect(await screen.findByText("ahead")).toBeInTheDocument();
+    expect(screen.getByText("not feasible")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Overdue fund's target date has already passed -- move it to 2026-11-08 to match its current funding pace."
+      )
     ).toBeInTheDocument();
   });
 });

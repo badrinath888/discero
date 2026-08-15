@@ -13,16 +13,19 @@ Nothing here writes to a goal record -- these are recommendations only.
 from __future__ import annotations
 
 from datetime import date
+from math import ceil
 
 from sqlalchemy.orm import Session
 
 from app.schemas import (
     GoalConflictDetectionRequest,
     GoalConflictGoalOut,
+    GoalConflictRecommendationOut,
     GoalIntelligenceGoalOut,
     GoalIntelligenceOut,
 )
 from app.services.goal_conflict_detection_service import (
+    _lowest_priority_funded_goal,
     _months_remaining,
     detect_goal_conflicts,
 )
@@ -58,8 +61,48 @@ def calculate_feasible_target_date(
     return _add_months(as_of, months)
 
 
+def _is_ahead_of_schedule(goal_result: GoalConflictGoalOut) -> bool:
+    """Ahead when banked progress already beats what an even, linear
+    pace from the goal's creation date to its target date would have
+    saved by now -- by at least one full month of that original pace,
+    so rounding noise never flips a goal to "ahead".
+
+    Deliberately independent of the capacity-based allocation
+    waterfall: `allocated_monthly_cents` is capped at
+    `required_monthly_cents` by design (see module docstring), so a
+    goal can never be projected to finish *before* its target through
+    that path alone. This is the only signal that can show a user is
+    genuinely ahead of their own original plan.
+    """
+    target_date = goal_result.target_date
+    if target_date is None or goal_result.remaining_cents <= 0:
+        return False
+
+    total_months = _months_remaining(goal_result.created_at, target_date)
+    if total_months is None or total_months <= 0:
+        return False
+
+    elapsed_months = total_months - (goal_result.months_remaining or 0)
+    if elapsed_months <= 0:
+        return False
+
+    original_monthly_cents = ceil(goal_result.target_cents / total_months)
+    if original_monthly_cents <= 0:
+        return False
+
+    expected_saved_cents = min(
+        original_monthly_cents * elapsed_months, goal_result.target_cents
+    )
+
+    return (
+        goal_result.saved_cents - expected_saved_cents
+    ) >= original_monthly_cents
+
+
 def _intelligence_status(
-    goal_result: GoalConflictGoalOut, shortfalled_goal_count: int
+    goal_result: GoalConflictGoalOut,
+    shortfalled_goal_count: int,
+    is_ahead: bool,
 ) -> str:
     if goal_result.status == "completed":
         return "completed"
@@ -67,18 +110,163 @@ def _intelligence_status(
     if goal_result.status == "no_deadline":
         return "no_deadline"
 
-    if goal_result.status == "on_track":
-        return "on_track"
+    if goal_result.status == "unfunded":
+        # Target date has already passed with money still owed -- no
+        # future contribution schedule can retroactively fix this, so
+        # it's distinct from a goal that's merely underfunded with
+        # time still on the clock.
+        return "not_feasible"
 
-    # "at_risk" or "unfunded" at the per-goal level: escalate to
-    # "conflict" only when MULTIPLE goals are actually competing for
-    # the same capacity, so a single goal's own tight timeline (no
-    # other goal involved) isn't confused with competing-goal
-    # pressure.
+    if goal_result.status == "on_track":
+        return "ahead" if is_ahead else "on_track"
+
+    # "at_risk" at the per-goal level: escalate to "conflict" only
+    # when MULTIPLE goals are actually competing for the same
+    # capacity, so a single goal's own tight timeline (no other goal
+    # involved) isn't confused with competing-goal pressure.
     if goal_result.monthly_shortfall_cents > 0 and shortfalled_goal_count > 1:
         return "conflict"
 
     return "at_risk"
+
+
+_KEY_DRIVER_BY_STATUS = {
+    "completed": "goal_already_completed",
+    "no_deadline": "no_target_date_set",
+    "ahead": "ahead_of_schedule",
+    "on_track": "on_track",
+    "not_feasible": "target_date_passed",
+    "conflict": "competing_goal_priority",
+    "at_risk": "insufficient_monthly_capacity",
+}
+
+
+def _goal_key_driver(status: str) -> str:
+    return _KEY_DRIVER_BY_STATUS[status]
+
+
+def _no_change_action(message: str) -> GoalConflictRecommendationOut:
+    return GoalConflictRecommendationOut(
+        type="no_change_needed",
+        message=message,
+        resulting_monthly_gap_cents=0,
+    )
+
+
+def _goal_recommended_actions(
+    goal_result: GoalConflictGoalOut,
+    status: str,
+    projected_completion_date: date | None,
+    all_goal_results: list[GoalConflictGoalOut],
+) -> tuple[GoalConflictRecommendationOut, list[GoalConflictRecommendationOut]]:
+    """The smallest deterministic action that restores the goal to
+    on-track, plus at most two bounded alternatives (Discero product
+    rule: never flood the UI with options).
+    """
+    name = goal_result.name
+    gap = goal_result.monthly_shortfall_cents
+
+    if status == "completed":
+        return _no_change_action(f"{name} has already reached its target."), []
+
+    if status == "no_deadline":
+        return (
+            _no_change_action(
+                f"Add a target date to {name} to measure its funding needs."
+            ),
+            [],
+        )
+
+    if status == "ahead":
+        return (
+            _no_change_action(
+                f"{name} is ahead of its original pace and remains on track."
+            ),
+            [],
+        )
+
+    if status == "on_track":
+        return (
+            _no_change_action(f"{name} is funded to reach its target on time."),
+            [],
+        )
+
+    if status == "not_feasible":
+        if projected_completion_date is not None:
+            primary = GoalConflictRecommendationOut(
+                type="extend_target_date",
+                message=(
+                    f"{name}'s target date has already passed -- move it to "
+                    f"{projected_completion_date.isoformat()} to match its "
+                    "current funding pace."
+                ),
+                goal_id=goal_result.goal_id,
+                resulting_monthly_gap_cents=0,
+            )
+        else:
+            primary = GoalConflictRecommendationOut(
+                type="increase_goal_allocation",
+                message=(
+                    f"{name}'s target date has passed with "
+                    f"{_currency(goal_result.remaining_cents)} still needed "
+                    "-- increase its monthly allocation to begin funding it."
+                ),
+                goal_id=goal_result.goal_id,
+                amount_cents=gap,
+                resulting_monthly_gap_cents=gap,
+            )
+        return primary, []
+
+    # at_risk / conflict: the smallest fix is closing the exact
+    # monthly gap on this goal.
+    primary = GoalConflictRecommendationOut(
+        type="increase_goal_allocation",
+        message=(
+            f"Increase {name}'s monthly allocation by {_currency(gap)} to "
+            "stay on track for its target date."
+        ),
+        goal_id=goal_result.goal_id,
+        amount_cents=gap,
+        resulting_monthly_gap_cents=0,
+    )
+
+    alternatives: list[GoalConflictRecommendationOut] = []
+
+    if projected_completion_date is not None:
+        alternatives.append(
+            GoalConflictRecommendationOut(
+                type="extend_target_date",
+                message=(
+                    f"Or move {name}'s target date to "
+                    f"{projected_completion_date.isoformat()} to fit the "
+                    "current funding pace."
+                ),
+                goal_id=goal_result.goal_id,
+                resulting_monthly_gap_cents=0,
+            )
+        )
+
+    if status == "conflict":
+        donor = _lowest_priority_funded_goal(
+            all_goal_results, exclude_goal_id=goal_result.goal_id
+        )
+        if donor is not None:
+            shift = min(donor.allocated_monthly_cents, gap)
+            if shift > 0:
+                alternatives.append(
+                    GoalConflictRecommendationOut(
+                        type="reprioritize_goal",
+                        message=(
+                            f"Or reprioritize {name} above {donor.name} to "
+                            f"free up {_currency(shift)}/month."
+                        ),
+                        goal_id=donor.goal_id,
+                        amount_cents=shift,
+                        resulting_monthly_gap_cents=max(gap - shift, 0),
+                    )
+                )
+
+    return primary, alternatives[:2]
 
 
 def _urgency_sort_key(goal_result: GoalConflictGoalOut) -> tuple:
@@ -116,10 +304,21 @@ def _goal_explanation(
             "/month, enough to reach its target on time."
         )
 
+    if status == "ahead":
+        return (
+            f"{name} has already saved more than its original even pace "
+            "would require, and is ahead of its target date."
+        )
+
     shortfall = _currency(goal_result.monthly_shortfall_cents)
     required = _currency(goal_result.required_monthly_cents)
 
-    if status == "conflict":
+    if status == "not_feasible":
+        base = (
+            f"{name}'s target date has already passed with "
+            f"{_currency(goal_result.remaining_cents)} still needed."
+        )
+    elif status == "conflict":
         base = (
             f"{name} needs {required}/month, but competing goals leave "
             f"only {_currency(goal_result.allocated_monthly_cents)}/month "
@@ -165,7 +364,10 @@ def evaluate_goal_intelligence(
     pairs: list[tuple[GoalIntelligenceGoalOut, GoalConflictGoalOut]] = []
 
     for goal_result in conflict.goals:
-        status = _intelligence_status(goal_result, shortfalled_goal_count)
+        is_ahead = _is_ahead_of_schedule(goal_result)
+        status = _intelligence_status(
+            goal_result, shortfalled_goal_count, is_ahead
+        )
 
         projected_completion_date = calculate_feasible_target_date(
             goal_result.remaining_cents,
@@ -175,7 +377,7 @@ def evaluate_goal_intelligence(
 
         suggested_feasible_target_date = (
             projected_completion_date
-            if status in ("at_risk", "conflict")
+            if status in ("at_risk", "conflict", "not_feasible")
             else None
         )
 
@@ -194,6 +396,10 @@ def evaluate_goal_intelligence(
             if goal_result.target_date is not None
             and projected_completion_date is not None
             else None
+        )
+
+        recommended_action, alternative_actions = _goal_recommended_actions(
+            goal_result, status, projected_completion_date, conflict.goals
         )
 
         pairs.append(
@@ -218,6 +424,9 @@ def evaluate_goal_intelligence(
                     explanation=_goal_explanation(
                         goal_result, status, projected_completion_date
                     ),
+                    key_driver=_goal_key_driver(status),
+                    recommended_action=recommended_action,
+                    alternative_actions=alternative_actions,
                 ),
                 goal_result,
             )

@@ -270,7 +270,8 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"causing|behind)\b|how much[^.?!]{0,30}\bsave\b[^.?!]{0,20}"
             r"\b(month|goal)\b|when (can|will) i[^.?!]{0,20}\b(finish|"
             r"complete|reach)\b|realistically (finish|complete)|move "
-            r"(this|the|my) goal|feasible target date)\b",
+            r"(this|the|my) goal|feasible target date|smallest "
+            r"(change|action)|back on track)\b",
             re.IGNORECASE,
         ),
     ),
@@ -365,11 +366,16 @@ _REQUIRED_MONTHLY_RE = re.compile(
 _COMPLETION_RE = re.compile(
     r"when (can|will) i|realistically (finish|complete)", re.IGNORECASE
 )
+_BEST_ACTION_RE = re.compile(
+    r"\bsmallest (change|action)\b|\bback on track\b", re.IGNORECASE
+)
 
 
 def _goal_intelligence_emphasis(text: str) -> str:
     if _URGENT_RE.search(text):
         return "urgent"
+    if _BEST_ACTION_RE.search(text):
+        return "best_action"
     if _MOVE_DATE_RE.search(text):
         return "move_date"
     if _SHORTFALL_CAUSE_RE.search(text):
@@ -1076,6 +1082,16 @@ def _render_goal_intelligence(result, emphasize):
             None,
             ["How much should I save for it?", "When can I finish it?"],
         )
+
+    if emphasize == "best_action":
+        action = urgent.recommended_action
+        if action.type == "no_change_needed":
+            answer = action.message
+        else:
+            answer = f"For {urgent.name}: {action.message}"
+        why = f"Key driver: {urgent.key_driver.replace('_', ' ')}."
+        actions = [alt.message for alt in urgent.alternative_actions[:2]]
+        return (answer, why, None, actions)
 
     if emphasize == "shortfall_cause":
         if result.largest_pressure_goal_id is None:

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import time
 from datetime import date
+from typing import Protocol
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
@@ -173,8 +174,35 @@ def _low_data_warning(
     return None
 
 
+class CopilotModelProvider(Protocol):
+    """Structural contract DECIDE/NARRATE orchestration depends on.
+
+    `CopilotClient` (Anthropic, below) and
+    `app.services.copilot_groq_client.GroqCopilotClient` both satisfy
+    this without inheriting from it -- orchestration only ever depends
+    on this shape, never on a specific provider.
+    """
+
+    provider_name: str
+    model: str
+
+    @property
+    def enabled(self) -> bool: ...
+
+    def call(
+        self,
+        *,
+        system: str,
+        messages: list[dict],
+        tools: list[dict],
+        tool_choice: dict | None = None,
+    ): ...
+
+
 class CopilotClient:
     """Thin Anthropic wrapper. Network call isolated for testability."""
+
+    provider_name = "anthropic"
 
     def __init__(
         self,
@@ -1529,7 +1557,7 @@ def _extract_intent(tool_input: dict) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _timed_model_call(client: CopilotClient, **kwargs):
+def _timed_model_call(client: CopilotModelProvider, **kwargs):
     """Runs a DECIDE/NARRATE call, timing it and classifying failure.
 
     Returns (response_or_None, latency_ms, error_code_or_None). Never
@@ -1550,7 +1578,7 @@ def _timed_model_call(client: CopilotClient, **kwargs):
 
 
 def _narrate(
-    client: CopilotClient,
+    client: CopilotModelProvider,
     system: str,
     history: list[dict],
     decision,
@@ -1591,7 +1619,7 @@ def _narrate(
             db,
             user_id=user_id,
             request_id=request_id,
-            mode="anthropic",
+            mode=client.provider_name,
             event_type="provider_failure",
             success=False,
             error_code=error_code,
@@ -1608,7 +1636,7 @@ def _narrate(
             db,
             user_id=user_id,
             request_id=request_id,
-            mode="anthropic",
+            mode=client.provider_name,
             event_type="provider_failure",
             success=False,
             error_code=copilot_audit.MODEL_INVALID_RESPONSE,
@@ -1765,7 +1793,7 @@ def run_copilot_turn(
     user_id: int,
     current_user: User,
     messages: list[CopilotMessageIn],
-    client: CopilotClient,
+    client: CopilotModelProvider,
     *,
     as_of: date | None = None,
     request_id: str | None = None,
@@ -1802,7 +1830,7 @@ def run_copilot_turn(
             db,
             user_id=user_id,
             request_id=request_id,
-            mode="anthropic",
+            mode=client.provider_name,
             event_type="provider_failure",
             success=False,
             error_code=decide_error_code,
@@ -1828,7 +1856,7 @@ def run_copilot_turn(
             db,
             user_id=user_id,
             request_id=request_id,
-            mode="anthropic",
+            mode=client.provider_name,
             event_type="answer",
             success=True,
             latency_ms=decide_latency_ms,
@@ -1855,7 +1883,7 @@ def run_copilot_turn(
             db,
             user_id=user_id,
             request_id=request_id,
-            mode="anthropic",
+            mode=client.provider_name,
             event_type="clarification",
             success=True,
             latency_ms=decide_latency_ms,
@@ -1879,7 +1907,7 @@ def run_copilot_turn(
             db,
             user_id=user_id,
             request_id=request_id,
-            mode="anthropic",
+            mode=client.provider_name,
             event_type="answer",
             success=True,
             latency_ms=decide_latency_ms,
@@ -1904,7 +1932,7 @@ def run_copilot_turn(
             db,
             user_id=user_id,
             request_id=request_id,
-            mode="anthropic",
+            mode=client.provider_name,
             event_type="safety_rejection",
             success=False,
             error_code=copilot_audit.TOOL_NOT_REGISTERED,
@@ -1932,7 +1960,7 @@ def run_copilot_turn(
             db,
             user_id=user_id,
             request_id=request_id,
-            mode="anthropic",
+            mode=client.provider_name,
             event_type="tool_failure",
             success=False,
             error_code=copilot_audit.TOOL_VALIDATION_FAILED,
@@ -1986,7 +2014,7 @@ def run_copilot_turn(
         db,
         user_id=user_id,
         request_id=request_id,
-        mode="anthropic",
+        mode=client.provider_name,
         event_type="tool_success",
         success=True,
         tool_name=name,

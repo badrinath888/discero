@@ -8,7 +8,7 @@ from app.models import User
 from app.rate_limit import rate_limiter
 from app.schemas import CopilotChatRequest, CopilotResponseOut
 from app.services import copilot_audit
-from app.services.copilot_service import CopilotClient, run_copilot_turn
+from app.services.copilot_service import CopilotModelProvider, run_copilot_turn
 
 router = APIRouter(
     prefix="/users/{user_id}/copilot",
@@ -37,7 +37,7 @@ def chat(
     response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    client: CopilotClient = Depends(get_copilot_client),
+    client: CopilotModelProvider = Depends(get_copilot_client),
     _rate_limit: None = Depends(
         rate_limiter(max_attempts=20, window_seconds=60)
     ),

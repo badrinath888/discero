@@ -1,17 +1,24 @@
-from datetime import date
+from calendar import monthrange
+from datetime import date, timedelta
 from math import ceil
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Transaction
+from app.models import FinancialAccount, PlaidItem, Transaction
+from app.recurring import detect_recurring
 from app.schemas import (
     FinancialStressTestOut,
     FinancialStressTestRequest,
+    ForecastConfidenceOut,
     GoalConflictDetectionRequest,
     SafeToSpendRequest,
     StressAffectedGoalOut,
+    StressRecoveryRecommendationOut,
     StressResilienceFactorOut,
+)
+from app.services.forecast_confidence_service import (
+    calculate_forecast_confidence,
 )
 from app.services.goal_conflict_detection_service import (
     detect_goal_conflicts,
@@ -123,6 +130,24 @@ _DATA_DISCLAIMER = (
     "This is a simulation based on your current Discero data, not "
     "a probabilistic forecast or financial advice."
 )
+
+# Matches financial_resilience_service's existing runway convention
+# so a "days of runway" figure means the same thing everywhere in
+# Discero.
+_DAYS_PER_MONTH = 30
+
+# Which key-driver bucket each non-combined scenario type belongs to,
+# for the "biggest source of stress" field. "combined" is resolved
+# separately by comparing each component's actual cents impact.
+_SCENARIO_KEY_DRIVER = {
+    "emergency_expense": "emergency_expense",
+    "one_time_expense": "emergency_expense",
+    "temporary_income_loss": "income_loss",
+    "delayed_paycheck": "income_loss",
+    "income_reduction": "income_loss",
+    "recurring_bill_increase": "recurring_expense_increase",
+    "recurring_expense_increase": "recurring_expense_increase",
+}
 
 
 def run_financial_stress_test(
@@ -255,6 +280,46 @@ def run_financial_stress_test(
         else 0.0
     )
 
+    net_monthly_cash_flow = (
+        baseline_monthly_capacity - monthly_reduction
+    )
+    runway_days = _runway_days(
+        safe_to_spend.breakdown.liquid_balance_cents,
+        net_monthly_cash_flow,
+    )
+    first_shortfall_date = _first_shortfall_date(
+        calculation_date=calculation_date,
+        through_date=safe_to_spend.through_date,
+        event_date=payload.event_date,
+        shortfall_cents=shortfall,
+        runway_days=runway_days,
+    )
+    key_driver = _determine_key_driver(
+        payload,
+        safe_before_cents=safe_before,
+        average_monthly_income_cents=average_monthly_income,
+        recurring_obligations_cents=recurring_obligations_cents,
+    )
+    forecast_confidence = _build_forecast_confidence(
+        db, user_id, calculation_date
+    )
+    recovery_recommendation = _build_recovery_recommendation(
+        key_driver=key_driver,
+        horizon_days=payload.horizon_days,
+        shortfall_cents=shortfall,
+        safe_before_cents=safe_before,
+        total_impact_cents=total_impact,
+        net_monthly_cash_flow_cents=net_monthly_cash_flow,
+        runway_days=runway_days,
+    )
+    explanations = _build_explanations(
+        horizon_days=payload.horizon_days,
+        shortfall_cents=shortfall,
+        first_shortfall_date=first_shortfall_date,
+        runway_days=runway_days,
+        forecast_confidence=forecast_confidence,
+    )
+
     scenario_name = payload.scenario_name
 
     return FinancialStressTestOut(
@@ -298,6 +363,12 @@ def run_financial_stress_test(
             shortfall_cents=shortfall,
         ),
         safe_to_spend=safe_to_spend,
+        runway_days=runway_days,
+        first_shortfall_date=first_shortfall_date,
+        key_driver=key_driver,
+        forecast_confidence=forecast_confidence,
+        recovery_recommendation=recovery_recommendation,
+        explanations=explanations,
     )
 
 
@@ -605,6 +676,298 @@ def _compute_affected_goals(
         )
 
     return affected
+
+
+def _liquid_accounts(
+    db: Session,
+    user_id: int,
+) -> list[FinancialAccount]:
+    return list(
+        db.execute(
+            select(FinancialAccount)
+            .join(
+                PlaidItem,
+                FinancialAccount.plaid_item_id == PlaidItem.id,
+            )
+            .where(
+                PlaidItem.user_id == user_id,
+                FinancialAccount.account_type == "depository",
+            )
+        ).scalars()
+    )
+
+
+def _build_forecast_confidence(
+    db: Session,
+    user_id: int,
+    as_of: date,
+) -> ForecastConfidenceOut:
+    """Reuses Confidence-Aware Forecasting 2.0 as context.
+
+    Mirrors the same inputs the cash-flow-forecast route builds. This
+    is not a stress-specific confidence score, and stress severity
+    does not feed into it -- a severe outcome with high forecast
+    confidence, or a mild outcome with low confidence, are both valid.
+    """
+    transactions = list(
+        db.scalars(
+            select(Transaction).where(Transaction.user_id == user_id)
+        ).all()
+    )
+    liquid_accounts = _liquid_accounts(db, user_id)
+    recurring_items = detect_recurring(transactions, as_of=as_of)
+    days_in_month = monthrange(as_of.year, as_of.month)[1]
+    month_end = as_of.replace(day=days_in_month)
+
+    return calculate_forecast_confidence(
+        db,
+        user_id,
+        as_of=as_of,
+        days_remaining=max((month_end - as_of).days, 0),
+        days_in_month=days_in_month,
+        transactions=transactions,
+        liquid_accounts=liquid_accounts,
+        recurring_items=recurring_items,
+    )
+
+
+def _runway_days(
+    liquid_balance_cents: int,
+    net_monthly_cash_flow_cents: int,
+) -> int | None:
+    """Days of stressed liquid runway, or None when unbounded.
+
+    Mirrors financial_resilience_service's runway convention (30-day
+    month, liquid balance / monthly burn) so "days of runway" means
+    the same thing everywhere in Discero.
+    """
+    if net_monthly_cash_flow_cents >= 0:
+        return None
+
+    if liquid_balance_cents <= 0:
+        return 0
+
+    monthly_burn_cents = -net_monthly_cash_flow_cents
+
+    return round(
+        liquid_balance_cents / monthly_burn_cents * _DAYS_PER_MONTH
+    )
+
+
+def _first_shortfall_date(
+    *,
+    calculation_date: date,
+    through_date: date,
+    event_date: date,
+    shortfall_cents: int,
+    runway_days: int | None,
+) -> date | None:
+    """Earliest date liquidity is projected to drop below zero.
+
+    Two independent depletion mechanisms are modeled: an ongoing
+    stressed monthly burn (via `runway_days`, only reported when it
+    falls within the selected horizon), and the scenario's own
+    immediate lump-sum impact (realized on `event_date` whenever it
+    leaves a shortfall). The earlier of the two, if any, is reported.
+    """
+    result: date | None = None
+
+    if runway_days is not None:
+        burn_shortfall_date = calculation_date + timedelta(
+            days=runway_days
+        )
+
+        if burn_shortfall_date <= through_date:
+            result = burn_shortfall_date
+
+    if shortfall_cents > 0 and (
+        result is None or event_date < result
+    ):
+        result = event_date
+
+    return result
+
+
+def _combined_components(
+    payload: FinancialStressTestRequest,
+    average_monthly_income_cents: int,
+    recurring_obligations_cents: int,
+) -> dict[str, int]:
+    emergency_cents = payload.stress_amount_cents or 0
+
+    income_cents = 0
+
+    if (
+        payload.income_reduction_percent is not None
+        and average_monthly_income_cents > 0
+    ):
+        income_cents = round(
+            average_monthly_income_cents
+            * payload.income_reduction_percent
+            / 100
+        )
+
+    recurring_cents = 0
+
+    if (
+        payload.recurring_expense_increase_percent is not None
+        and recurring_obligations_cents > 0
+    ):
+        recurring_cents = round(
+            recurring_obligations_cents
+            * payload.recurring_expense_increase_percent
+            / 100
+        )
+
+    return {
+        "emergency_expense": emergency_cents,
+        "income_loss": income_cents,
+        "recurring_expense_increase": recurring_cents,
+    }
+
+
+def _determine_key_driver(
+    payload: FinancialStressTestRequest,
+    *,
+    safe_before_cents: int,
+    average_monthly_income_cents: int,
+    recurring_obligations_cents: int,
+) -> str:
+    if safe_before_cents <= 0:
+        return "baseline_shortfall"
+
+    if payload.scenario_type == "combined":
+        components = _combined_components(
+            payload,
+            average_monthly_income_cents,
+            recurring_obligations_cents,
+        )
+        return max(components, key=lambda key: components[key])
+
+    return _SCENARIO_KEY_DRIVER[payload.scenario_type]
+
+
+def _build_recovery_recommendation(
+    *,
+    key_driver: str,
+    horizon_days: int,
+    shortfall_cents: int,
+    safe_before_cents: int,
+    total_impact_cents: int,
+    net_monthly_cash_flow_cents: int,
+    runway_days: int | None,
+) -> StressRecoveryRecommendationOut:
+    if shortfall_cents == 0 and (
+        runway_days is None or runway_days >= horizon_days
+    ):
+        return StressRecoveryRecommendationOut(
+            type="no_action_required",
+            message=(
+                "You remain within your safe-to-spend buffer through "
+                f"the {horizon_days}-day horizon; no adjustment is "
+                "needed for this scenario."
+            ),
+            adjustment_cents=None,
+            verified=True,
+        )
+
+    if shortfall_cents > 0:
+        adjustment_cents = shortfall_cents
+        # Re-runs the exact formula the stress test itself uses
+        # (raw_safe_after = safe_before - total_impact) with the
+        # proposed adjustment applied, rather than assuming the
+        # arithmetic works out.
+        adjusted_raw_safe_after = safe_before_cents - (
+            total_impact_cents - adjustment_cents
+        )
+        verified = adjusted_raw_safe_after >= 0
+        outcome = "eliminate the projected shortfall"
+        cadence = ""
+    else:
+        adjustment_cents = -net_monthly_cash_flow_cents
+        verified = (
+            net_monthly_cash_flow_cents + adjustment_cents
+        ) >= 0
+        outcome = f"keep your runway beyond the {horizon_days}-day horizon"
+        cadence = "/month"
+
+    amount = _format_currency(adjustment_cents)
+
+    if key_driver == "income_loss":
+        return StressRecoveryRecommendationOut(
+            type="replace_lost_income",
+            message=(
+                f"Replacing {amount}{cadence} of lost income would "
+                f"{outcome}."
+            ),
+            adjustment_cents=adjustment_cents,
+            verified=verified,
+        )
+
+    if key_driver == "recurring_expense_increase":
+        return StressRecoveryRecommendationOut(
+            type="reduce_stress_expense",
+            message=(
+                f"Reducing the added recurring expense by "
+                f"{amount}{cadence} would {outcome}."
+            ),
+            adjustment_cents=adjustment_cents,
+            verified=verified,
+        )
+
+    return StressRecoveryRecommendationOut(
+        type="preserve_cash_buffer",
+        message=(
+            f"This scenario creates a {amount} gap; keeping a cash "
+            f"buffer of at least that amount would {outcome}."
+        ),
+        adjustment_cents=adjustment_cents,
+        verified=verified,
+    )
+
+
+def _build_explanations(
+    *,
+    horizon_days: int,
+    shortfall_cents: int,
+    first_shortfall_date: date | None,
+    runway_days: int | None,
+    forecast_confidence: ForecastConfidenceOut,
+) -> list[str]:
+    items: list[str] = []
+
+    if shortfall_cents == 0:
+        items.append(
+            "Your projected finances remain positive through the "
+            f"{horizon_days}-day stress horizon."
+        )
+    else:
+        items.append(
+            f"This scenario creates a "
+            f"{_format_currency(shortfall_cents)} shortfall against "
+            "your safe-to-spend balance."
+        )
+
+        if first_shortfall_date is not None:
+            items.append(
+                "The shortfall is first projected on "
+                f"{first_shortfall_date.isoformat()}."
+            )
+
+    if runway_days is not None:
+        items.append(
+            "At the stressed monthly cash-flow margin, your liquid "
+            f"balance would last about {runway_days} day(s)."
+        )
+
+    items.append(
+        f"Forecast confidence is {forecast_confidence.level} "
+        f"({round(forecast_confidence.score)}%), based on your "
+        "current transaction history and recognized recurring "
+        "activity."
+    )
+
+    return items
 
 
 def _build_resilience_factors(

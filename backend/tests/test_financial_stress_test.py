@@ -1531,3 +1531,268 @@ def test_baseline_uses_corrected_multi_occurrence_obligations() -> None:
         assert result.safe_to_spend_before_stress_cents == 700_000
         assert result.baseline_projected_balance_cents == 700_000
         assert result.safe_to_spend_after_stress_cents == 650_000
+
+
+def test_no_action_required_when_resilient() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "no-action-resilient")
+
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="emergency_expense",
+                scenario_name="Car repair",
+                stress_amount_cents=100_000,
+                event_date=TEST_DATE + timedelta(days=3),
+                horizon_days=30,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.shortfall_cents == 0
+        assert result.runway_days is None
+        assert result.first_shortfall_date is None
+        assert result.key_driver == "emergency_expense"
+        assert (
+            result.recovery_recommendation.type == "no_action_required"
+        )
+        assert result.recovery_recommendation.adjustment_cents is None
+        assert result.recovery_recommendation.verified is True
+        assert len(result.explanations) >= 1
+        assert 0 <= result.forecast_confidence.score <= 100
+        assert result.forecast_confidence.level in (
+            "high",
+            "medium",
+            "low",
+        )
+
+
+def test_replace_lost_income_recommendation_for_critical_income_loss() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db, "income-loss-recommendation")
+
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="temporary_income_loss",
+                scenario_name="Reduced hours",
+                stress_amount_cents=600_000,
+                event_date=TEST_DATE + timedelta(days=2),
+                duration_days=14,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.risk_level == "critical"
+        assert result.shortfall_cents == 100_000
+        assert result.key_driver == "income_loss"
+        assert result.first_shortfall_date == TEST_DATE + timedelta(
+            days=2
+        )
+
+        recommendation = result.recovery_recommendation
+        assert recommendation.type == "replace_lost_income"
+        assert recommendation.adjustment_cents == 100_000
+        assert recommendation.verified is True
+        assert "$1,000.00" in recommendation.message
+
+        assert any(
+            "shortfall" in item.lower() for item in result.explanations
+        )
+        assert any(
+            item.endswith(f"{TEST_DATE + timedelta(days=2)}.")
+            for item in result.explanations
+        )
+
+
+def test_key_driver_for_combined_scenario_picks_dominant_component() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db, "combined-driver")
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=100_000,
+        )
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="combined",
+                scenario_name="Everything at once",
+                income_reduction_percent=20,
+                recurring_expense_increase_percent=20,
+                stress_amount_cents=50_000,
+                event_date=TEST_DATE + timedelta(days=5),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        # income component ($600) > emergency ($500) > recurring ($200)
+        assert result.key_driver == "income_loss"
+
+
+def test_baseline_shortfall_key_driver_when_already_negative() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "baseline-shortfall")
+
+        create_account(db, user, available_balance_cents=0)
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="emergency_expense",
+                scenario_name="Car repair",
+                stress_amount_cents=1_000,
+                event_date=TEST_DATE + timedelta(days=1),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.safe_to_spend_before_stress_cents == 0
+        assert result.key_driver == "baseline_shortfall"
+        assert (
+            result.recovery_recommendation.type == "preserve_cash_buffer"
+        )
+
+
+def test_runway_finite_when_stressed_monthly_cash_flow_is_negative() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db, "runway-finite")
+
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+        create_budget(
+            db,
+            user,
+            category="Groceries",
+            month="2026-08",
+            limit_cents=250_000,
+        )
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="income_reduction",
+                scenario_name="Reduced hours",
+                income_reduction_percent=50,
+                event_date=TEST_DATE + timedelta(days=1),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.runway_days is not None
+        assert result.runway_days > 0
+
+
+def test_runway_unbounded_when_no_ongoing_burn() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "runway-unbounded")
+
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="emergency_expense",
+                scenario_name="Car repair",
+                stress_amount_cents=50_000,
+                event_date=TEST_DATE + timedelta(days=3),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.runway_days is None
+
+
+def test_forecast_confidence_reused_from_confidence_engine() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "forecast-confidence-reuse")
+
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+
+        result = run_financial_stress_test(
+            db,
+            user.id,
+            FinancialStressTestRequest(
+                scenario_type="emergency_expense",
+                scenario_name="Car repair",
+                stress_amount_cents=50_000,
+                event_date=TEST_DATE + timedelta(days=3),
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert result.forecast_confidence.factors
+        assert result.forecast_confidence.data_quality is not None
+        assert isinstance(result.forecast_confidence.drivers, list)
+
+
+def test_endpoint_response_includes_new_fields(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(
+        client,
+        "stress-test-new-fields-endpoint",
+    )
+
+    with TestingSessionLocal() as db:
+        user = db.get(User, user_id)
+        assert user is not None
+
+        create_account(db, user, available_balance_cents=500_000)
+
+    response = client.post(
+        f"/users/{user_id}/financial-stress-test",
+        headers=headers,
+        json={
+            "scenario_type": "emergency_expense",
+            "scenario_name": "Car repair",
+            "stress_amount_cents": 100_000,
+            "event_date": (
+                date.today() + timedelta(days=3)
+            ).isoformat(),
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert "runway_days" in body
+    assert "first_shortfall_date" in body
+    assert body["key_driver"] in (
+        "income_loss",
+        "recurring_expense_increase",
+        "emergency_expense",
+        "baseline_shortfall",
+    )
+    assert "forecast_confidence" in body
+    assert body["forecast_confidence"]["level"] in (
+        "high",
+        "medium",
+        "low",
+    )
+    assert body["recovery_recommendation"]["type"]
+    assert isinstance(body["explanations"], list)

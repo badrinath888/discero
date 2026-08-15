@@ -277,8 +277,8 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "run_stress_test",
         re.compile(
-            r"\b(income (drop\w*|loss|reduc\w*|cut\w*)|lose my job|"
-            r"job loss|laid off|pay cut)\b",
+            r"\b(income (drop\w*|loss|reduc\w*|cut\w*)|lose\w* (my )?"
+            r"income|lose my job|job loss|laid off|pay cut)\b",
             re.IGNORECASE,
         ),
     ),
@@ -321,7 +321,8 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "get_safe_to_spend",
         re.compile(
-            r"safe.to.spend|how much (can|could) i spend|spending room",
+            r"safe.to.spend|how much (can|could) i (\w+ )?spend|"
+            r"spending room",
             re.IGNORECASE,
         ),
     ),

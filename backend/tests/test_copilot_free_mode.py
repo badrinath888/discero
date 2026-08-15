@@ -210,6 +210,24 @@ def test_safe_to_spend_works_without_key() -> None:
         assert "$5,000.00" in (result.answer or "")
 
 
+def test_safe_to_spend_matches_adverb_phrasing() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("How much can I safely spend?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Safe-to-Spend"
+
+
 def test_why_safe_to_spend_emphasizes_driving_factor() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db)
@@ -376,6 +394,28 @@ def test_income_reduction_stress_test_works_without_key() -> None:
 
         assert result.kind == "answer"
         assert result.tool_used == "Financial Stress Test"
+
+
+def test_lose_income_phrasing_matches_stress_test() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What happens if I lose income for 2 months?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        # No dollar amount or percent was given, so the classifier
+        # correctly routes to the stress-test intent and then asks
+        # for the missing figure rather than guessing one.
+        assert result.kind == "clarifying_question"
+        assert result.clarifying_options
 
 
 def test_cash_flow_forecast_works_without_key() -> None:

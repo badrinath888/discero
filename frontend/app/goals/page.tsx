@@ -144,6 +144,27 @@ useEffect(() => {
     []
   );
 
+  const runConflictAnalysis = useCallback(
+    async (id: number, capacityCents?: number) => {
+      setConflictLoading(true);
+      setError("");
+
+      try {
+        const result = await api.getGoalIntelligence(id, capacityCents);
+        setConflictAnalysis(result);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to analyze goal conflicts"
+        );
+      } finally {
+        setConflictLoading(false);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     async function initialize() {
       const id = session.getUserId();
@@ -165,7 +186,15 @@ useEffect(() => {
         }
 
         setUserId(id);
-        await loadGoals(id);
+        const loadedGoals = await loadGoals(id);
+
+        if (loadedGoals.length > 0) {
+          // No manual capacity entered yet -- let the backend estimate
+          // a realistic one from recent income and obligations so the
+          // panel answers "can I fund my goals?" without the user
+          // having to guess a number first.
+          void runConflictAnalysis(id);
+        }
       } catch (err) {
         if (!session.getToken()) {
           router.replace("/");
@@ -183,7 +212,7 @@ useEffect(() => {
     }
 
     void initialize();
-  }, [loadGoals, router]);
+  }, [loadGoals, router, runConflictAnalysis]);
 
   const totals = useMemo(
     () =>
@@ -270,33 +299,23 @@ useEffect(() => {
   async function analyzeGoalConflicts() {
     if (!userId) return;
 
+    const trimmedCapacity = monthlyCapacity.trim();
+
+    if (!trimmedCapacity) {
+      // Blank override -- let the backend estimate a realistic
+      // capacity from recent income and obligations.
+      await runConflictAnalysis(userId);
+      return;
+    }
+
     const capacityCents = Math.round(Number(monthlyCapacity) * 100);
 
-    if (
-      !monthlyCapacity.trim() ||
-      !Number.isFinite(capacityCents) ||
-      capacityCents < 0
-    ) {
+    if (!Number.isFinite(capacityCents) || capacityCents < 0) {
       setError("Enter a valid monthly savings capacity.");
       return;
     }
 
-    setConflictLoading(true);
-    setError("");
-
-    try {
-      const result = await api.getGoalIntelligence(userId, capacityCents);
-
-      setConflictAnalysis(result);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to analyze goal conflicts"
-      );
-    } finally {
-      setConflictLoading(false);
-    }
+    await runConflictAnalysis(userId, capacityCents);
   }
 
   async function createGoal() {
@@ -892,7 +911,7 @@ function GoalConflictPanel({
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[320px_1fr]">
         <div>
-          <Field label="Monthly savings capacity">
+          <Field label="Monthly savings capacity (optional)">
             <input
               type="number"
               min="0"
@@ -900,7 +919,7 @@ function GoalConflictPanel({
               value={monthlyCapacity}
               onChange={(event) => onCapacityChange(event.target.value)}
               className="h-12 w-full rounded-xl border border-[#181713]/10 bg-[#FFFCF7] px-4 text-sm outline-none transition focus:border-[#6E4B63] focus:bg-white"
-              placeholder="1000.00"
+              placeholder="Estimated automatically if left blank"
               disabled={disabled || loading}
             />
           </Field>
@@ -911,7 +930,7 @@ function GoalConflictPanel({
             disabled={disabled || loading}
             className="discero-button-primary mt-4 min-h-11 w-full rounded-2xl px-5 text-sm font-semibold"
           >
-            {loading ? "Analyzing..." : "Analyze my goals"}
+            {loading ? "Analyzing..." : "Re-analyze my goals"}
           </button>
         </div>
 
@@ -920,16 +939,24 @@ function GoalConflictPanel({
             <p className="text-sm text-[#706961]">
               {disabled
                 ? "Create a savings goal before running the analysis."
-                : "Run the analysis to see goal risk and monthly shortfalls."}
+                : "Analyzing your goals against your recent income and obligations..."}
             </p>
           ) : (
             <>
               <p className="text-lg font-semibold capitalize">
-                {analysis.conflict_status.replaceAll("_", " ")}
+                {analysis.conflict_status === "no_conflict"
+                  ? "Goals are on track"
+                  : analysis.conflict_status.replaceAll("_", " ")}
               </p>
               <p className="mt-2 text-sm leading-6 text-[#706961]">
                 {analysis.explanation}
               </p>
+
+              {analysis.warnings.length > 0 && (
+                <p className="mt-2 text-xs text-[#8A8178]">
+                  {analysis.warnings.join(" ")}
+                </p>
+              )}
 
               <div className="mt-5 grid gap-3 sm:grid-cols-3">
                 <SummaryCard
@@ -941,8 +968,16 @@ function GoalConflictPanel({
                   value={formatCents(analysis.total_required_cents)}
                 />
                 <SummaryCard
-                  label="Shortfall"
-                  value={formatCents(analysis.total_shortfall_cents)}
+                  label={
+                    analysis.total_shortfall_cents > 0
+                      ? "Funding gap"
+                      : "Headroom"
+                  }
+                  value={formatCents(
+                    analysis.total_shortfall_cents > 0
+                      ? analysis.total_shortfall_cents
+                      : analysis.monthly_headroom_cents
+                  )}
                 />
               </div>
 
@@ -959,18 +994,7 @@ function GoalConflictPanel({
                 </div>
               </div>
 
-              {analysis.suggestions.length > 0 && (
-                <ul className="mt-5 space-y-2">
-                  {analysis.suggestions.map((suggestion) => (
-                    <li
-                      key={suggestion}
-                      className="rounded-xl bg-white px-4 py-3 text-sm leading-6 text-[#3f4b46]"
-                    >
-                      {suggestion}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <RecommendationSection analysis={analysis} />
             </>
           )}
         </div>
@@ -1015,7 +1039,7 @@ function GoalConflictPanel({
                 {goal.explanation}
               </p>
 
-              <div className="mt-3 grid gap-3 text-xs text-[#706961] sm:grid-cols-4">
+              <div className="mt-3 grid gap-3 text-xs text-[#706961] sm:grid-cols-3 lg:grid-cols-5">
                 <div>
                   <p className="uppercase tracking-[0.08em] text-[#8A8178]">
                     Required / mo
@@ -1030,6 +1054,24 @@ function GoalConflictPanel({
                   </p>
                   <p className="mt-1 text-sm font-semibold text-[#181713]">
                     {formatCents(goal.monthly_gap_cents)}
+                  </p>
+                </div>
+                <div>
+                  <p className="uppercase tracking-[0.08em] text-[#8A8178]">
+                    Projected delay
+                  </p>
+                  <p
+                    className={`mt-1 text-sm font-semibold ${
+                      goal.projected_delay_months
+                        ? "text-[#923f32]"
+                        : "text-[#181713]"
+                    }`}
+                  >
+                    {goal.projected_delay_months === null
+                      ? "—"
+                      : goal.projected_delay_months === 0
+                        ? "On time"
+                        : `${goal.projected_delay_months} mo late`}
                   </p>
                 </div>
                 <div>
@@ -1058,6 +1100,42 @@ function GoalConflictPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function RecommendationSection({ analysis }: { analysis: GoalIntelligence }) {
+  if (analysis.recommendation.type === "no_change_needed") {
+    return null;
+  }
+
+  return (
+    <div className="mt-5">
+      <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#8A8178]">
+        Suggested adjustment
+      </p>
+      <div className="mt-2 rounded-xl border border-[#B86D4B]/25 bg-white px-4 py-3">
+        <p className="text-sm leading-6 text-[#3f4b46]">
+          {analysis.recommendation.message}
+        </p>
+        <p className="mt-1.5 text-xs text-[#8A8178]">
+          Resulting gap:{" "}
+          {formatCents(analysis.recommendation.resulting_monthly_gap_cents)}
+        </p>
+      </div>
+
+      {analysis.recommendation_alternatives.length > 0 && (
+        <div className="mt-2 space-y-2">
+          {analysis.recommendation_alternatives.map((alt, index) => (
+            <div
+              key={`${alt.type}-${alt.goal_id ?? index}`}
+              className="rounded-xl bg-white px-4 py-3 text-sm leading-6 text-[#706961]"
+            >
+              {alt.message}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

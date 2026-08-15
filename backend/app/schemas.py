@@ -1466,6 +1466,21 @@ class GoalConflictGoalOut(BaseModel):
     ]
 
 
+class GoalConflictRecommendationOut(BaseModel):
+    type: Literal[
+        "increase_monthly_capacity",
+        "reduce_goal_contribution",
+        "extend_target_date",
+        "reprioritize_goal",
+        "no_change_needed",
+    ]
+    message: str
+    goal_id: int | None = None
+    amount_cents: int | None = None
+    extension_months: int | None = None
+    resulting_monthly_gap_cents: int
+
+
 class GoalConflictDetectionOut(BaseModel):
     as_of: date
     conflict_status: Literal[
@@ -1476,10 +1491,21 @@ class GoalConflictDetectionOut(BaseModel):
     monthly_savings_capacity_cents: int
     total_required_monthly_cents: int
     monthly_shortfall_cents: int
+    monthly_headroom_cents: int
+    key_driver: Literal[
+        "no_goals",
+        "no_conflict",
+        "insufficient_capacity",
+        "largest_required_goal",
+    ]
     confidence_score: float
     goals: list[GoalConflictGoalOut]
     explanation: str
     recommendations: list[str]
+    recommendation: GoalConflictRecommendationOut
+    recommendation_alternatives: list[GoalConflictRecommendationOut] = Field(
+        default_factory=list
+    )
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -1503,6 +1529,7 @@ class GoalIntelligenceGoalOut(BaseModel):
     ]
     projected_completion_date: date | None
     suggested_feasible_target_date: date | None
+    projected_delay_months: int | None
     urgency_rank: int | None
     confidence_score: float
     explanation: str
@@ -1518,10 +1545,22 @@ class GoalIntelligenceOut(BaseModel):
     total_capacity_cents: int
     total_required_cents: int
     total_shortfall_cents: int
+    monthly_headroom_cents: int
+    key_driver: Literal[
+        "no_goals",
+        "no_conflict",
+        "insufficient_capacity",
+        "largest_required_goal",
+    ]
     largest_pressure_goal_id: int | None
     confidence_score: float
     explanation: str
     suggestions: list[str]
+    recommendation: GoalConflictRecommendationOut
+    recommendation_alternatives: list[GoalConflictRecommendationOut] = Field(
+        default_factory=list
+    )
+    warnings: list[str] = Field(default_factory=list)
     goals: list[GoalIntelligenceGoalOut]
 
 

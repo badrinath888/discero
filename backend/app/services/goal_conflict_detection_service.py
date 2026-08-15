@@ -9,6 +9,8 @@ from app.schemas import (
     GoalConflictDetectionOut,
     GoalConflictDetectionRequest,
     GoalConflictGoalOut,
+    GoalConflictRecommendationOut,
+    SafeToSpendRequest,
 )
 
 
@@ -35,29 +37,44 @@ def detect_goal_conflicts(
     warnings: list[str] = []
 
     if not goals:
+        no_goals_capacity = payload.monthly_savings_capacity_cents or 0
         return GoalConflictDetectionOut(
             as_of=calculation_date,
             conflict_status="no_conflict",
-            monthly_savings_capacity_cents=(
-                payload.monthly_savings_capacity_cents or 0
-            ),
+            monthly_savings_capacity_cents=no_goals_capacity,
             total_required_monthly_cents=0,
             monthly_shortfall_cents=0,
+            monthly_headroom_cents=no_goals_capacity,
+            key_driver="no_goals",
             confidence_score=100.0,
             goals=[],
             explanation="No savings goals were found.",
             recommendations=[
                 "Create at least one savings goal to evaluate funding conflicts."
             ],
+            recommendation=GoalConflictRecommendationOut(
+                type="no_change_needed",
+                message=(
+                    "Create at least one savings goal to evaluate "
+                    "funding conflicts."
+                ),
+                resulting_monthly_gap_cents=0,
+            ),
+            recommendation_alternatives=[],
             warnings=[],
         )
 
     monthly_capacity = payload.monthly_savings_capacity_cents
 
     if monthly_capacity is None:
-        monthly_capacity = 0
+        monthly_capacity = _derive_realistic_monthly_capacity_cents(
+            db,
+            user_id,
+            calculation_date,
+        )
         warnings.append(
-            "Monthly savings capacity was not provided, so zero was used."
+            "Monthly savings capacity was estimated from your recent "
+            "income and upcoming obligations."
         )
 
     prepared_goals: list[dict[str, object]] = []
@@ -148,12 +165,27 @@ def detect_goal_conflicts(
         monthly_shortfall,
     )
 
+    key_driver = _key_driver(
+        conflict_status,
+        monthly_capacity,
+        goal_results,
+    )
+
+    recommendation, recommendation_alternatives = _build_recommendation(
+        conflict_status,
+        monthly_capacity,
+        monthly_shortfall,
+        goal_results,
+    )
+
     return GoalConflictDetectionOut(
         as_of=calculation_date,
         conflict_status=conflict_status,
         monthly_savings_capacity_cents=monthly_capacity,
         total_required_monthly_cents=total_required,
         monthly_shortfall_cents=monthly_shortfall,
+        monthly_headroom_cents=max(monthly_capacity - total_required, 0),
+        key_driver=key_driver,
         confidence_score=_confidence_score(
             payload.monthly_savings_capacity_cents,
             goals,
@@ -169,6 +201,8 @@ def detect_goal_conflicts(
             conflict_status,
             goal_results,
         ),
+        recommendation=recommendation,
+        recommendation_alternatives=recommendation_alternatives,
         warnings=warnings,
     )
 
@@ -328,3 +362,215 @@ def _build_recommendations(
         )
 
     return recommendations
+
+
+def _derive_realistic_monthly_capacity_cents(
+    db: Session,
+    user_id: int,
+    as_of: date,
+) -> int:
+    """Realistic monthly savings capacity when the caller didn't supply
+    one: recent income minus upcoming obligations over the same
+    30-day window, reusing the Safe-to-Spend engine so this can never
+    diverge from how capacity is measured elsewhere in the app.
+
+    `include_goal_reserve=False` is deliberate -- goal funding is
+    exactly what THIS calculation is being used to determine, so it
+    must not already be subtracted from the capacity being measured
+    against it.
+
+    Imported lazily to avoid a circular import: `safe_to_spend_service`
+    already imports `_months_remaining`/`_required_monthly_amount` from
+    this module at load time.
+    """
+    from app.services.safe_to_spend_service import (
+        _DAYS_PER_MONTH,
+        calculate_safe_to_spend,
+    )
+
+    baseline = calculate_safe_to_spend(
+        db,
+        user_id,
+        SafeToSpendRequest(
+            horizon_days=_DAYS_PER_MONTH,
+            include_projected_income=True,
+            include_goal_reserve=False,
+        ),
+        as_of=as_of,
+    )
+
+    return max(
+        baseline.breakdown.projected_income_cents
+        - baseline.breakdown.upcoming_obligations_cents,
+        0,
+    )
+
+
+def _largest_pressure_goal(
+    goal_results: list[GoalConflictGoalOut],
+) -> GoalConflictGoalOut | None:
+    shortfalled = [
+        goal for goal in goal_results if goal.monthly_shortfall_cents > 0
+    ]
+
+    if not shortfalled:
+        return None
+
+    return max(
+        shortfalled,
+        key=lambda goal: (
+            goal.monthly_shortfall_cents,
+            goal.required_monthly_cents,
+        ),
+    )
+
+
+def _key_driver(
+    conflict_status: str,
+    monthly_capacity: int,
+    goal_results: list[GoalConflictGoalOut],
+) -> str:
+    if not goal_results:
+        return "no_goals"
+
+    if conflict_status != "conflict":
+        return "no_conflict"
+
+    if monthly_capacity <= 0:
+        return "insufficient_capacity"
+
+    return "largest_required_goal"
+
+
+def _lowest_priority_funded_goal(
+    goal_results: list[GoalConflictGoalOut],
+    *,
+    exclude_goal_id: int | None,
+) -> GoalConflictGoalOut | None:
+    """The most defensible discretionary "donor" for a reprioritize
+    suggestion: a goal that is already fully funded (no shortfall)
+    with a real allocation and the latest deadline -- i.e. the least
+    time-urgent goal under the same earliest-deadline-first priority
+    this module already allocates capacity by.
+    """
+    candidates = [
+        goal
+        for goal in goal_results
+        if goal.allocated_monthly_cents > 0
+        and goal.monthly_shortfall_cents == 0
+        and goal.target_date is not None
+        and goal.goal_id != exclude_goal_id
+    ]
+
+    if not candidates:
+        return None
+
+    return max(candidates, key=lambda goal: (goal.target_date, goal.goal_id))
+
+
+def _build_recommendation(
+    conflict_status: str,
+    monthly_capacity: int,
+    monthly_shortfall: int,
+    goal_results: list[GoalConflictGoalOut],
+) -> tuple[GoalConflictRecommendationOut, list[GoalConflictRecommendationOut]]:
+    if conflict_status != "conflict":
+        return (
+            GoalConflictRecommendationOut(
+                type="no_change_needed",
+                message=(
+                    "Your current goals are jointly fundable within "
+                    "your available monthly capacity."
+                ),
+                resulting_monthly_gap_cents=0,
+            ),
+            [],
+        )
+
+    primary = GoalConflictRecommendationOut(
+        type="increase_monthly_capacity",
+        message=(
+            "Increase available monthly savings by "
+            f"{_format_currency(monthly_shortfall)} to fund all "
+            "current goals on time."
+        ),
+        amount_cents=monthly_shortfall,
+        resulting_monthly_gap_cents=0,
+    )
+
+    alternatives: list[GoalConflictRecommendationOut] = []
+
+    pressure_goal = _largest_pressure_goal(goal_results)
+
+    if (
+        pressure_goal is not None
+        and pressure_goal.allocated_monthly_cents > 0
+        and pressure_goal.months_remaining is not None
+    ):
+        # Reuses the exact months-to-complete formula
+        # `goal_impact_service`/`goal_intelligence_service` already use
+        # for projected completion, imported lazily to avoid the
+        # circular import (`goal_impact_service` imports this module
+        # at load time).
+        from app.services.goal_impact_service import _months_to_complete
+
+        months_needed = _months_to_complete(
+            pressure_goal.remaining_cents,
+            pressure_goal.allocated_monthly_cents,
+        )
+        extension_months = (
+            max(months_needed - pressure_goal.months_remaining, 0)
+            if months_needed is not None
+            else 0
+        )
+
+        if extension_months > 0:
+            alternatives.append(
+                GoalConflictRecommendationOut(
+                    type="extend_target_date",
+                    message=(
+                        f"Extend {pressure_goal.name}'s target date by "
+                        f"{extension_months} month"
+                        f"{'s' if extension_months != 1 else ''} to fit "
+                        f"your current {_format_currency(monthly_capacity)}"
+                        "/month capacity."
+                    ),
+                    goal_id=pressure_goal.goal_id,
+                    extension_months=extension_months,
+                    resulting_monthly_gap_cents=max(
+                        monthly_shortfall
+                        - pressure_goal.monthly_shortfall_cents,
+                        0,
+                    ),
+                )
+            )
+
+    donor = _lowest_priority_funded_goal(
+        goal_results,
+        exclude_goal_id=(
+            pressure_goal.goal_id if pressure_goal is not None else None
+        ),
+    )
+
+    if donor is not None:
+        shift_amount = min(donor.allocated_monthly_cents, monthly_shortfall)
+
+        if shift_amount > 0:
+            alternatives.append(
+                GoalConflictRecommendationOut(
+                    type="reprioritize_goal",
+                    message=(
+                        f"Reallocate {_format_currency(shift_amount)}"
+                        f"/month from {donor.name} to your underfunded "
+                        "goals."
+                    ),
+                    goal_id=donor.goal_id,
+                    amount_cents=shift_amount,
+                    resulting_monthly_gap_cents=max(
+                        monthly_shortfall - shift_amount,
+                        0,
+                    ),
+                )
+            )
+
+    return primary, alternatives[:2]

@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Literal
 
 from app.schemas import CopilotMessageIn
 from app.services.goal_impact_service import _add_months
@@ -51,6 +52,18 @@ _GOAL_STATUS_RANK = {
 _MAX_REGEX_INSPECT_CHARS = 200
 
 
+# The three routing outcomes every Copilot turn resolves to, whether
+# routing came from this deterministic module or from a provider's
+# DECIDE tool call (see RouteDecision in copilot_service.py, which
+# adapts a provider's response into this same vocabulary). Kept as a
+# plain type alias, not a class hierarchy -- Resolution/Clarify/None
+# below already ARE these three outcomes; this just names them.
+#   "tool"          -- Resolution: a registered tool + structured args
+#   "clarification" -- Clarify: supported domain, missing/ambiguous info
+#   "unsupported"   -- None: no Discero capability applies
+RouteKind = Literal["tool", "clarification", "unsupported"]
+
+
 @dataclass
 class Clarify:
     question: str
@@ -62,6 +75,11 @@ class Resolution:
     tool_name: str
     tool_input: dict
     emphasize: str | None = None
+    # Set only for get_goal_intelligence when the user named a specific
+    # goal (resolved against the user's real goals in resolve_intent) --
+    # narration then reports on that goal instead of the aggregate
+    # "most urgent" one. None means no specific goal was named.
+    target_goal_name: str | None = None
 
 
 def _currency(cents: int) -> str:
@@ -151,6 +169,37 @@ _RELATIVE_UNIT_RE = re.compile(
 _ONE_MONTH_RE = re.compile(r"\bone month\b", re.IGNORECASE)
 _ONE_WEEK_RE = re.compile(r"\bone week\b", re.IGNORECASE)
 
+# Spelled-out small counts ("two months", "three weeks") -- bounded to a
+# fixed closed word list rather than a general number-word parser, which
+# covers realistic durations (income loss, waiting periods) without
+# taking on open-ended NLP.
+_WORD_NUMBERS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+}
+_WORD_RELATIVE_UNIT_RE = re.compile(
+    r"\b(" + "|".join(_WORD_NUMBERS) + r")\s+(day|week|month)s?\b",
+    re.IGNORECASE,
+)
+_DURATION_UNIT_WORD_RE = re.compile(
+    r"\b(day|week|month)s?\b", re.IGNORECASE
+)
+_PAYCHECK_STOP_RE = re.compile(
+    r"paychecks?\s+stop\w*|without (?:a )?paycheck|no (?:paycheck|"
+    r"income) for",
+    re.IGNORECASE,
+)
+
 
 def extract_future_date(text: str, as_of: date) -> date | None:
     """Deterministically resolves a future date phrase.
@@ -187,6 +236,45 @@ def extract_future_date(text: str, as_of: date) -> date | None:
         return date(year, month_number, 1)
 
     return None
+
+
+def _duration_to_days(amount: int, unit: str) -> int:
+    unit = unit.lower()
+    if unit.startswith("day"):
+        return amount
+    if unit.startswith("week"):
+        return amount * 7
+    return amount * 30
+
+
+def extract_duration_days(text: str) -> int | None:
+    """Deterministically resolves a stated duration to whole days.
+
+    Supports digit ("2 months") and spelled-out ("two months") small
+    counts plus "one month"/"one week". Never guesses -- returns None
+    if no duration is stated, so callers can distinguish "no duration
+    given" (ask for one) from a genuinely parsed value.
+    """
+    match = _RELATIVE_UNIT_RE.search(text)
+    if match:
+        amount = int(match.group(1))
+        unit = match.group(2)
+    else:
+        word_match = _WORD_RELATIVE_UNIT_RE.search(text)
+        if word_match:
+            amount = _WORD_NUMBERS[word_match.group(1).lower()]
+            unit = word_match.group(2)
+        elif _ONE_MONTH_RE.search(text):
+            amount, unit = 1, "month"
+        elif _ONE_WEEK_RE.search(text):
+            amount, unit = 1, "week"
+        else:
+            return None
+
+    if amount <= 0:
+        return None
+
+    return min(_duration_to_days(amount, unit), 365)
 
 
 _MONTHLY_CADENCE_RE = re.compile(
@@ -268,10 +356,15 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(
             r"\b(most urgent|which goal[^.?!]{0,40}\b(urgent|shortfall|"
             r"causing|behind)\b|how much[^.?!]{0,30}\bsave\b[^.?!]{0,20}"
-            r"\b(month|goal)\b|when (can|will) i[^.?!]{0,20}\b(finish|"
-            r"complete|reach)\b|realistically (finish|complete)|move "
-            r"(this|the|my) goal|feasible target date|smallest "
-            r"(change|action)|back on track)\b",
+            r"\b(months?|monthly|goals?)\b|when (can|will) i[^.?!]{0,20}"
+            r"\b(finish|complete|reach)\b|when will[^.?!]{0,30}\bgoal\b"
+            r"[^.?!]{0,20}\b(done|finished|complete)\b|will i[^.?!]{0,20}"
+            r"\b(?:actually |realistically )?(?:reach|hit|finish|"
+            r"complete|make)\b|am i (?:on (?:pace|track)\b|going to "
+            r"(?:reach|hit|miss|make)\b|likely to (?:reach|hit|miss)"
+            r"\b)|realistically (finish|complete)|move (this|the|my) "
+            r"goal|target date|smallest (change|action)|back on track|"
+            r"how far (behind|ahead))\b",
             re.IGNORECASE,
         ),
     ),
@@ -279,16 +372,27 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "run_stress_test",
         re.compile(
             r"\b(income (drop\w*|loss|reduc\w*|cut\w*)|lose\w* (my )?"
-            r"income|lose my job|job loss|laid off|pay cut)\b",
+            r"income|lose my job|job loss|laid off|pay cut|paychecks?"
+            r"\s+stop\w*|no (?:paycheck|income) for|without (?:a )?"
+            r"paycheck|how long (?:would|could) i (?:last|survive|hold "
+            r"up)|financial shock|hit with[^.?!]{0,25}emergency|"
+            r"sudden(?:ly)? (?:had|have|got)[^.?!]{0,20}emergency|"
+            r"emergency expense)\b",
             re.IGNORECASE,
         ),
     ),
     (
         "run_what_if",
         re.compile(
-            r"\b(rent|bill|bills|expense|expenses|premium)\b"
-            r"[^.?!]{0,40}\b(go(?:es)? up|go(?:es)? down|increas\w*|"
-            r"decreas\w*|ris\w*|drop\w*|fall\w*)\b",
+            r"\b(rent|bill|bills|expense|expenses|premium|housing|"
+            r"groceries|mortgage|subscription|insurance|utilities|"
+            r"cost|costs)\b[^.?!]{0,40}\b(go(?:es)? up|go(?:es)? down|"
+            r"increas\w*|decreas\w*|ris\w*|drop\w*|fall\w*|more "
+            r"expensive|less expensive)\b|"
+            r"\b(?:suppose|imagine|what if)\b[^.?!]{0,60}\b(?:go(?:es)? "
+            r"up|go(?:es)? down|increas\w*|decreas\w*|ris\w*|drop\w*|"
+            r"fall\w*|more (?:expensive|per month)|less (?:expensive|"
+            r"per month))\b",
             re.IGNORECASE,
         ),
     ),
@@ -296,7 +400,8 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "simulate_major_purchase",
         re.compile(
             r"\b(afford|can i (buy|get|purchase)|what if i (buy|spend|"
-            r"purchase)|major purchase|thinking (of|about) buying)\b",
+            r"purchase)|major purchase|thinking (of|about) buying)\b|"
+            r"\bcan i spend\b[^.?!]{0,15}\$\d",
             re.IGNORECASE,
         ),
     ),
@@ -315,7 +420,7 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "get_cash_flow_forecast",
         re.compile(
             r"\b(forecast|cash.?flow|projected balance|end.of.?month "
-            r"balance|month.?end balance)\b",
+            r"balance|month.?end balance|run short|run out of money)\b",
             re.IGNORECASE,
         ),
     ),
@@ -323,7 +428,10 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "get_safe_to_spend",
         re.compile(
             r"safe.to.spend|how much (can|could) i (\w+ )?spend|"
-            r"spending room",
+            r"spending room|room to spend|room[^.?!]{0,20}i have"
+            r"[^.?!]{0,20}spend|available to spend|room[^.?!]{0,30}"
+            r"before i (?:should )?stop spending|realistically "
+            r"available",
             re.IGNORECASE,
         ),
     ),
@@ -385,6 +493,79 @@ def _goal_intelligence_emphasis(text: str) -> str:
     if _REQUIRED_MONTHLY_RE.search(text):
         return "required_monthly"
     return "overview"
+
+
+# A bare, unnamed reference to "my/this/the goal" (singular) -- as
+# opposed to "goals" plural or a specific goal name -- signals the user
+# means ONE particular goal without saying which. Combined with an
+# unresolved name and 2+ real goals, that's genuine ambiguity worth a
+# clarifying question rather than silently answering about whichever
+# goal happens to be ranked most urgent.
+_SINGULAR_GOAL_REF_RE = re.compile(
+    r"\b(my|this|the) goal\b", re.IGNORECASE
+)
+
+# Common words inside a goal name that carry no identifying signal on
+# their own -- excluded so a bare "goal" or "fund" mention doesn't
+# spuriously match every goal that happens to contain one of these.
+_GOAL_NAME_STOPWORDS = {
+    "goal",
+    "fund",
+    "funds",
+    "savings",
+    "the",
+    "my",
+    "a",
+    "an",
+    "for",
+    "and",
+    "account",
+}
+
+
+def match_goal_names(
+    text: str, goal_names: list[str]
+) -> tuple[str | None, list[str]]:
+    """Resolves a named-goal mention against the user's real goals.
+
+    Returns (matched_name, candidates). matched_name is set only when
+    exactly one goal is identified; candidates is the (>=2) ambiguous
+    set when more than one plausibly matches, for a clarifying
+    question -- never guessed. Deterministic, closed-form matching
+    only: case-insensitive exact phrase, then conservative
+    unique-word containment. No fuzzy distance, no embeddings.
+    """
+    if not goal_names:
+        return None, []
+
+    lowered = text.lower()
+
+    exact = [
+        name
+        for name in goal_names
+        if re.search(rf"\b{re.escape(name.lower())}\b", lowered)
+    ]
+    if len(exact) == 1:
+        return exact[0], []
+    if len(exact) > 1:
+        return None, exact
+
+    contained = []
+    for name in goal_names:
+        words = [
+            w
+            for w in re.findall(r"[a-z0-9]+", name.lower())
+            if w not in _GOAL_NAME_STOPWORDS and len(w) > 2
+        ]
+        if words and any(w in lowered for w in words):
+            contained.append(name)
+
+    if len(contained) == 1:
+        return contained[0], []
+    if len(contained) > 1:
+        return None, contained
+
+    return None, []
 
 
 _ESSENTIAL_SPENDING_VERB_RE = re.compile(
@@ -457,6 +638,11 @@ def _spending_anomaly_emphasis(text: str) -> str:
     if "why" in lowered:
         return "why"
     return "overview"
+
+
+_STRESS_EMERGENCY_RE = re.compile(
+    r"\bemergency\b|\bfinancial shock\b|\bhit with\b", re.IGNORECASE
+)
 
 
 def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
@@ -539,17 +725,45 @@ def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
 
     if name == "run_stress_test":
         percent = extract_percent(text)
-        if percent is None:
+        if percent is not None:
+            return {
+                "scenario_type": "income_reduction",
+                "scenario_name": "Income reduction scenario",
+                "income_reduction_percent": percent,
+                "event_date": as_of.isoformat(),
+            }
+
+        if _STRESS_EMERGENCY_RE.search(text):
+            amount = extract_amount_cents(text)
+            if amount is None:
+                return Clarify("How much would the emergency expense be?")
+            return {
+                "scenario_type": "emergency_expense",
+                "scenario_name": "Emergency expense scenario",
+                "stress_amount_cents": amount,
+                "event_date": as_of.isoformat(),
+            }
+
+        duration_days = extract_duration_days(text)
+        if duration_days is not None:
+            return {
+                "scenario_type": "temporary_income_loss",
+                "scenario_name": "Temporary income loss scenario",
+                "duration_days": duration_days,
+                "event_date": as_of.isoformat(),
+            }
+
+        if _DURATION_UNIT_WORD_RE.search(text) or _PAYCHECK_STOP_RE.search(
+            text
+        ):
             return Clarify(
-                "What percentage income drop should I model?",
-                ["10%", "20%", "30%"],
+                "How many months (or days) would the income loss last?"
             )
-        return {
-            "scenario_type": "income_reduction",
-            "scenario_name": "Income reduction scenario",
-            "income_reduction_percent": percent,
-            "event_date": as_of.isoformat(),
-        }
+
+        return Clarify(
+            "What percentage income drop should I model?",
+            ["10%", "20%", "30%"],
+        )
 
     if name == "run_what_if":
         amount = extract_amount_cents(text)
@@ -664,9 +878,18 @@ def _find_prior_monthly_capacity(
 
 
 def resolve_intent(
-    messages: list[CopilotMessageIn], as_of: date
+    messages: list[CopilotMessageIn],
+    as_of: date,
+    goal_names: list[str] | None = None,
 ) -> Resolution | Clarify | None:
-    """Returns a Resolution to run, a Clarify to ask, or None (unknown)."""
+    """Returns a Resolution to run, a Clarify to ask, or None (unknown).
+
+    `goal_names` is the caller's real savings-goal names (optional) --
+    only used to resolve a specific named-goal mention for
+    get_goal_intelligence questions, or to ask which goal is meant when
+    a bare "my goal" reference is ambiguous across 2+ real goals.
+    Omitting it (the default) preserves prior behavior exactly.
+    """
     current = messages[-1].content
     history = messages[:-1]
 
@@ -695,8 +918,33 @@ def resolve_intent(
                 )
                 built = {**built, capacity_key: prior_capacity}
 
+        target_goal_name = None
+
         if name == "get_goal_intelligence":
             emphasize = _goal_intelligence_emphasis(current)
+
+            if goal_names:
+                matched, candidates = match_goal_names(current, goal_names)
+                if matched is not None:
+                    target_goal_name = matched
+                elif candidates:
+                    return Clarify(
+                        "Which savings goal do you mean -- "
+                        + " or ".join(candidates)
+                        + "?",
+                        candidates[:4],
+                    )
+                elif (
+                    len(goal_names) > 1
+                    and emphasize == "overview"
+                    and _SINGULAR_GOAL_REF_RE.search(current)
+                ):
+                    return Clarify(
+                        "Which savings goal do you mean -- "
+                        + " or ".join(goal_names)
+                        + "?",
+                        goal_names[:4],
+                    )
         elif name == "get_financial_resilience":
             emphasize = _resilience_emphasis(current)
         elif name == "get_recurring_intelligence":
@@ -706,7 +954,7 @@ def resolve_intent(
         else:
             emphasize = None
 
-        return Resolution(name, built, emphasize)
+        return Resolution(name, built, emphasize, target_goal_name)
 
     stripped = current.strip()
 
@@ -1061,7 +1309,7 @@ def _render_recommendations(result, emphasize):
     return answer, why, what_this_means, actions
 
 
-def _render_goal_intelligence(result, emphasize):
+def _render_goal_intelligence(result, emphasize, target_goal_name=None):
     if not result.goals:
         return (
             "You don't have any active savings goals yet.",
@@ -1074,6 +1322,54 @@ def _render_goal_intelligence(result, emphasize):
         (g for g in result.goals if g.urgency_rank == 1), result.goals[0]
     )
 
+    named = None
+    if target_goal_name:
+        named = next(
+            (
+                g
+                for g in result.goals
+                if g.name.lower() == target_goal_name.lower()
+            ),
+            None,
+        )
+
+    # A specifically named goal (e.g. "Will I reach my Emergency Fund?")
+    # is answered about THAT goal, never the aggregate "most urgent"
+    # one -- only for the plain overview case; a query that also asked
+    # for a specific emphasis (urgent/best_action/etc.) below still gets
+    # that emphasis, scoped to the named goal where applicable.
+    if named is not None and emphasize in (None, "overview"):
+        if named.status == "completed":
+            answer = f"{named.name} is already complete."
+        elif named.projected_completion_date:
+            if named.status in ("on_track", "ahead"):
+                answer = (
+                    f"Yes -- at your current pace, {named.name} is on "
+                    "track to complete around "
+                    f"{named.projected_completion_date.isoformat()}."
+                )
+            else:
+                answer = (
+                    "Not at your current pace -- "
+                    f"{named.name} is realistically projected to "
+                    "complete around "
+                    f"{named.projected_completion_date.isoformat()}."
+                )
+        else:
+            answer = (
+                f"{named.name} doesn't have enough monthly capacity "
+                "currently to project a completion date."
+            )
+        return (
+            answer,
+            named.explanation,
+            None,
+            [
+                "How much more should I save for it?",
+                "What's the smallest change to get it back on track?",
+            ],
+        )
+
     if emphasize == "urgent":
         answer = f"{urgent.name} is your most urgent goal."
         return (
@@ -1084,13 +1380,14 @@ def _render_goal_intelligence(result, emphasize):
         )
 
     if emphasize == "best_action":
-        action = urgent.recommended_action
+        subject = named or urgent
+        action = subject.recommended_action
         if action.type == "no_change_needed":
             answer = action.message
         else:
-            answer = f"For {urgent.name}: {action.message}"
-        why = f"Key driver: {urgent.key_driver.replace('_', ' ')}."
-        actions = [alt.message for alt in urgent.alternative_actions[:2]]
+            answer = f"For {subject.name}: {action.message}"
+        why = f"Key driver: {subject.key_driver.replace('_', ' ')}."
+        actions = [alt.message for alt in subject.alternative_actions[:2]]
         return (answer, why, None, actions)
 
     if emphasize == "shortfall_cause":
@@ -1402,9 +1699,14 @@ _RENDERERS = {
 
 
 def deterministic_narration(
-    tool_name: str, result, emphasize: str | None = None
+    tool_name: str,
+    result,
+    emphasize: str | None = None,
+    target_goal_name: str | None = None,
 ) -> tuple[str, str | None, str | None, list[str]]:
     renderer = _RENDERERS.get(tool_name)
     if renderer is None:
         return ("Here's what I found.", None, None, [])
+    if tool_name == "get_goal_intelligence":
+        return renderer(result, emphasize, target_goal_name)
     return renderer(result, emphasize)

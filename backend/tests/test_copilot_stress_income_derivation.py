@@ -230,5 +230,6 @@ def test_income_loss_derivation_audit_row_has_no_income_or_amount_payload() -> (
         assert len(events) == 1
         assert events[0].tool_name == "run_stress_test"
         assert events[0].success is True
-        # No derived amount, income figure, or raw payload persisted.
-        assert events[0].event_metadata is None
+        # No derived amount, income figure, or raw payload persisted --
+        # only the bounded routing-outcome kind.
+        assert events[0].event_metadata == {"route_kind": "tool"}

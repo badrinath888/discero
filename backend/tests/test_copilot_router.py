@@ -139,6 +139,21 @@ def test_chat_rejects_empty_message_list(
     assert response.status_code == 422
 
 
+def test_chat_returns_correlation_id_header(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    response = client.post(
+        f"/users/{user_id}/copilot/chat",
+        json={"messages": [{"role": "user", "content": "hi"}]},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.headers.get("x-request-id")
+
+
 def test_chat_is_rate_limited(
     client: TestClient,
     user_id: int,

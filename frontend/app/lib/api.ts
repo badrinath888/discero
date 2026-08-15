@@ -659,6 +659,23 @@ export type StressAffectedGoal = {
   estimated_delay_months: number | null;
 };
 
+export type StressKeyDriver =
+  | "income_loss"
+  | "recurring_expense_increase"
+  | "emergency_expense"
+  | "baseline_shortfall";
+
+export type StressRecoveryRecommendation = {
+  type:
+    | "replace_lost_income"
+    | "reduce_stress_expense"
+    | "preserve_cash_buffer"
+    | "no_action_required";
+  message: string;
+  adjustment_cents: number | null;
+  verified: boolean;
+};
+
 export type FinancialStressTestResult = {
   scenario_type: FinancialStressScenarioType;
   scenario_name: string;
@@ -687,6 +704,12 @@ export type FinancialStressTestResult = {
   data_disclaimer: string;
   safe_to_spend: SafeToSpendResult;
   goal_impacts: GoalImpact[];
+  runway_days: number | null;
+  first_shortfall_date: string | null;
+  key_driver: StressKeyDriver;
+  forecast_confidence: ForecastConfidence | null;
+  recovery_recommendation: StressRecoveryRecommendation | null;
+  explanations: string[];
 };
 
 export type WhatIfScenarioType =

@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   CircleAlert,
   Clock,
+  Compass,
   Gauge,
   GitCompareArrows,
   Lightbulb,
@@ -262,6 +263,25 @@ const SEVERITY_CONTENT: Record<
     label: "Critical",
     className: "bg-[#F8E6E1] text-[#8F3F33]",
   },
+};
+
+const KEY_DRIVER_LABELS: Record<
+  FinancialStressTestResult["key_driver"],
+  string
+> = {
+  income_loss: "Lost or reduced income",
+  recurring_expense_increase: "Recurring expense increase",
+  emergency_expense: "One-time emergency expense",
+  baseline_shortfall: "Existing shortfall before this scenario",
+};
+
+const CONFIDENCE_LEVEL_CONTENT: Record<
+  "high" | "medium" | "low",
+  { label: string; className: string }
+> = {
+  high: { label: "High", className: "bg-[#E3EBE1] text-[#48634B]" },
+  medium: { label: "Medium", className: "bg-[#FBF1DF] text-[#8A5A20]" },
+  low: { label: "Low", className: "bg-[#F8E6E1] text-[#8F3F33]" },
 };
 
 export default function DecisionsPage() {
@@ -2119,11 +2139,23 @@ function StressTestResult({
               <p className="mt-2 text-sm leading-6 text-white/58">
                 {result.explanation}
               </p>
+              {result.explanations.length > 0 && (
+                <ul className="mt-3 space-y-1.5">
+                  {result.explanations.map((item) => (
+                    <li
+                      key={item}
+                      className="text-sm leading-6 text-white/58"
+                    >
+                      · {item}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>
 
-        <div className="mt-7 grid gap-4 sm:grid-cols-2">
+        <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <DecisionStat
             icon={CalendarClock}
             label="Estimated recovery"
@@ -2144,7 +2176,80 @@ function StressTestResult({
             value={formatCents(-result.shortfall_cents)}
             warning={result.shortfall_cents > 0}
           />
+          <DecisionStat
+            icon={Clock}
+            label="Stressed runway"
+            value={
+              result.runway_days === null
+                ? "Not exhausted"
+                : `${result.runway_days} day(s)`
+            }
+            warning={result.runway_days !== null}
+          />
+          <DecisionStat
+            icon={CalendarDays}
+            label="First shortfall"
+            value={
+              result.first_shortfall_date === null
+                ? "None projected"
+                : new Date(
+                    `${result.first_shortfall_date}T00:00:00`
+                  ).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })
+            }
+            warning={result.first_shortfall_date !== null}
+          />
         </div>
+
+        <div className="mt-7 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-5">
+            <p className="text-xs text-white/40">Biggest pressure</p>
+            <p className="mt-1 text-lg font-semibold text-white">
+              {KEY_DRIVER_LABELS[result.key_driver]}
+            </p>
+          </div>
+
+          {result.forecast_confidence && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-5">
+              <p className="text-xs text-white/40">Forecast confidence</p>
+              <div className="mt-1 flex items-center gap-2">
+                <span
+                  className={`inline-flex w-fit items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                    CONFIDENCE_LEVEL_CONTENT[
+                      result.forecast_confidence.level
+                    ].className
+                  }`}
+                >
+                  {
+                    CONFIDENCE_LEVEL_CONTENT[
+                      result.forecast_confidence.level
+                    ].label
+                  }
+                </span>
+                <span className="text-lg font-semibold text-white">
+                  {Math.round(result.forecast_confidence.score)}%
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {result.recovery_recommendation && (
+          <div className="mt-7 rounded-2xl border border-white/10 bg-white/[0.045] p-5">
+            <div className="flex items-start gap-3">
+              <Compass className="mt-0.5 h-5 w-5 shrink-0 text-[#D2B199]" />
+              <div>
+                <p className="text-sm font-semibold">Suggested recovery</p>
+                <p className="mt-2 text-sm leading-6 text-white/58">
+                  {result.recovery_recommendation.message}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {result.recommendations.length > 0 && (
           <div className="mt-8 border-t border-white/10 pt-7">

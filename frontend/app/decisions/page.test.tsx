@@ -336,6 +336,34 @@ const stressTestResult: FinancialStressTestResult = {
     warnings: [],
   },
   goal_impacts: [],
+  runway_days: 45,
+  first_shortfall_date: null,
+  key_driver: "income_loss",
+  forecast_confidence: {
+    score: 76,
+    level: "medium",
+    factors: [],
+    recommendations: [],
+    monthly_confidence: [],
+    drivers: [],
+    data_quality: {
+      history_days: 180,
+      transaction_count: 120,
+      recognized_recurring_items: 4,
+      uncategorized_share: 0.1,
+    },
+  },
+  recovery_recommendation: {
+    type: "replace_lost_income",
+    message: "Replacing $3,000.00/month of lost income would keep your runway beyond the 60-day horizon.",
+    adjustment_cents: 300_000,
+    verified: true,
+  },
+  explanations: [
+    "Your projected finances remain positive through the 60-day stress horizon.",
+    "At the stressed monthly cash-flow margin, your liquid balance would last about 45 day(s).",
+    "Forecast confidence is medium (76%), based on your current transaction history and recognized recurring activity.",
+  ],
 };
 
 const emergencyStressResult: FinancialStressTestResult = {
@@ -425,6 +453,34 @@ const emergencyStressResult: FinancialStressTestResult = {
     warnings: [],
   },
   goal_impacts: [],
+  runway_days: null,
+  first_shortfall_date: null,
+  key_driver: "emergency_expense",
+  forecast_confidence: {
+    score: 91,
+    level: "high",
+    factors: [],
+    recommendations: [],
+    monthly_confidence: [],
+    drivers: [],
+    data_quality: {
+      history_days: 200,
+      transaction_count: 300,
+      recognized_recurring_items: 6,
+      uncategorized_share: 0.05,
+    },
+  },
+  recovery_recommendation: {
+    type: "no_action_required",
+    message:
+      "You remain within your safe-to-spend buffer through the 30-day horizon; no adjustment is needed for this scenario.",
+    adjustment_cents: null,
+    verified: true,
+  },
+  explanations: [
+    "Your projected finances remain positive through the 30-day stress horizon.",
+    "Forecast confidence is high (91%), based on your current transaction history and recognized recurring activity.",
+  ],
 };
 
 async function renderPage() {
@@ -752,6 +808,82 @@ describe("decisions financial stress test mode", () => {
     expect(
       screen.getByText(stressTestResult.data_disclaimer)
     ).toBeInTheDocument();
+  });
+
+  it("shows runway, key driver, forecast confidence, and the recovery recommendation", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    expect(await screen.findByText("Job loss buffer")).toBeInTheDocument();
+
+    expect(screen.getByText("45 day(s)")).toBeInTheDocument();
+    expect(screen.getByText("None projected")).toBeInTheDocument();
+    expect(
+      screen.getByText("Lost or reduced income")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Medium")).toBeInTheDocument();
+    expect(screen.getByText("76%")).toBeInTheDocument();
+    expect(screen.getByText("Suggested recovery")).toBeInTheDocument();
+    expect(
+      screen.getByText(stressTestResult.recovery_recommendation!.message)
+    ).toBeInTheDocument();
+
+    for (const item of stressTestResult.explanations) {
+      expect(screen.getByText(`· ${item}`)).toBeInTheDocument();
+    }
+  });
+
+  it("shows a shortfall date and no-action recommendation when the scenario stays resilient", async () => {
+    mocks.runFinancialStressTest.mockResolvedValue(emergencyStressResult);
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    expect(await screen.findByText("Car repair")).toBeInTheDocument();
+
+    expect(screen.getByText("Not exhausted")).toBeInTheDocument();
+    expect(screen.getByText("None projected")).toBeInTheDocument();
+    expect(
+      screen.getByText("One-time emergency expense")
+    ).toBeInTheDocument();
+    expect(screen.getByText("High")).toBeInTheDocument();
+    expect(screen.getByText("91%")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        emergencyStressResult.recovery_recommendation!.message
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("shows a first-shortfall date when the stress result projects one", async () => {
+    mocks.runFinancialStressTest.mockResolvedValue({
+      ...stressTestResult,
+      first_shortfall_date: "2026-08-20",
+    });
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Financial stress test" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run stress test" })
+    );
+
+    expect(await screen.findByText("Job loss buffer")).toBeInTheDocument();
+    expect(screen.getByText("Aug 20, 2026")).toBeInTheDocument();
   });
 
   it("renders affected goals when present", async () => {

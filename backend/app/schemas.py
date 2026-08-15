@@ -1160,6 +1160,21 @@ class StressAffectedGoalOut(BaseModel):
     estimated_delay_months: int | None
 
 
+class StressRecoveryRecommendationOut(BaseModel):
+    type: Literal[
+        "replace_lost_income",
+        "reduce_stress_expense",
+        "preserve_cash_buffer",
+        "no_action_required",
+    ]
+    message: str
+    adjustment_cents: int | None
+    # True only when this exact adjustment was re-run through the same
+    # deterministic formula the stress test itself uses and confirmed
+    # to resolve the shortfall/runway gap -- not a guess.
+    verified: bool
+
+
 class FinancialStressTestOut(BaseModel):
     scenario_type: Literal[
         "emergency_expense",
@@ -1206,6 +1221,21 @@ class FinancialStressTestOut(BaseModel):
     data_disclaimer: str
     safe_to_spend: SafeToSpendOut
     goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
+    # Days of stressed liquid runway; null when the stressed monthly
+    # cash flow is non-negative (unbounded/not applicable).
+    runway_days: int | None = None
+    first_shortfall_date: date | None = None
+    key_driver: Literal[
+        "income_loss",
+        "recurring_expense_increase",
+        "emergency_expense",
+        "baseline_shortfall",
+    ] = "baseline_shortfall"
+    # Reuses Confidence-Aware Forecasting 2.0 as context; not a
+    # stress-specific score.
+    forecast_confidence: ForecastConfidenceOut | None = None
+    recovery_recommendation: StressRecoveryRecommendationOut | None = None
+    explanations: list[str] = Field(default_factory=list)
 
 
 WhatIfScenarioType = Literal[

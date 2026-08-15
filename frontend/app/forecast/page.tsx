@@ -348,6 +348,27 @@ export default function ForecastPage() {
                         <Gauge className="h-3.5 w-3.5" aria-hidden="true" />
                         {Math.round(forecast.confidence.score)}% · {CONFIDENCE_LEVEL_CONTENT[forecast.confidence.level].label}
                       </span>
+
+                      {forecast.confidence.drivers.length > 0 && (
+                        <ul className="mt-4 space-y-1.5">
+                          {forecast.confidence.drivers.map((driver) => (
+                            <li
+                              key={driver.code}
+                              className="flex items-start gap-2 text-xs leading-5 text-[#706961]"
+                            >
+                              <span
+                                aria-hidden="true"
+                                className={`mt-1 h-1.5 w-1.5 flex-none rounded-full ${
+                                  driver.direction === "positive"
+                                    ? "bg-[#58715A]"
+                                    : "bg-[#C59A52]"
+                                }`}
+                              />
+                              {driver.message}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
 
                     <dl className="grid grid-cols-2 gap-y-5 sm:grid-cols-3 sm:divide-x sm:divide-[#181713]/10">
@@ -511,6 +532,40 @@ export default function ForecastPage() {
 
                     {confidenceExpanded && (
                       <div className="mt-6 border-t border-[#181713]/10 pt-6">
+                        <div className="mb-5 flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-[#8A8178]">
+                          <span>
+                            {forecast.confidence.data_quality.history_days} days
+                            of history
+                          </span>
+                          <span>
+                            {forecast.confidence.data_quality.transaction_count}{" "}
+                            transaction
+                            {forecast.confidence.data_quality
+                              .transaction_count === 1
+                              ? ""
+                              : "s"}
+                          </span>
+                          <span>
+                            {
+                              forecast.confidence.data_quality
+                                .recognized_recurring_items
+                            }{" "}
+                            recurring item
+                            {forecast.confidence.data_quality
+                              .recognized_recurring_items === 1
+                              ? ""
+                              : "s"}{" "}
+                            recognized
+                          </span>
+                          <span>
+                            {Math.round(
+                              forecast.confidence.data_quality
+                                .uncategorized_share * 100
+                            )}
+                            % of spending uncategorized
+                          </span>
+                        </div>
+
                         <div className="divide-y divide-[#181713]/8 overflow-hidden rounded-2xl border border-[#181713]/8">
                           {forecast.confidence.factors.map((factor) => (
                             <ConfidenceFactorRow

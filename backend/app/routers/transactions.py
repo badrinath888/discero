@@ -41,6 +41,7 @@ from app.schemas import (
     UploadSummary,
 )
 from app.services.forecast_confidence_service import (
+    RECOGNIZED_RECURRING_CONFIDENCE_THRESHOLD,
     calculate_forecast_confidence,
 )
 from app.services.safe_to_spend_service import calculate_safe_to_spend
@@ -1131,7 +1132,7 @@ def cash_flow_forecast(
             not isinstance(next_payment, date)
             or next_payment < as_of
             or next_payment > month_end
-            or confidence < 60
+            or confidence < RECOGNIZED_RECURRING_CONFIDENCE_THRESHOLD
         ):
             continue
 

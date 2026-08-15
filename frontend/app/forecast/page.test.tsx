@@ -146,6 +146,26 @@ const forecastResult: CashFlowForecast = {
       { month: "2026-06", score: 75, transaction_count: 6 },
       { month: "2026-07", score: 90, transaction_count: 9 },
     ],
+    drivers: [
+      {
+        code: "TRANSACTION_HISTORY_STRONG",
+        direction: "positive",
+        message:
+          "180 days of transaction history (180+ days is treated as a mature baseline).",
+      },
+      {
+        code: "RECENT_COVERAGE_WEAK",
+        direction: "negative",
+        message:
+          "3 transaction(s) in the last 30 days (10+ is treated as healthy coverage).",
+      },
+    ],
+    data_quality: {
+      history_days: 180,
+      transaction_count: 42,
+      recognized_recurring_items: 3,
+      uncategorized_share: 0.12,
+    },
   },
   horizon_outlook: [
     {
@@ -266,10 +286,10 @@ describe("forecast confidence", () => {
       screen.getByText("Transaction history depth")
     ).toBeInTheDocument();
     expect(
-      screen.getByText(
+      screen.getAllByText(
         "180 days of transaction history (180+ days is treated as a mature baseline)."
-      )
-    ).toBeInTheDocument();
+      ).length
+    ).toBeGreaterThan(0);
     expect(screen.getByText("Strength")).toBeInTheDocument();
     expect(screen.getByText("Weak spot")).toBeInTheDocument();
     expect(screen.getByText("Neutral")).toBeInTheDocument();
@@ -342,6 +362,54 @@ describe("forecast confidence", () => {
     );
 
     expect(screen.queryByText("Recommendations")).not.toBeInTheDocument();
+  });
+
+  it("shows top confidence drivers without requiring the panel to be expanded", async () => {
+    await renderPage();
+
+    expect(
+      screen.getByText(
+        "180 days of transaction history (180+ days is treated as a mature baseline)."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "3 transaction(s) in the last 30 days (10+ is treated as healthy coverage)."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("omits the drivers list when there are no drivers", async () => {
+    mocks.getCashFlowForecast.mockResolvedValue({
+      ...forecastResult,
+      confidence: {
+        ...forecastResult.confidence,
+        drivers: [],
+      },
+    });
+
+    await renderPage();
+
+    expect(
+      screen.queryByText(
+        "180 days of transaction history (180+ days is treated as a mature baseline)."
+      )
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows data-quality context when the confidence panel is expanded", async () => {
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /why this confidence/i })
+    );
+
+    expect(screen.getByText("180 days of history")).toBeInTheDocument();
+    expect(screen.getByText("42 transactions")).toBeInTheDocument();
+    expect(screen.getByText("3 recurring items recognized")).toBeInTheDocument();
+    expect(
+      screen.getByText("12% of spending uncategorized")
+    ).toBeInTheDocument();
   });
 
   it("omits the monthly confidence panel when there is no monthly data", async () => {

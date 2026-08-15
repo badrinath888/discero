@@ -736,12 +736,31 @@ class MonthlyForecastConfidenceOut(BaseModel):
     transaction_count: int
 
 
+class ForecastConfidenceDriverOut(BaseModel):
+    code: str
+    direction: Literal["positive", "negative"]
+    message: str
+
+
+class ForecastDataQualityOut(BaseModel):
+    history_days: int
+    transaction_count: int
+    recognized_recurring_items: int
+    uncategorized_share: float
+
+
 class ForecastConfidenceOut(BaseModel):
     score: float
     level: Literal["high", "medium", "low"]
     factors: list[ForecastConfidenceFactorOut]
     recommendations: list[str]
     monthly_confidence: list[MonthlyForecastConfidenceOut]
+    # Concise, top-weighted subset of `factors` (3-5 entries) using the
+    # same code/direction/message shape as Safe-to-Spend's confidence
+    # drivers, for an at-a-glance "why" instead of the full factor
+    # table.
+    drivers: list[ForecastConfidenceDriverOut] = Field(default_factory=list)
+    data_quality: ForecastDataQualityOut
 
 
 class CashFlowHorizonOut(BaseModel):

@@ -684,3 +684,108 @@ def test_confidence_level_thresholds() -> None:
 
 def test_factor_weights_sum_to_one_hundred() -> None:
     assert sum(_FACTOR_WEIGHTS.values()) == 100.0
+
+
+def test_drivers_and_data_quality_reflect_strong_data(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    with TestingSessionLocal() as db:
+        user = db.get(User, user_id)
+        assert user is not None
+
+        _seed_strong_data(db, user)
+
+    response = client.get(
+        f"/users/{user_id}/summary/cash-flow-forecast",
+        params={"as_of": "2026-08-15"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+
+    confidence = response.json()["confidence"]
+
+    assert 1 <= len(confidence["drivers"]) <= 5
+    assert all(
+        driver["direction"] in ("positive", "negative")
+        for driver in confidence["drivers"]
+    )
+    assert all(driver["code"] for driver in confidence["drivers"])
+
+    data_quality = confidence["data_quality"]
+    assert data_quality["history_days"] >= 180
+    assert data_quality["transaction_count"] > 0
+    assert data_quality["recognized_recurring_items"] >= 1
+    assert data_quality["uncategorized_share"] == 0.0
+
+
+def test_data_quality_reflects_no_history(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    response = client.get(
+        f"/users/{user_id}/summary/cash-flow-forecast",
+        params={"as_of": "2026-08-15"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+
+    data_quality = response.json()["confidence"]["data_quality"]
+    assert data_quality["history_days"] == 0
+    assert data_quality["transaction_count"] == 0
+    assert data_quality["recognized_recurring_items"] == 0
+    assert data_quality["uncategorized_share"] == 0.0
+
+
+def test_uncategorized_share_reflects_uncategorized_spending() -> None:
+    as_of = date(2026, 8, 15)
+
+    with TestingSessionLocal() as db:
+        user = create_user(db, "uncategorized-spending")
+        account = create_account(db, user)
+
+        create_transaction(
+            db,
+            user,
+            posted_on=date(2026, 8, 1),
+            amount_cents=-1_000,
+            merchant="Known Merchant",
+            category="Groceries",
+        )
+        create_transaction(
+            db,
+            user,
+            posted_on=date(2026, 8, 2),
+            amount_cents=-1_000,
+            merchant="Unknown Merchant",
+            category="Uncategorized",
+        )
+        create_transaction(
+            db,
+            user,
+            posted_on=date(2026, 8, 3),
+            amount_cents=-1_000,
+            merchant="Another Unknown",
+            category="Uncategorized",
+        )
+        create_transaction(
+            db,
+            user,
+            posted_on=date(2026, 8, 4),
+            amount_cents=3_000,
+            merchant="Payroll",
+            category="Income",
+        )
+
+        result = _confidence_for_transactions(
+            db,
+            user,
+            as_of=as_of,
+            accounts=[account],
+        )
+
+        assert result.data_quality.uncategorized_share == 0.6667

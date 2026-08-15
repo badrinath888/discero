@@ -251,6 +251,95 @@ def test_major_purchase_extracts_dollar_amount_without_key() -> None:
         assert affordability.value_display == "Affordable"
 
 
+def test_what_if_rent_increase_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What happens if my rent goes up by $400 a month?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "What-If Simulator"
+        after_chip = next(
+            c
+            for c in result.key_numbers
+            if c.label == "Safe to spend after"
+        )
+        assert after_chip.value_display == "$4,600.00"
+
+
+def test_what_if_bill_decrease_works_without_key() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What if my insurance bill goes down by $50?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "What-If Simulator"
+        after_chip = next(
+            c
+            for c in result.key_numbers
+            if c.label == "Safe to spend after"
+        )
+        assert after_chip.value_display == "$5,050.00"
+
+
+def test_what_if_missing_amount_asks_clarification() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What if my rent goes up?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "clarifying_question"
+
+
+def test_what_if_follow_up_amount_preserves_increase_direction() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        messages = _messages(
+            "What happens if my rent goes up by $400 a month?",
+            "What about $600?",
+        )
+
+        result = run_copilot_turn(
+            db, user.id, user, messages, _free_client(), as_of=TEST_DATE
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "What-If Simulator"
+        after_chip = next(
+            c
+            for c in result.key_numbers
+            if c.label == "Safe to spend after"
+        )
+        # $600/month increase, not a $600 decrease.
+        assert after_chip.value_display == "$4,400.00"
+
+
 def test_goal_conflict_works_without_key() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db)

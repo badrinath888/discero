@@ -25,7 +25,8 @@ from app.services.goal_impact_service import _add_months
 CAPABILITY_EXPLANATION = (
     "I can help with questions Discero can calculate directly from "
     "your real data: your safe-to-spend, whether you can afford a "
-    "specific purchase, your monthly cash flow and savings insights, "
+    "specific purchase, what happens if a bill or rent payment goes "
+    "up or down, your monthly cash flow and savings insights, "
     "whether your savings goals are on track and which one is most "
     "urgent, whether you should buy something now or wait, cash-flow "
     "forecasts, stress-testing an income drop, changes in your "
@@ -282,6 +283,15 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        "run_what_if",
+        re.compile(
+            r"\b(rent|bill|bills|expense|expenses|premium)\b"
+            r"[^.?!]{0,40}\b(go(?:es)? up|go(?:es)? down|increas\w*|"
+            r"decreas\w*|ris\w*|drop\w*|fall\w*)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "simulate_major_purchase",
         re.compile(
             r"\b(afford|can i (buy|get|purchase)|what if i (buy|spend|"
@@ -534,6 +544,26 @@ def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
             "event_date": as_of.isoformat(),
         }
 
+    if name == "run_what_if":
+        amount = extract_amount_cents(text)
+        if amount is None:
+            return Clarify(
+                "How much would this change be per month?"
+            )
+        decrease = bool(
+            re.search(
+                r"\b(drop\w*|decreas\w*|go(?:es)? down|fall\w*|"
+                r"lower\w*)\b",
+                text,
+                re.IGNORECASE,
+            )
+        )
+        return {
+            "scenario_type": "monthly_expense_change",
+            "scenario_name": "Monthly expense change scenario",
+            "monthly_amount_change_cents": -amount if decrease else amount,
+        }
+
     return Clarify("Could you rephrase that?")
 
 
@@ -704,6 +734,17 @@ def resolve_intent(
                 new_input = dict(prior[1])
                 new_input["purchase_amount_cents"] = amount
                 return Resolution(prior[0], new_input)
+            if prior and prior[0] == "run_what_if":
+                new_input = dict(prior[1])
+                # Preserve the prior scenario's increase/decrease
+                # direction; only the magnitude changes.
+                was_decrease = (
+                    new_input.get("monthly_amount_change_cents", 0) < 0
+                )
+                new_input["monthly_amount_change_cents"] = (
+                    -amount if was_decrease else amount
+                )
+                return Resolution(prior[0], new_input)
 
     if _FOLLOW_UP_DATE_RE.match(stripped):
         follow_up_date = extract_future_date(stripped, as_of)
@@ -826,6 +867,37 @@ def _render_major_purchase(result, emphasize):
     return answer, why, what_this_means, actions
 
 
+def _render_what_if(result, emphasize):
+    impact = result.impact
+    verb = "improves" if impact.safe_to_spend_delta_cents >= 0 else "reduces"
+    answer = (
+        "This changes your safe-to-spend from "
+        f"{_currency(result.baseline.safe_to_spend_cents)} to "
+        f"{_currency(result.scenario.safe_to_spend_cents)} ({verb} it "
+        f"by {_currency(abs(impact.safe_to_spend_delta_cents))})."
+    )
+    why = result.explanation[0].message if result.explanation else None
+    what_this_means = None
+
+    if result.goal_impacts:
+        worst = min(
+            result.goal_impacts,
+            key=lambda g: _GOAL_STATUS_RANK.get(g.status, 0),
+        )
+        if worst.status != "unaffected":
+            what_this_means = (
+                f"Your {worst.goal_name} goal would become "
+                f"{worst.status.replace('_', ' ')} under this scenario."
+            )
+
+    actions = ["Try a different amount", "See how this affects your goals"]
+
+    if emphasize == "why":
+        answer, why = why, answer
+
+    return answer, why, what_this_means, actions
+
+
 def _render_compare_scenarios(result, emphasize):
     recommended = {
         "option_a": "Option A",
@@ -848,12 +920,20 @@ def _render_stress_test(result, emphasize):
         f"{round(result.resilience_score)}/100)."
     )
     why = result.explanation
-    what_this_means = (
-        f"Estimated recovery time: {result.estimated_recovery_days} "
-        "days."
-        if result.estimated_recovery_days
-        else None
-    )
+    what_this_means_parts = []
+
+    if result.estimated_recovery_days:
+        what_this_means_parts.append(
+            f"Estimated recovery time: {result.estimated_recovery_days} "
+            "days."
+        )
+
+    if result.shortfall_cents and result.recovery_recommendation:
+        what_this_means_parts.append(
+            result.recovery_recommendation.message
+        )
+
+    what_this_means = " ".join(what_this_means_parts) or None
     actions = ["Try a different percentage", "See which goals are affected"]
 
     if emphasize == "why":
@@ -899,9 +979,15 @@ def _render_cash_flow_forecast(result, emphasize):
         "You're projected to end the month with "
         f"{_currency(result.projected_end_balance_cents)}, {risk_note}."
     )
+    top_driver = (
+        result.confidence.drivers[0].message
+        if result.confidence.drivers
+        else None
+    )
     why = (
         f"Forecast confidence is {result.confidence.level} "
         f"({round(result.confidence.score)}%)."
+        + (f" {top_driver}" if top_driver else "")
     )
     actions = [
         "See this month's spending insights",
@@ -1283,6 +1369,7 @@ def _render_spending_anomalies(result, emphasize):
 _RENDERERS = {
     "get_safe_to_spend": _render_safe_to_spend,
     "simulate_major_purchase": _render_major_purchase,
+    "run_what_if": _render_what_if,
     "compare_purchase_scenarios": _render_compare_scenarios,
     "run_stress_test": _render_stress_test,
     "check_goal_conflicts": _render_goal_conflicts,

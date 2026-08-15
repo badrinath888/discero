@@ -51,7 +51,7 @@ function buildSuggestedPrompts(goals: SavingsGoal[]): string[] {
   prompts.push("Run a stress test for a 20% income loss");
 
   if (prompts.length < 4) {
-    prompts.push("How am I doing on cash flow this month?");
+    prompts.push("What if my rent goes up by $400 a month?");
   }
 
   return prompts.slice(0, 4);

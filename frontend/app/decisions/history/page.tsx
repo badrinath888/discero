@@ -25,6 +25,7 @@ const TYPE_LABEL: Record<DecisionType, string> = {
   stress_test: "Stress Test",
   buy_now_vs_wait: "Buy Now vs Wait",
   what_if: "What-If",
+  what_if_comparison: "Scenario Comparison",
 };
 
 const STATUS_TONE: Record<string, string> = {
@@ -168,6 +169,21 @@ function summaryChips(
         label: "Confidence",
         value: `${Math.round(confidence)}%`,
       });
+    }
+
+    return chips;
+  }
+
+  if (decision.decision_type === "what_if_comparison") {
+    const recommended = asNonEmptyString(r.recommended_label);
+    chips.push({
+      label: "Recommended",
+      value: recommended ?? "Tie",
+    });
+
+    const keyDriver = asNonEmptyString(r.key_driver);
+    if (keyDriver !== undefined) {
+      chips.push({ label: "Key driver", value: humanize(keyDriver) });
     }
 
     return chips;

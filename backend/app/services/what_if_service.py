@@ -64,10 +64,19 @@ def simulate_what_if(
     payload: WhatIfSimulationRequest,
     *,
     as_of: date | None = None,
+    precomputed_baseline: SafeToSpendOut | None = None,
 ) -> WhatIfSimulationOut:
+    """`precomputed_baseline` lets a caller comparing several scenarios
+    against the same user/horizon (e.g. `what_if_comparison_service`)
+    compute the baseline once and reuse it here instead of re-running
+    `calculate_safe_to_spend` per scenario. It is only safe to pass
+    when `safety_reserve_cents`, `essential_spending_cents`, and
+    `horizon_days` match the request that produced it -- callers own
+    that guarantee.
+    """
     calculation_date = as_of or date.today()
 
-    baseline = calculate_safe_to_spend(
+    baseline = precomputed_baseline or calculate_safe_to_spend(
         db,
         user_id,
         SafeToSpendRequest(

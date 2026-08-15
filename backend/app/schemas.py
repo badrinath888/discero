@@ -1198,6 +1198,53 @@ WhatIfScenarioType = Literal[
 ]
 
 
+def _validate_what_if_scenario_fields(
+    *,
+    scenario_type: str,
+    amount_cents: int | None,
+    effective_date: date | None,
+    monthly_amount_change_cents: int | None,
+    monthly_income_loss_cents: int | None,
+    duration_months: int | None,
+) -> None:
+    """Shared by `WhatIfSimulationRequest` and
+    `WhatIfComparisonScenarioRequest` so both single and compared
+    scenarios enforce the exact same required-field rules per type.
+    """
+    if scenario_type == "one_time_expense":
+        if amount_cents is None:
+            raise ValueError(
+                "amount_cents is required for a one-time "
+                "expense scenario"
+            )
+        if effective_date is None:
+            raise ValueError(
+                "effective_date is required for a one-time "
+                "expense scenario"
+            )
+    elif scenario_type in (
+        "monthly_expense_change",
+        "monthly_income_change",
+        "monthly_savings_change",
+    ):
+        if monthly_amount_change_cents is None:
+            raise ValueError(
+                "monthly_amount_change_cents is required for "
+                f"the {scenario_type} scenario"
+            )
+    elif scenario_type == "temporary_income_loss":
+        if monthly_income_loss_cents is None:
+            raise ValueError(
+                "monthly_income_loss_cents is required for a "
+                "temporary income loss scenario"
+            )
+        if duration_months is None:
+            raise ValueError(
+                "duration_months is required for a temporary "
+                "income loss scenario"
+            )
+
+
 class WhatIfSimulationRequest(BaseModel):
     scenario_type: WhatIfScenarioType
     scenario_name: str = Field(min_length=1, max_length=120)
@@ -1243,41 +1290,14 @@ class WhatIfSimulationRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_scenario_fields(self) -> "WhatIfSimulationRequest":
-        scenario_type = self.scenario_type
-
-        if scenario_type == "one_time_expense":
-            if self.amount_cents is None:
-                raise ValueError(
-                    "amount_cents is required for a one-time "
-                    "expense scenario"
-                )
-            if self.effective_date is None:
-                raise ValueError(
-                    "effective_date is required for a one-time "
-                    "expense scenario"
-                )
-        elif scenario_type in (
-            "monthly_expense_change",
-            "monthly_income_change",
-            "monthly_savings_change",
-        ):
-            if self.monthly_amount_change_cents is None:
-                raise ValueError(
-                    "monthly_amount_change_cents is required for "
-                    f"the {scenario_type} scenario"
-                )
-        elif scenario_type == "temporary_income_loss":
-            if self.monthly_income_loss_cents is None:
-                raise ValueError(
-                    "monthly_income_loss_cents is required for a "
-                    "temporary income loss scenario"
-                )
-            if self.duration_months is None:
-                raise ValueError(
-                    "duration_months is required for a temporary "
-                    "income loss scenario"
-                )
-
+        _validate_what_if_scenario_fields(
+            scenario_type=self.scenario_type,
+            amount_cents=self.amount_cents,
+            effective_date=self.effective_date,
+            monthly_amount_change_cents=self.monthly_amount_change_cents,
+            monthly_income_loss_cents=self.monthly_income_loss_cents,
+            duration_months=self.duration_months,
+        )
         return self
 
 
@@ -1307,6 +1327,116 @@ class WhatIfSimulationOut(BaseModel):
     explanation: list[SafeToSpendExplanationOut]
     goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
     safe_to_spend: SafeToSpendOut
+
+
+class WhatIfComparisonScenarioRequest(BaseModel):
+    label: str = Field(min_length=1, max_length=60)
+    scenario_type: WhatIfScenarioType
+
+    # one_time_expense
+    amount_cents: int | None = Field(default=None, gt=0)
+    effective_date: date | None = Field(default=None)
+
+    # monthly_expense_change / monthly_income_change /
+    # monthly_savings_change
+    monthly_amount_change_cents: int | None = Field(default=None)
+
+    # temporary_income_loss
+    monthly_income_loss_cents: int | None = Field(default=None, gt=0)
+    duration_months: int | None = Field(default=None, ge=1, le=24)
+
+    @field_validator("label")
+    @classmethod
+    def validate_label(cls, value: str) -> str:
+        label = value.strip()
+
+        if not label:
+            raise ValueError("label cannot be blank")
+
+        return label
+
+    @field_validator("monthly_amount_change_cents")
+    @classmethod
+    def validate_monthly_amount_change(
+        cls, value: int | None
+    ) -> int | None:
+        if value == 0:
+            raise ValueError(
+                "monthly_amount_change_cents cannot be zero"
+            )
+
+        return value
+
+    @model_validator(mode="after")
+    def validate_scenario_fields(
+        self,
+    ) -> "WhatIfComparisonScenarioRequest":
+        _validate_what_if_scenario_fields(
+            scenario_type=self.scenario_type,
+            amount_cents=self.amount_cents,
+            effective_date=self.effective_date,
+            monthly_amount_change_cents=self.monthly_amount_change_cents,
+            monthly_income_loss_cents=self.monthly_income_loss_cents,
+            duration_months=self.duration_months,
+        )
+        return self
+
+
+class WhatIfComparisonRequest(BaseModel):
+    horizon_days: int = Field(default=30, ge=1, le=90)
+    safety_reserve_cents: int = Field(default=0, ge=0)
+    essential_spending_cents: int = Field(default=0, ge=0)
+    scenarios: list[WhatIfComparisonScenarioRequest] = Field(
+        min_length=2,
+        max_length=3,
+    )
+
+    @model_validator(mode="after")
+    def validate_unique_labels(self) -> "WhatIfComparisonRequest":
+        labels = [
+            scenario.label.strip().lower()
+            for scenario in self.scenarios
+        ]
+
+        if len(labels) != len(set(labels)):
+            raise ValueError(
+                "scenario labels must be unique"
+            )
+
+        return self
+
+
+class WhatIfComparisonScenarioOut(BaseModel):
+    label: str
+    scenario_type: WhatIfScenarioType
+    safe_to_spend_cents: int
+    shortfall_cents: int
+    safe_to_spend_delta_cents: int
+    shortfall_delta_cents: int
+    confidence_score: float
+    confidence_level: Literal["high", "medium", "low"]
+    impact_level: Literal["positive", "neutral", "caution", "negative"]
+    goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
+    explanation: list[SafeToSpendExplanationOut]
+
+
+class WhatIfComparisonOut(BaseModel):
+    as_of: date
+    through_date: date
+    horizon_days: int
+    baseline: WhatIfOutcomeOut
+    scenarios: list[WhatIfComparisonScenarioOut]
+    recommended_label: str | None
+    recommendation_reason: str
+    key_driver: Literal[
+        "shortfall",
+        "safe_to_spend",
+        "goal_impact",
+        "tie",
+    ]
+    key_tradeoff: str | None
+    ranking: list[str]
+    is_tie: bool
 
 
 class GoalConflictDetectionRequest(BaseModel):
@@ -1490,6 +1620,7 @@ DecisionType = Literal[
     "stress_test",
     "buy_now_vs_wait",
     "what_if",
+    "what_if_comparison",
 ]
 
 

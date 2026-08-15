@@ -22,6 +22,7 @@ from app.schemas import (
     MajorPurchaseSimulationRequest,
     SaveDecisionRequest,
     ScenarioComparisonRequest,
+    WhatIfComparisonRequest,
     WhatIfSimulationRequest,
 )
 from app.services.buy_now_vs_wait_service import evaluate_buy_now_vs_wait
@@ -31,6 +32,9 @@ from app.services.financial_stress_test_service import (
 from app.services.major_purchase_service import simulate_major_purchase
 from app.services.scenario_comparison_service import (
     compare_major_purchase_scenarios,
+)
+from app.services.what_if_comparison_service import (
+    compare_what_if_scenarios,
 )
 from app.services.what_if_service import simulate_what_if
 
@@ -42,6 +46,7 @@ _REQUEST_MODELS: dict[str, type[BaseModel]] = {
     "stress_test": FinancialStressTestRequest,
     "buy_now_vs_wait": BuyNowVsWaitRequest,
     "what_if": WhatIfSimulationRequest,
+    "what_if_comparison": WhatIfComparisonRequest,
 }
 
 
@@ -58,6 +63,8 @@ def _run(db: Session, user_id: int, decision_type: str, payload, as_of: date):
         return evaluate_buy_now_vs_wait(db, user_id, payload, as_of=as_of)
     if decision_type == "what_if":
         return simulate_what_if(db, user_id, payload, as_of=as_of)
+    if decision_type == "what_if_comparison":
+        return compare_what_if_scenarios(db, user_id, payload, as_of=as_of)
     raise ValueError(f"unknown decision_type: {decision_type}")
 
 

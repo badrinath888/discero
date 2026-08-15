@@ -722,6 +722,51 @@ export type WhatIfSimulationResult = {
   safe_to_spend: SafeToSpendResult;
 };
 
+export type WhatIfComparisonScenarioRequest = {
+  label: string;
+  scenario_type: WhatIfScenarioType;
+  amount_cents?: number | null;
+  effective_date?: string | null;
+  monthly_amount_change_cents?: number | null;
+  monthly_income_loss_cents?: number | null;
+  duration_months?: number | null;
+};
+
+export type WhatIfComparisonRequest = {
+  horizon_days: number;
+  safety_reserve_cents: number;
+  essential_spending_cents: number;
+  scenarios: WhatIfComparisonScenarioRequest[];
+};
+
+export type WhatIfComparisonScenarioResult = {
+  label: string;
+  scenario_type: WhatIfScenarioType;
+  safe_to_spend_cents: number;
+  shortfall_cents: number;
+  safe_to_spend_delta_cents: number;
+  shortfall_delta_cents: number;
+  confidence_score: number;
+  confidence_level: "high" | "medium" | "low";
+  impact_level: "positive" | "neutral" | "caution" | "negative";
+  goal_impacts: GoalImpact[];
+  explanation: SafeToSpendExplanationItem[];
+};
+
+export type WhatIfComparisonResult = {
+  as_of: string;
+  through_date: string;
+  horizon_days: number;
+  baseline: WhatIfOutcome;
+  scenarios: WhatIfComparisonScenarioResult[];
+  recommended_label: string | null;
+  recommendation_reason: string;
+  key_driver: "shortfall" | "safe_to_spend" | "goal_impact" | "tie";
+  key_tradeoff: string | null;
+  ranking: string[];
+  is_tie: boolean;
+};
+
 export type UploadSummary = {
   imported: number;
   rejected: number;
@@ -969,7 +1014,8 @@ export type DecisionType =
   | "scenario_comparison"
   | "stress_test"
   | "buy_now_vs_wait"
-  | "what_if";
+  | "what_if"
+  | "what_if_comparison";
 
 export type SaveDecisionRequest = {
   decision_type: DecisionType;
@@ -1699,6 +1745,19 @@ simulateWhatIf: (
       body: JSON.stringify(payload),
     }
   ).then((res) => handle<WhatIfSimulationResult>(res)),
+
+compareWhatIfScenarios: (
+  userId: number,
+  payload: WhatIfComparisonRequest
+): Promise<WhatIfComparisonResult> =>
+  fetchWithTimeout(
+    `${API_URL}/users/${userId}/what-if/compare`,
+    {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }
+  ).then((res) => handle<WhatIfComparisonResult>(res)),
 
   getBudgets: (
     userId: number,

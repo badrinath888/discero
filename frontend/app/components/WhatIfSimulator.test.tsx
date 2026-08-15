@@ -1,13 +1,26 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { WhatIfSimulationResult } from "../lib/api";
+import type {
+  WhatIfComparisonResult,
+  WhatIfSimulationResult,
+} from "../lib/api";
 import WhatIfSimulator from "./WhatIfSimulator";
 
-const mocks = vi.hoisted(() => ({ simulateWhatIf: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  simulateWhatIf: vi.fn(),
+  compareWhatIfScenarios: vi.fn(),
+}));
 
 vi.mock("../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/api")>();
-  return { ...actual, api: { ...actual.api, simulateWhatIf: mocks.simulateWhatIf } };
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      simulateWhatIf: mocks.simulateWhatIf,
+      compareWhatIfScenarios: mocks.compareWhatIfScenarios,
+    },
+  };
 });
 
 const baseResult: WhatIfSimulationResult = {
@@ -66,10 +79,64 @@ const baseResult: WhatIfSimulationResult = {
   },
 };
 
+const baseComparisonResult: WhatIfComparisonResult = {
+  as_of: "2026-08-11",
+  through_date: "2026-11-09",
+  horizon_days: 90,
+  baseline: {
+    safe_to_spend_cents: 500_000,
+    shortfall_cents: 0,
+    confidence_score: 88,
+    confidence_level: "high",
+  },
+  scenarios: [
+    {
+      label: "Buy now",
+      scenario_type: "one_time_expense",
+      safe_to_spend_cents: 300_000,
+      shortfall_cents: 0,
+      safe_to_spend_delta_cents: -200_000,
+      shortfall_delta_cents: 0,
+      confidence_score: 88,
+      confidence_level: "high",
+      impact_level: "caution",
+      goal_impacts: [],
+      explanation: [],
+    },
+    {
+      label: "Wait 3 months",
+      scenario_type: "one_time_expense",
+      safe_to_spend_cents: 400_000,
+      shortfall_cents: 0,
+      safe_to_spend_delta_cents: -100_000,
+      shortfall_delta_cents: 0,
+      confidence_score: 88,
+      confidence_level: "high",
+      impact_level: "caution",
+      goal_impacts: [],
+      explanation: [],
+    },
+  ],
+  recommended_label: "Wait 3 months",
+  recommendation_reason:
+    "Wait 3 months is recommended because it preserves $1,000.00 more safe-to-spend than Buy now.",
+  key_driver: "safe_to_spend",
+  key_tradeoff: null,
+  ranking: ["Wait 3 months", "Buy now"],
+  is_tie: false,
+};
+
 beforeEach(() => {
   mocks.simulateWhatIf.mockReset();
   mocks.simulateWhatIf.mockResolvedValue(baseResult);
+  mocks.compareWhatIfScenarios.mockReset();
+  mocks.compareWhatIfScenarios.mockResolvedValue(baseComparisonResult);
 });
+
+function switchToCompareMode() {
+  render(<WhatIfSimulator userId={1} />);
+  fireEvent.click(screen.getByRole("button", { name: "Compare scenarios" }));
+}
 
 describe("WhatIfSimulator", () => {
   it("shows the one-time-expense fields by default and an empty state", () => {
@@ -186,6 +253,138 @@ describe("WhatIfSimulator", () => {
     await waitFor(() =>
       expect(
         screen.getByRole("button", { name: "Run simulation" })
+      ).toBeInTheDocument()
+    );
+  });
+});
+
+describe("WhatIfSimulator comparison mode", () => {
+  it("shows two scenario cards by default with an add option", () => {
+    switchToCompareMode();
+
+    expect(screen.getAllByLabelText("Label")).toHaveLength(2);
+    expect(
+      screen.getByRole("button", { name: "Add scenario C" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/^Remove/)
+    ).not.toBeInTheDocument();
+  });
+
+  it("adds a third scenario and hides the add option at the max", () => {
+    switchToCompareMode();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add scenario C" }));
+
+    expect(screen.getAllByLabelText("Label")).toHaveLength(3);
+    expect(
+      screen.queryByRole("button", { name: "Add scenario C" })
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText(/^Remove/)).toHaveLength(3);
+  });
+
+  it("shows scenario type-specific fields per card", () => {
+    switchToCompareMode();
+
+    const typeSelects = screen.getAllByLabelText("Scenario type");
+    fireEvent.change(typeSelects[0], {
+      target: { value: "temporary_income_loss" },
+    });
+
+    expect(
+      screen.getByLabelText(/^Monthly income loss/)
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Duration")).toBeInTheDocument();
+    // The second card is still a one-time expense.
+    expect(screen.getByLabelText(/^Amount/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Date")).toBeInTheDocument();
+  });
+
+  it("submits the comparison payload for the default two scenarios", async () => {
+    switchToCompareMode();
+
+    fireEvent.click(screen.getByRole("button", { name: "Run comparison" }));
+
+    await waitFor(() =>
+      expect(mocks.compareWhatIfScenarios).toHaveBeenCalledTimes(1)
+    );
+
+    const [, payload] = mocks.compareWhatIfScenarios.mock.calls[0];
+    expect(payload.scenarios).toHaveLength(2);
+    expect(payload.scenarios[0].label).toBe("Buy now");
+    expect(payload.scenarios[0].scenario_type).toBe("one_time_expense");
+    expect(payload.scenarios[0].amount_cents).toBe(200_000);
+    expect(payload.scenarios[1].label).toBe("Wait 3 months");
+  });
+
+  it("renders the recommended scenario and side-by-side metrics", async () => {
+    switchToCompareMode();
+
+    fireEvent.click(screen.getByRole("button", { name: "Run comparison" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Wait 3 months" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Wait 3 months is recommended because it preserves $1,000.00 more safe-to-spend than Buy now."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("$4,000.00")).toBeInTheDocument();
+    expect(screen.getByText("$3,000.00")).toBeInTheDocument();
+    expect(screen.getAllByText("Recommended").length).toBeGreaterThan(0);
+  });
+
+  it("shows a tie state when scenarios are equivalent", async () => {
+    mocks.compareWhatIfScenarios.mockResolvedValue({
+      ...baseComparisonResult,
+      recommended_label: null,
+      recommendation_reason:
+        "These scenarios have the same projected financial outcome within the selected horizon.",
+      key_driver: "tie",
+      is_tie: true,
+    });
+
+    switchToCompareMode();
+    fireEvent.click(screen.getByRole("button", { name: "Run comparison" }));
+
+    expect(await screen.findByText("No clear winner")).toBeInTheDocument();
+    expect(
+      screen.getByText("These scenarios are close")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Recommended")).not.toBeInTheDocument();
+  });
+
+  it("shows an error state when the comparison API call fails", async () => {
+    mocks.compareWhatIfScenarios.mockRejectedValue(
+      new Error("comparison failed")
+    );
+
+    switchToCompareMode();
+    fireEvent.click(screen.getByRole("button", { name: "Run comparison" }));
+
+    expect(await screen.findByText("comparison failed")).toBeInTheDocument();
+  });
+
+  it("shows a loading state while the comparison request is in flight", async () => {
+    let resolveRequest: (value: WhatIfComparisonResult) => void = () => {};
+    mocks.compareWhatIfScenarios.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRequest = resolve;
+      })
+    );
+
+    switchToCompareMode();
+    fireEvent.click(screen.getByRole("button", { name: "Run comparison" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Comparing scenarios..." })
+    ).toBeInTheDocument();
+
+    resolveRequest(baseComparisonResult);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Run comparison" })
       ).toBeInTheDocument()
     );
   });

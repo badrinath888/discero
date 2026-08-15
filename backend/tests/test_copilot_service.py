@@ -297,6 +297,155 @@ def test_major_purchase_tool_converts_dollars_to_cents_via_schema() -> (
         assert affordability_chip.value_display == "Affordable"
 
 
+def test_what_if_tool_grounds_chips_in_real_calculation() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        client = CopilotClient(api_key="fake-key")
+
+        def fake_call(**kwargs):
+            tools = kwargs.get("tools") or []
+            if any(
+                t.get("name") == "present_financial_answer" for t in tools
+            ):
+                return _response(
+                    _tool_use_block(
+                        "tool_2",
+                        "present_financial_answer",
+                        {"answer": "Your safe-to-spend would drop."},
+                    )
+                )
+            return _response(
+                _tool_use_block(
+                    "tool_1",
+                    "run_what_if",
+                    {
+                        "scenario_type": "monthly_expense_change",
+                        "scenario_name": "Rent increase",
+                        "monthly_amount_change_cents": 40_000,
+                    },
+                )
+            )
+
+        client.call = fake_call  # type: ignore[method-assign]
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message(
+                "What happens if my rent goes up by $400 a month?"
+            ),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "What-If Simulator"
+        before_chip = next(
+            c
+            for c in result.key_numbers
+            if c.label == "Safe to spend before"
+        )
+        after_chip = next(
+            c for c in result.key_numbers if c.label == "Safe to spend after"
+        )
+        # 500_000 liquid, no obligations -- a $400/month expense
+        # increase reduces safe-to-spend by the same amount.
+        assert before_chip.value_display == "$5,000.00"
+        assert after_chip.value_display == "$4,600.00"
+
+
+def test_what_if_tool_rejects_zero_amount_change() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        client = CopilotClient(api_key="fake-key")
+
+        def fake_call(**kwargs):
+            return _response(
+                _tool_use_block(
+                    "tool_1",
+                    "run_what_if",
+                    {
+                        "scenario_type": "monthly_expense_change",
+                        "scenario_name": "Rent increase",
+                        "monthly_amount_change_cents": 0,
+                    },
+                )
+            )
+
+        client.call = fake_call  # type: ignore[method-assign]
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message("What if my rent changes?"),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "clarifying_question"
+
+
+def test_stress_test_chips_include_runway_and_key_driver() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        client = CopilotClient(api_key="fake-key")
+
+        def fake_call(**kwargs):
+            tools = kwargs.get("tools") or []
+            if any(
+                t.get("name") == "present_financial_answer" for t in tools
+            ):
+                return _response(
+                    _tool_use_block(
+                        "tool_2",
+                        "present_financial_answer",
+                        {"answer": "This would be manageable."},
+                    )
+                )
+            return _response(
+                _tool_use_block(
+                    "tool_1",
+                    "run_stress_test",
+                    {
+                        "scenario_type": "emergency_expense",
+                        "scenario_name": "Car repair",
+                        "stress_amount_cents": 100_000,
+                        "event_date": "2026-08-10",
+                    },
+                )
+            )
+
+        client.call = fake_call  # type: ignore[method-assign]
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message("What if I have a $1,000 car repair?"),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Financial Stress Test"
+        runway_chip = next(
+            c for c in result.key_numbers if c.label == "Runway"
+        )
+        pressure_chip = next(
+            c for c in result.key_numbers if c.label == "Biggest pressure"
+        )
+        assert runway_chip.value_display == "Not exhausted"
+        assert pressure_chip.value_display == "One-time emergency expense"
+
+
 def test_request_clarification_short_circuits_without_narration() -> (
     None
 ):

@@ -40,6 +40,7 @@ from app.schemas import (
     MajorPurchaseSimulationRequest,
     SafeToSpendRequest,
     ScenarioComparisonRequest,
+    WhatIfSimulationRequest,
 )
 from app.services.buy_now_vs_wait_service import evaluate_buy_now_vs_wait
 from app.services.financial_resilience_service import (
@@ -66,6 +67,7 @@ from app.services.scenario_comparison_service import (
     compare_major_purchase_scenarios,
 )
 from app.services.spending_anomaly_service import detect_spending_anomalies
+from app.services.what_if_service import simulate_what_if
 
 _MAX_HISTORY_MESSAGES = 20
 _UNAVAILABLE_ANSWER = (
@@ -230,6 +232,26 @@ _TOOLS = [
             "fields must be in CENTS (dollars x 100)."
         ),
         "input_schema": _tool_schema(MajorPurchaseSimulationRequest),
+    },
+    {
+        "name": "run_what_if",
+        "description": (
+            "Simulate a SUSTAINED monthly change -- a recurring "
+            "expense going up or down (rent, a bill, a subscription), "
+            "a recurring income change, a change in how much the "
+            "user saves per month, or a temporary income loss over "
+            "several months -- and its effect on safe-to-spend and "
+            "savings goals. Use for 'what happens if my rent/bill "
+            "goes up by $X', 'what if I made $X more/less per month', "
+            "or 'what if I saved $X more per month' questions. Do NOT "
+            "use this for a single one-time purchase (use "
+            "simulate_major_purchase instead). All *_cents fields "
+            "must be in CENTS. For monthly_expense_change, "
+            "monthly_income_change, and monthly_savings_change, a "
+            "positive monthly_amount_change_cents is an increase and "
+            "negative is a decrease -- never zero."
+        ),
+        "input_schema": _tool_schema(WhatIfSimulationRequest),
     },
     {
         "name": "compare_purchase_scenarios",
@@ -560,6 +582,7 @@ _NARRATION_TOOL = {
 _TOOL_LABELS = {
     "get_safe_to_spend": "Safe-to-Spend",
     "simulate_major_purchase": "Major Purchase Simulator",
+    "run_what_if": "What-If Simulator",
     "compare_purchase_scenarios": "Scenario Comparison",
     "run_stress_test": "Financial Stress Test",
     "check_goal_conflicts": "Goal Conflict Check",
@@ -690,6 +713,67 @@ _GOAL_STATUS_RANK = {
 }
 
 
+def _handle_what_if(db, user_id, tool_input, as_of, current_user):
+    payload = WhatIfSimulationRequest(**tool_input)
+    result = simulate_what_if(db, user_id, payload, as_of=as_of)
+
+    chips = [
+        _chip(
+            "Safe to spend before",
+            _currency(result.baseline.safe_to_spend_cents),
+        ),
+        _chip(
+            "Safe to spend after",
+            _currency(result.scenario.safe_to_spend_cents),
+            tone="danger" if result.scenario.shortfall_cents else "positive",
+        ),
+        _chip(
+            "Impact",
+            _currency(result.impact.safe_to_spend_delta_cents),
+            tone=(
+                "positive"
+                if result.impact.safe_to_spend_delta_cents >= 0
+                else "danger"
+            ),
+        ),
+        _chip(
+            "Shortfall",
+            _currency(result.scenario.shortfall_cents),
+            tone="danger" if result.scenario.shortfall_cents else "positive",
+        ),
+    ]
+
+    if result.goal_impacts:
+        worst = min(
+            result.goal_impacts,
+            key=lambda g: _GOAL_STATUS_RANK.get(g.status, 0),
+        )
+        chips.append(
+            _chip(
+                "Goal impact",
+                f"{worst.goal_name}: {worst.status.replace('_', ' ')}",
+                kind="text",
+                tone=_tone(worst.status),
+            )
+        )
+
+    chips.append(
+        _chip(
+            "Confidence",
+            f"{round(result.scenario.confidence_score)}%",
+            kind="score",
+            tone=_tone(result.scenario.confidence_level),
+        )
+    )
+
+    return (
+        result,
+        chips,
+        _confidence(result.scenario.confidence_score),
+        _low_data_warning(result.scenario.confidence_score),
+    )
+
+
 def _handle_compare_scenarios(
     db, user_id, tool_input, as_of, current_user
 ):
@@ -740,6 +824,14 @@ def _handle_compare_scenarios(
     )
 
 
+_KEY_DRIVER_LABELS = {
+    "income_loss": "Lost or reduced income",
+    "recurring_expense_increase": "Recurring expense increase",
+    "emergency_expense": "One-time emergency expense",
+    "baseline_shortfall": "Existing shortfall before this scenario",
+}
+
+
 def _handle_stress_test(db, user_id, tool_input, as_of, current_user):
     payload = FinancialStressTestRequest(**tool_input)
     result = run_financial_stress_test(db, user_id, payload, as_of=as_of)
@@ -765,6 +857,22 @@ def _handle_stress_test(db, user_id, tool_input, as_of, current_user):
             "Shortfall",
             _currency(result.shortfall_cents),
             tone="danger" if result.shortfall_cents else "positive",
+        ),
+        _chip(
+            "Runway",
+            (
+                f"{result.runway_days} day(s)"
+                if result.runway_days is not None
+                else "Not exhausted"
+            ),
+            kind="text",
+            tone="danger" if result.runway_days is not None else "positive",
+        ),
+        _chip(
+            "Biggest pressure",
+            _KEY_DRIVER_LABELS.get(result.key_driver, result.key_driver),
+            kind="text",
+            tone="neutral",
         ),
         _chip(
             "Confidence",
@@ -1299,6 +1407,7 @@ def _handle_spending_anomalies(
 _TOOL_HANDLERS = {
     "get_safe_to_spend": _handle_safe_to_spend,
     "simulate_major_purchase": _handle_major_purchase,
+    "run_what_if": _handle_what_if,
     "compare_purchase_scenarios": _handle_compare_scenarios,
     "run_stress_test": _handle_stress_test,
     "check_goal_conflicts": _handle_goal_conflicts,

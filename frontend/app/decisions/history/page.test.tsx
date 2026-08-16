@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   getSavedDecisions: vi.fn(),
   deleteSavedDecision: vi.fn(),
   rerunSavedDecision: vi.fn(),
+  updateDecisionStatus: vi.fn(),
+  evaluateDecisionOutcome: vi.fn(),
+  getDecisionOutcomes: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
   clearSession: vi.fn(),
@@ -78,6 +87,9 @@ vi.mock("../../lib/api", async (importOriginal) => {
       getSavedDecisions: mocks.getSavedDecisions,
       deleteSavedDecision: mocks.deleteSavedDecision,
       rerunSavedDecision: mocks.rerunSavedDecision,
+      updateDecisionStatus: mocks.updateDecisionStatus,
+      evaluateDecisionOutcome: mocks.evaluateDecisionOutcome,
+      getDecisionOutcomes: mocks.getDecisionOutcomes,
     },
     session: {
       ...actual.session,
@@ -102,7 +114,11 @@ const purchaseDecision: SavedDecision = {
     safe_to_spend_after_purchase_cents: 6_056_900,
     confidence_score: 88,
   },
+  status: "saved",
+  acted_on_at: null,
   created_at: "2026-08-08T00:00:00Z",
+  outcome_count: 0,
+  latest_outcome_at: null,
 };
 
 const buyNowVsWaitDecision: SavedDecision = {
@@ -123,7 +139,11 @@ const buyNowVsWaitDecision: SavedDecision = {
     confidence_difference: 8.5,
     assumption: "Assumes stable income and no other large purchases.",
   },
+  status: "saved",
+  acted_on_at: null,
   created_at: "2026-08-08T00:00:00Z",
+  outcome_count: 0,
+  latest_outcome_at: null,
 };
 
 // The exact shape that crashed the page in production: a
@@ -138,7 +158,11 @@ const buyNowVsWaitDecisionMissingTiming: SavedDecision = {
     recommendation: "wait",
     reason: "Waiting improves your buffer.",
   },
+  status: "saved",
+  acted_on_at: null,
   created_at: "2026-08-08T00:00:00Z",
+  outcome_count: 0,
+  latest_outcome_at: null,
 };
 
 const scenarioDecision: SavedDecision = {
@@ -150,7 +174,11 @@ const scenarioDecision: SavedDecision = {
     recommended_option: "option_b",
     recommendation: "Option B is more affordable.",
   },
+  status: "saved",
+  acted_on_at: null,
   created_at: "2026-08-08T00:00:00Z",
+  outcome_count: 0,
+  latest_outcome_at: null,
 };
 
 const stressTestDecision: SavedDecision = {
@@ -163,7 +191,11 @@ const stressTestDecision: SavedDecision = {
     resilience_score: 62,
     confidence_score: 74,
   },
+  status: "saved",
+  acted_on_at: null,
   created_at: "2026-08-08T00:00:00Z",
+  outcome_count: 0,
+  latest_outcome_at: null,
 };
 
 beforeEach(() => {
@@ -177,6 +209,9 @@ beforeEach(() => {
   mocks.getSavedDecisions.mockReset();
   mocks.deleteSavedDecision.mockReset();
   mocks.rerunSavedDecision.mockReset();
+  mocks.updateDecisionStatus.mockReset();
+  mocks.evaluateDecisionOutcome.mockReset();
+  mocks.getDecisionOutcomes.mockReset();
 });
 
 describe("Decision history page", () => {
@@ -320,5 +355,351 @@ describe("Decision history page", () => {
       await screen.findByText("Job Loss Stress Test")
     ).toBeInTheDocument();
     expect(screen.getAllByTestId("decision-history-card")).toHaveLength(5);
+  });
+
+  it("shows lifecycle actions for a saved decision", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+
+    expect(
+      screen.getByRole("button", { name: /i made this decision/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /dismiss/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /check outcome/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("marks a decision as acted on and shows the acted-on date plus Check outcome", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.updateDecisionStatus.mockResolvedValue({
+      ...purchaseDecision,
+      status: "acted_on",
+      acted_on_at: "2026-08-10T12:00:00Z",
+    });
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    fireEvent.click(
+      screen.getByRole("button", { name: /i made this decision/i })
+    );
+
+    await waitFor(() =>
+      expect(mocks.updateDecisionStatus).toHaveBeenCalledWith(
+        1,
+        1,
+        "acted_on"
+      )
+    );
+
+    const card = await screen.findByTestId("decision-history-card");
+    expect(within(card).getByText(/acted on/i)).toBeInTheDocument();
+    expect(
+      within(card).getByRole("button", { name: /check outcome/i })
+    ).toBeInTheDocument();
+    expect(
+      within(card).queryByRole("button", { name: /i made this decision/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("checking the outcome renders predicted vs current with a delta", async () => {
+    const actedOnDecision: SavedDecision = {
+      ...purchaseDecision,
+      status: "acted_on",
+      acted_on_at: "2026-08-09T00:00:00Z",
+    };
+    mocks.getSavedDecisions.mockResolvedValue([actedOnDecision]);
+    mocks.evaluateDecisionOutcome.mockResolvedValue({
+      id: 1,
+      decision_id: 1,
+      evaluated_at: "2026-08-10T00:00:00Z",
+      current_result_snapshot: {
+        safe_to_spend_after_purchase_cents: 6_500_000,
+      },
+      comparison_snapshot: {
+        changed: true,
+        metrics: [
+          {
+            path: "safe_to_spend_after_purchase_cents",
+            before: 6_056_900,
+            current: 6_500_000,
+            delta: 443_100,
+            change_type: "numeric",
+          },
+          {
+            path: "purchase_amount_cents",
+            before: 200_000,
+            current: 200_000,
+            delta: 0,
+            change_type: "numeric",
+          },
+        ],
+        summary: { metrics_compared: 2, metrics_changed: 1 },
+      },
+      created_at: "2026-08-10T00:00:00Z",
+    });
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    fireEvent.click(
+      screen.getByRole("button", { name: /check outcome/i })
+    );
+
+    await waitFor(() =>
+      expect(mocks.evaluateDecisionOutcome).toHaveBeenCalledWith(1, 1)
+    );
+
+    const panel = await screen.findByTestId("decision-outcome-panel");
+    expect(panel).toHaveTextContent("Predicted vs current");
+    expect(panel).toHaveTextContent("$60,569.00");
+    expect(panel).toHaveTextContent("$65,000.00");
+    expect(panel).toHaveTextContent("+$4,431.00");
+    // The unchanged purchase_amount_cents metric must not be rendered
+    // as a "changed" row.
+    expect(panel).not.toHaveTextContent("Purchase amount");
+    // No raw JSON dump of the snapshot.
+    expect(panel).not.toHaveTextContent("change_type");
+    expect(panel).not.toHaveTextContent("{");
+  });
+
+  it("shows a quiet dismissed state without active lifecycle actions", async () => {
+    const dismissedDecision: SavedDecision = {
+      ...purchaseDecision,
+      status: "dismissed",
+    };
+    mocks.getSavedDecisions.mockResolvedValue([dismissedDecision]);
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+
+    expect(screen.getByText(/dismissed/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /i made this decision/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /check outcome/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows an error when marking a decision as acted on fails", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.updateDecisionStatus.mockRejectedValue(new Error("network error"));
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    fireEvent.click(
+      screen.getByRole("button", { name: /i made this decision/i })
+    );
+
+    expect(
+      await screen.findByText(/couldn't update that decision/i)
+    ).toBeInTheDocument();
+  });
+
+  it("shows an error when checking the outcome fails", async () => {
+    const actedOnDecision: SavedDecision = {
+      ...purchaseDecision,
+      status: "acted_on",
+      acted_on_at: "2026-08-09T00:00:00Z",
+    };
+    mocks.getSavedDecisions.mockResolvedValue([actedOnDecision]);
+    mocks.evaluateDecisionOutcome.mockRejectedValue(
+      new Error("network error")
+    );
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    fireEvent.click(
+      screen.getByRole("button", { name: /check outcome/i })
+    );
+
+    expect(
+      await screen.findByText(/couldn't check the outcome/i)
+    ).toBeInTheDocument();
+  });
+
+  it("shows persisted outcome metadata for an acted-on decision after reload, without fetching detailed history", async () => {
+    const actedOnWithHistory: SavedDecision = {
+      ...purchaseDecision,
+      status: "acted_on",
+      acted_on_at: "2026-08-09T12:00:00Z",
+      outcome_count: 3,
+      latest_outcome_at: "2026-08-10T12:00:00Z",
+    };
+    mocks.getSavedDecisions.mockResolvedValue([actedOnWithHistory]);
+
+    render(<DecisionHistoryPage />);
+
+    const card = await screen.findByTestId("decision-history-card");
+    const historyButton = within(card).getByRole("button", {
+      name: /checked 3× outcome history/i,
+    });
+    expect(historyButton).toBeInTheDocument();
+    expect(historyButton).toHaveTextContent(/aug 10, 2026/i);
+
+    // Persisted metadata came from the list response alone -- the
+    // detailed per-outcome GET must not have been called just to
+    // render the card.
+    expect(mocks.getDecisionOutcomes).not.toHaveBeenCalled();
+  });
+
+  it("does not eagerly fetch detailed outcome history for every card on load", async () => {
+    const first: SavedDecision = {
+      ...purchaseDecision,
+      id: 101,
+      status: "acted_on",
+      acted_on_at: "2026-08-09T00:00:00Z",
+      outcome_count: 2,
+      latest_outcome_at: "2026-08-10T00:00:00Z",
+    };
+    const second: SavedDecision = {
+      ...purchaseDecision,
+      id: 102,
+      title: "Second Laptop Purchase",
+      status: "acted_on",
+      acted_on_at: "2026-08-09T00:00:00Z",
+      outcome_count: 1,
+      latest_outcome_at: "2026-08-11T00:00:00Z",
+    };
+    mocks.getSavedDecisions.mockResolvedValue([first, second]);
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    await screen.findByText("Second Laptop Purchase");
+
+    expect(mocks.getDecisionOutcomes).not.toHaveBeenCalled();
+  });
+
+  it("lazily fetches and renders prior persisted outcomes when history is opened", async () => {
+    const actedOnWithHistory: SavedDecision = {
+      ...purchaseDecision,
+      status: "acted_on",
+      acted_on_at: "2026-08-09T00:00:00Z",
+      outcome_count: 1,
+      latest_outcome_at: "2026-08-10T00:00:00Z",
+    };
+    mocks.getSavedDecisions.mockResolvedValue([actedOnWithHistory]);
+    mocks.getDecisionOutcomes.mockResolvedValue([
+      {
+        id: 9,
+        decision_id: 1,
+        evaluated_at: "2026-08-10T00:00:00Z",
+        current_result_snapshot: {
+          safe_to_spend_after_purchase_cents: 6_500_000,
+        },
+        comparison_snapshot: {
+          changed: true,
+          metrics: [
+            {
+              path: "safe_to_spend_after_purchase_cents",
+              before: 6_056_900,
+              current: 6_500_000,
+              delta: 443_100,
+              change_type: "numeric",
+            },
+          ],
+          summary: { metrics_compared: 1, metrics_changed: 1 },
+        },
+        created_at: "2026-08-10T00:00:00Z",
+      },
+    ]);
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    expect(mocks.getDecisionOutcomes).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /checked 1× outcome history/i })
+    );
+
+    await waitFor(() =>
+      expect(mocks.getDecisionOutcomes).toHaveBeenCalledWith(1, 1)
+    );
+    expect(mocks.getDecisionOutcomes).toHaveBeenCalledTimes(1);
+
+    const panel = await screen.findByTestId("decision-outcome-panel");
+    expect(panel).toHaveTextContent("Predicted vs current");
+    expect(panel).toHaveTextContent("$65,000.00");
+
+    // Toggling again hides the panel without a second fetch.
+    fireEvent.click(
+      screen.getByRole("button", { name: /hide outcome history/i })
+    );
+    expect(
+      screen.queryByTestId("decision-outcome-panel")
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /checked 1× outcome history/i })
+    );
+    await screen.findByTestId("decision-outcome-panel");
+    expect(mocks.getDecisionOutcomes).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates the outcome metadata and panel immediately after checking a new outcome, without a reload", async () => {
+    const actedOnDecision: SavedDecision = {
+      ...purchaseDecision,
+      status: "acted_on",
+      acted_on_at: "2026-08-09T00:00:00Z",
+    };
+    mocks.getSavedDecisions.mockResolvedValue([actedOnDecision]);
+    mocks.evaluateDecisionOutcome.mockResolvedValue({
+      id: 1,
+      decision_id: 1,
+      evaluated_at: "2026-08-10T00:00:00Z",
+      current_result_snapshot: {
+        safe_to_spend_after_purchase_cents: 6_500_000,
+      },
+      comparison_snapshot: {
+        changed: true,
+        metrics: [
+          {
+            path: "safe_to_spend_after_purchase_cents",
+            before: 6_056_900,
+            current: 6_500_000,
+            delta: 443_100,
+            change_type: "numeric",
+          },
+        ],
+        summary: { metrics_compared: 1, metrics_changed: 1 },
+      },
+      created_at: "2026-08-10T00:00:00Z",
+    });
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    expect(
+      screen.queryByRole("button", { name: /outcome history/i })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /check outcome/i })
+    );
+
+    const panel = await screen.findByTestId("decision-outcome-panel");
+    expect(panel).toHaveTextContent("$65,000.00");
+
+    // The metadata badge reflects the new persisted count immediately,
+    // and the panel is already open (from just checking), so the
+    // toggle now reads "Hide" rather than "Checked 1x ...".
+    expect(
+      screen.getByRole("button", { name: /hide outcome history/i })
+    ).toBeInTheDocument();
+
+    // The update was purely local -- no second list fetch/reload.
+    expect(mocks.getSavedDecisions).toHaveBeenCalledTimes(1);
   });
 });

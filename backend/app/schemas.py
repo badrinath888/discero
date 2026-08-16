@@ -1751,6 +1751,9 @@ class SaveDecisionRequest(BaseModel):
         return title
 
 
+DecisionLifecycleStatus = Literal["saved", "acted_on", "dismissed"]
+
+
 class SavedDecisionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -1759,7 +1762,11 @@ class SavedDecisionOut(BaseModel):
     title: str
     input_snapshot: dict
     result_snapshot: dict
+    status: DecisionLifecycleStatus
+    acted_on_at: datetime | None
     created_at: datetime
+    outcome_count: int = 0
+    latest_outcome_at: datetime | None = None
 
 
 class DecisionRerunOut(BaseModel):
@@ -1767,6 +1774,40 @@ class DecisionRerunOut(BaseModel):
     decision_type: DecisionType
     evaluated_at: date
     result_snapshot: dict
+
+
+class UpdateDecisionLifecycleRequest(BaseModel):
+    status: DecisionLifecycleStatus
+
+
+class DecisionOutcomeComparisonMetric(BaseModel):
+    path: str
+    before: int | float | bool | str
+    current: int | float | bool | str
+    delta: int | float | None = None
+    change_type: Literal["numeric", "boolean", "text", "date"]
+
+
+class DecisionOutcomeComparisonSummary(BaseModel):
+    metrics_compared: int
+    metrics_changed: int
+
+
+class DecisionOutcomeComparisonOut(BaseModel):
+    changed: bool
+    metrics: list[DecisionOutcomeComparisonMetric]
+    summary: DecisionOutcomeComparisonSummary
+
+
+class DecisionOutcomeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    decision_id: int
+    evaluated_at: datetime
+    current_result_snapshot: dict
+    comparison_snapshot: DecisionOutcomeComparisonOut
+    created_at: datetime
 
 
 # --- Recurring-payment intelligence ----------------------------------

@@ -3,16 +3,22 @@
 import { useEffect, useState } from "react";
 import {
   ArrowRight,
+  Ban,
+  CheckCircle2,
   Clock,
   RotateCcw,
+  Search,
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../../components/AppSidebar";
+import Toast from "../../components/Toast";
 import { PageReveal, Reveal, Stagger } from "../../components/PremiumMotion";
 import {
   api,
+  DecisionOutcome,
+  DecisionOutcomeComparisonMetric,
   DecisionType,
   formatCents,
   SavedDecision,
@@ -70,6 +76,48 @@ function asNonEmptyString(value: unknown): string | undefined {
 
 function humanize(value: string): string {
   return value.replace(/_/g, " ");
+}
+
+// comparison_snapshot paths are raw JSON leaf paths (e.g.
+// "safe_to_spend_after_purchase_cents" or "goal_impacts[0].status")
+// -- never shown to the user as-is. This turns any such path into a
+// short readable label without hard-coding per-decision-type field
+// names.
+function metricLabel(path: string): string {
+  return path
+    .split(".")
+    .map((segment) => {
+      const match = segment.match(/^(.*?)(\[(\d+)\])?$/);
+      const name = (match?.[1] ?? segment).replace(/_cents$/, "");
+      const index = match?.[3];
+      const label = humanize(name);
+      return index !== undefined ? `${label} ${Number(index) + 1}` : label;
+    })
+    .join(" · ");
+}
+
+function isCurrencyMetric(path: string): boolean {
+  const leaf = path
+    .split(".")
+    .pop()
+    ?.replace(/\[\d+\]$/, "");
+  return leaf?.endsWith("cents") ?? false;
+}
+
+function formatMetricValue(
+  value: number | boolean | string,
+  changeType: DecisionOutcomeComparisonMetric["change_type"],
+  currency: boolean
+): string {
+  if (changeType === "boolean") {
+    return value ? "Yes" : "No";
+  }
+
+  if (changeType === "numeric" && typeof value === "number") {
+    return currency ? formatCents(value) : `${value}`;
+  }
+
+  return `${value}`;
 }
 
 function summaryChips(
@@ -230,6 +278,16 @@ export default function DecisionHistoryPage() {
     Record<number, Record<string, unknown>>
   >({});
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [outcomesByDecision, setOutcomesByDecision] = useState<
+    Record<number, DecisionOutcome[]>
+  >({});
+  const [expandedOutcomeId, setExpandedOutcomeId] = useState<number | null>(
+    null
+  );
+  const [outcomesLoadingId, setOutcomesLoadingId] = useState<number | null>(
+    null
+  );
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     async function initialize() {
@@ -299,6 +357,98 @@ export default function DecisionHistoryPage() {
       setError("Couldn't re-run that decision just now.");
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function handleUpdateStatus(
+    decisionId: number,
+    status: "acted_on" | "dismissed"
+  ) {
+    if (userId === null) return;
+
+    setBusyId(decisionId);
+    try {
+      const updated = await api.updateDecisionStatus(
+        userId,
+        decisionId,
+        status
+      );
+      setDecisions(
+        (prev) =>
+          prev?.map((d) => (d.id === decisionId ? updated : d)) ?? null
+      );
+      setMessage(
+        status === "acted_on"
+          ? "Marked as acted on."
+          : "Decision dismissed."
+      );
+    } catch {
+      setError("Couldn't update that decision just now.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleCheckOutcome(decisionId: number) {
+    if (userId === null) return;
+
+    setBusyId(decisionId);
+    try {
+      const outcome = await api.evaluateDecisionOutcome(
+        userId,
+        decisionId
+      );
+      setOutcomesByDecision((prev) => ({
+        ...prev,
+        [decisionId]: [outcome, ...(prev[decisionId] ?? [])],
+      }));
+      setDecisions(
+        (prev) =>
+          prev?.map((d) =>
+            d.id === decisionId
+              ? {
+                  ...d,
+                  outcome_count: d.outcome_count + 1,
+                  latest_outcome_at: outcome.evaluated_at,
+                }
+              : d
+          ) ?? null
+      );
+      setExpandedOutcomeId(decisionId);
+    } catch {
+      setError("Couldn't check the outcome just now.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // Detailed outcome history is never fetched for every card on load --
+  // only when the user explicitly opens a card's history, and only
+  // once per decision (subsequent toggles reuse what's already in
+  // outcomesByDecision).
+  async function handleToggleOutcomeHistory(decisionId: number) {
+    if (userId === null) return;
+
+    if (expandedOutcomeId === decisionId) {
+      setExpandedOutcomeId(null);
+      return;
+    }
+
+    setExpandedOutcomeId(decisionId);
+
+    if (outcomesByDecision[decisionId]) return;
+
+    setOutcomesLoadingId(decisionId);
+    try {
+      const outcomes = await api.getDecisionOutcomes(userId, decisionId);
+      setOutcomesByDecision((prev) => ({
+        ...prev,
+        [decisionId]: outcomes,
+      }));
+    } catch {
+      setError("Couldn't load the outcome history just now.");
+    } finally {
+      setOutcomesLoadingId(null);
     }
   }
 
@@ -374,12 +524,22 @@ export default function DecisionHistoryPage() {
                 {decisions.map((decision) => {
                   const status = statusLabel(decision);
                   const rerun = rerunResults[decision.id];
+                  const outcomes = outcomesByDecision[decision.id] ?? [];
+                  const latestOutcome = outcomes[0];
+                  const isOutcomeHistoryOpen =
+                    expandedOutcomeId === decision.id;
+                  const isOutcomeHistoryLoading =
+                    outcomesLoadingId === decision.id;
 
                   return (
                     <Reveal key={decision.id}>
                       <article
                         data-testid="decision-history-card"
-                        className="py-6 sm:py-7"
+                        className={`py-6 sm:py-7 ${
+                          decision.status === "dismissed"
+                            ? "opacity-60"
+                            : ""
+                        }`}
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="inline-flex items-center rounded-full bg-[#eef1ec] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#5F5751]">
@@ -452,6 +612,81 @@ export default function DecisionHistoryPage() {
                         )}
 
                         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#181713]/8 pt-4">
+                          {decision.status === "saved" && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={busyId === decision.id}
+                                onClick={() =>
+                                  handleUpdateStatus(decision.id, "acted_on")
+                                }
+                                className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-[#181713] px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-[#2F2930] disabled:opacity-50"
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                I made this decision
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={busyId === decision.id}
+                                onClick={() =>
+                                  handleUpdateStatus(decision.id, "dismissed")
+                                }
+                                className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#181713]/15 bg-[#FFFCF7] px-3.5 py-1.5 text-xs font-semibold text-[#706961] transition hover:bg-[#eef1ec] disabled:opacity-50"
+                              >
+                                <Ban className="h-3.5 w-3.5" />
+                                Dismiss
+                              </button>
+                            </>
+                          )}
+
+                          {decision.status === "acted_on" && (
+                            <>
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E3EBE1] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#48634B]">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Acted on
+                                {decision.acted_on_at &&
+                                  ` · ${formatDate(decision.acted_on_at)}`}
+                              </span>
+
+                              <button
+                                type="button"
+                                disabled={busyId === decision.id}
+                                onClick={() => handleCheckOutcome(decision.id)}
+                                className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#6E4B63]/25 bg-[#F8F4EE] px-3.5 py-1.5 text-xs font-semibold text-[#6E4B63] transition hover:bg-[#dff6c7] disabled:opacity-50"
+                              >
+                                <Search className="h-3.5 w-3.5" />
+                                Check outcome
+                              </button>
+
+                              {decision.outcome_count > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleToggleOutcomeHistory(decision.id)
+                                  }
+                                  className="focus-ring inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold text-[#6E4B63] underline decoration-[#6E4B63]/40 underline-offset-2 transition hover:text-[#2F2930]"
+                                >
+                                  {isOutcomeHistoryOpen
+                                    ? "Hide outcome history"
+                                    : `Checked ${decision.outcome_count}× outcome history`}
+                                  {!isOutcomeHistoryOpen &&
+                                    decision.latest_outcome_at &&
+                                    ` · last ${formatDate(
+                                      decision.latest_outcome_at
+                                    )}`}
+                                </button>
+                              )}
+                            </>
+                          )}
+
+                          {decision.status === "dismissed" && (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
+                              <Ban className="h-3.5 w-3.5" />
+                              Dismissed
+                            </span>
+                          )}
+
                           <button
                             type="button"
                             disabled={busyId === decision.id}
@@ -472,6 +707,120 @@ export default function DecisionHistoryPage() {
                             Delete
                           </button>
                         </div>
+
+                        {decision.status === "acted_on" &&
+                          isOutcomeHistoryOpen &&
+                          isOutcomeHistoryLoading && (
+                            <div
+                              data-testid="decision-outcome-loading"
+                              className="mt-4 border border-[#181713]/10 bg-[#FFFCF7] px-4 py-3 text-xs text-[#706961]"
+                            >
+                              Loading outcome history…
+                            </div>
+                          )}
+
+                        {decision.status === "acted_on" &&
+                          isOutcomeHistoryOpen &&
+                          latestOutcome && (
+                            <div
+                              data-testid="decision-outcome-panel"
+                              className="mt-4 border border-[#181713]/10 bg-[#FFFCF7]"
+                            >
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#181713]/10 px-4 py-3">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
+                                Predicted vs current
+                              </p>
+                              <p className="text-xs text-[#8a978f]">
+                                Checked {formatDate(latestOutcome.evaluated_at)}
+                              </p>
+                            </div>
+
+                            {latestOutcome.comparison_snapshot.metrics
+                              .length === 0 ? (
+                              <p className="px-4 py-3 text-xs leading-5 text-[#706961]">
+                                Nothing comparable was found between the
+                                original result and the current data.
+                              </p>
+                            ) : !latestOutcome.comparison_snapshot.changed ? (
+                              <p className="px-4 py-3 text-xs leading-5 text-[#706961]">
+                                No meaningful change since you acted on this
+                                decision.
+                              </p>
+                            ) : (
+                              <div className="divide-y divide-[#181713]/8">
+                                {latestOutcome.comparison_snapshot.metrics
+                                  .filter(
+                                    (metric) =>
+                                      metric.before !== metric.current
+                                  )
+                                  .map((metric) => {
+                                    const currency = isCurrencyMetric(
+                                      metric.path
+                                    );
+
+                                    return (
+                                      <div
+                                        key={metric.path}
+                                        className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5"
+                                      >
+                                        <span className="text-xs font-medium text-[#2F2930]">
+                                          {metricLabel(metric.path)}
+                                        </span>
+
+                                        <span className="flex items-center gap-2 text-xs">
+                                          <span className="text-[#8a978f]">
+                                            {formatMetricValue(
+                                              metric.before,
+                                              metric.change_type,
+                                              currency
+                                            )}
+                                          </span>
+                                          <ArrowRight className="h-3 w-3 text-[#c7bfb4]" />
+                                          <span className="font-semibold text-[#2F2930]">
+                                            {formatMetricValue(
+                                              metric.current,
+                                              metric.change_type,
+                                              currency
+                                            )}
+                                          </span>
+                                          {metric.change_type === "numeric" &&
+                                            metric.delta !== null && (
+                                              <span
+                                                className={
+                                                  metric.delta >= 0
+                                                    ? "font-semibold text-[#48634B]"
+                                                    : "font-semibold text-[#a64b3d]"
+                                                }
+                                              >
+                                                {metric.delta >= 0 ? "+" : ""}
+                                                {formatMetricValue(
+                                                  metric.delta,
+                                                  metric.change_type,
+                                                  currency
+                                                )}
+                                              </span>
+                                            )}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            )}
+
+                            {outcomes.length > 1 && (
+                              <p className="border-t border-[#181713]/8 px-4 py-2 text-[11px] text-[#8a978f]">
+                                Also checked on{" "}
+                                {outcomes
+                                  .slice(1, 4)
+                                  .map((o) => formatDate(o.evaluated_at))
+                                  .join(", ")}
+                                {outcomes.length > 4
+                                  ? `, and ${outcomes.length - 4} more`
+                                  : ""}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </article>
                     </Reveal>
                   );
@@ -481,6 +830,12 @@ export default function DecisionHistoryPage() {
           </div>
         </PageReveal>
       </div>
+
+      <Toast
+        message={message}
+        type="success"
+        onClose={() => setMessage("")}
+      />
     </main>
   );
 }

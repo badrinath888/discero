@@ -522,6 +522,12 @@ def test_decline_out_of_scope() -> None:
 
 
 def test_text_only_response_without_tool_use() -> None:
+    # tool_choice="any" means a real provider can never skip picking a
+    # tool -- but orchestration must still defend against a
+    # misbehaving/mocked one that does anyway. Bare prose from DECIDE is
+    # never grounded in a real calculation, so it is never shown to the
+    # user; the same deterministic router free mode uses decides the
+    # real outcome from the actual message instead.
     with TestingSessionLocal() as db:
         user = create_user(db)
         client = CopilotClient(api_key="fake-key")
@@ -540,9 +546,9 @@ def test_text_only_response_without_tool_use() -> None:
             as_of=TEST_DATE,
         )
 
-        assert result.kind == "answer"
-        assert result.answer == "Hi! Ask me about your finances."
-        assert result.key_numbers == []
+        assert result.kind == "out_of_scope"
+        assert result.provenance == "deterministic"
+        assert "Hi! Ask me about your finances." != result.answer
 
 
 def test_invalid_tool_input_becomes_clarifying_question() -> None:

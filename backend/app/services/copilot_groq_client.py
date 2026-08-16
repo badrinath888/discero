@@ -94,6 +94,10 @@ def _to_groq_tool_choice(tool_choice: dict | None):
             "type": "function",
             "function": {"name": tool_choice["name"]},
         }
+    if tool_choice.get("type") == "any":
+        # Groq/OpenAI's equivalent of Anthropic's {"type": "any"} --
+        # the model must call some tool, but may pick which.
+        return "required"
     return "auto"
 
 

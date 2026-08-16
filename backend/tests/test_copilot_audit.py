@@ -174,13 +174,19 @@ def test_unregistered_tool_name_is_rejected_and_audited() -> None:
             as_of=TEST_DATE,
         )
 
-        assert result.kind == "answer"
+        # Rejected, then given a real (deterministic) second chance at
+        # the actual message rather than a static reply -- same
+        # two-row pattern as a DECIDE provider failure falling back to
+        # free mode: the rejection is audited, and so is the fallback
+        # outcome.
+        assert result.kind == "out_of_scope"
         events = _events(db)
-        assert len(events) == 1
+        assert len(events) == 2
         assert events[0].event_type == "safety_rejection"
         assert events[0].success is False
         assert events[0].error_code == "TOOL_NOT_REGISTERED"
         assert events[0].tool_name == "delete_all_transactions"
+        assert events[1].mode == "free"
 
 
 def test_tool_validation_failure_is_audited() -> None:

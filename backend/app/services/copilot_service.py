@@ -1,23 +1,38 @@
 """Discero AI Copilot orchestration.
 
 Design principle: the LLM never invents a financial number. Each user turn
-runs at most two Anthropic calls, both via tool-use (structured JSON, not
+runs at most two provider calls, both via tool-use (structured JSON, not
 free text):
 
-1. DECIDE -- Claude picks exactly one of: a real deterministic financial
-   tool (mirroring an existing service, e.g. `simulate_major_purchase`),
-   `request_clarification` (missing/ambiguous required parameter), or
-   `decline_out_of_scope` (non-financial or unsupported question).
-2. NARRATE -- only if a financial tool was used. Claude is shown that
-   tool's REAL result JSON and must call `present_financial_answer` to
-   produce prose. The numeric "key numbers" chips shown to the user are
-   built directly from the real result by plain Python in this module,
-   never parsed out of Claude's prose -- so a hallucinated number in the
-   narration step can never reach a metric chip.
+1. DECIDE -- the provider picks exactly one of: a real deterministic
+   financial tool (mirroring an existing service, e.g.
+   `simulate_major_purchase`), `request_clarification` (missing/ambiguous
+   required parameter), or `decline_out_of_scope` (non-financial or
+   unsupported question). tool_choice="any" forces this choice every
+   turn -- the provider can never skip picking a tool and return bare
+   prose instead, closing off "the model just talked" as a hidden fourth
+   routing path.
+2. NARRATE -- only if a financial tool was used. The provider is shown
+   that tool's REAL result JSON and must call `present_financial_answer`
+   to produce prose. The numeric "key numbers" chips shown to the user
+   are built directly from the real result by plain Python in this
+   module, never parsed out of the model's prose -- so a hallucinated
+   number in the narration step can never reach a metric chip.
+
+Every routing decision, whether from a provider's DECIDE call or from
+`copilot_free_mode`'s deterministic router, resolves to one of the same
+three outcomes: `copilot_free_mode.RouteKind` ("tool" / "clarification" /
+"unsupported"). Whenever a provider is reachable but returns something
+unusable for that vocabulary -- no tool call at all, or a tool name
+outside the registry -- orchestration falls back to
+`copilot_free_mode.resolve_intent` on the real message rather than
+guessing or returning a static reply, the same deterministic router
+free mode itself uses when no provider is configured.
 
 Conversation memory is just the full message history resent each turn
-(Claude's native multi-turn context), so follow-ups like "what about
-$3,000?" resolve for free with no bespoke intent/slot-filling code.
+(the provider's native multi-turn context), so follow-ups like "what
+about $3,000?" resolve for free with no bespoke intent/slot-filling
+code.
 """
 
 from __future__ import annotations
@@ -1552,15 +1567,6 @@ def _first_tool_use(response):
     return None
 
 
-def _extract_text(response) -> str:
-    parts = [
-        block.text
-        for block in response.content
-        if getattr(block, "type", None) == "text" and block.text
-    ]
-    return " ".join(p.strip() for p in parts).strip()
-
-
 def _extract_intent(tool_input: dict) -> str | None:
     """Bounded, enum-constrained scenario label -- never free text."""
     value = tool_input.get("scenario_type")
@@ -1659,6 +1665,22 @@ def _narrate(
     return narrate_use.input or {}
 
 
+def _load_goal_names(db: Session, user_id: int) -> list[str]:
+    """Just the current user's real goal names, for named-goal routing.
+
+    A single lightweight name-only column query (no balances, dates,
+    or other goal fields) -- cheaper than the full goal objects
+    `_build_system_prompt` already loads unconditionally on every
+    AI-path turn, so doing the same here for the deterministic path
+    is not a new class of query.
+    """
+    return list(
+        db.scalars(
+            select(SavingsGoal.name).where(SavingsGoal.user_id == user_id)
+        ).all()
+    )
+
+
 def _run_free_mode(
     db: Session,
     user_id: int,
@@ -1669,7 +1691,9 @@ def _run_free_mode(
     request_id: str,
 ) -> CopilotResponseOut:
     """Deterministic, zero-cost fallback -- see copilot_free_mode."""
-    resolution = copilot_free_mode.resolve_intent(messages, as_of)
+    resolution = copilot_free_mode.resolve_intent(
+        messages, as_of, _load_goal_names(db, user_id)
+    )
 
     if resolution is None:
         copilot_audit.record_event(
@@ -1682,6 +1706,7 @@ def _run_free_mode(
             tool_call_count=0,
             response_kind="out_of_scope",
             provenance="deterministic",
+            metadata={"route_kind": "unsupported"},
         )
         return CopilotResponseOut(
             kind="out_of_scope",
@@ -1700,6 +1725,10 @@ def _run_free_mode(
             tool_call_count=0,
             response_kind="clarifying_question",
             provenance="deterministic",
+            metadata={
+                "route_kind": "clarification",
+                "candidate_count": len(resolution.options or []),
+            },
         )
         return CopilotResponseOut(
             kind="clarifying_question",
@@ -1765,7 +1794,10 @@ def _run_free_mode(
 
     answer, why, what_this_means, actions = (
         copilot_free_mode.deterministic_narration(
-            resolution.tool_name, result, resolution.emphasize
+            resolution.tool_name,
+            result,
+            resolution.emphasize,
+            resolution.target_goal_name,
         )
     )
 
@@ -1782,6 +1814,7 @@ def _run_free_mode(
         response_kind="answer",
         provenance="deterministic",
         intent=_extract_intent(resolution.tool_input),
+        metadata={"route_kind": "tool"},
     )
 
     return CopilotResponseOut(
@@ -1828,8 +1861,19 @@ def run_copilot_turn(
 
     system = _build_system_prompt(db, user_id, calculation_date)
 
+    # tool_choice="any" (not "auto"): DECIDE must always pick one of the
+    # registered tools -- including request_clarification and
+    # decline_out_of_scope, which are themselves tools -- so a supported
+    # question can never come back as free-form, ungrounded prose. The
+    # provider still fully expresses "ambiguous" (clarification) and
+    # "out of scope" (decline) outcomes; it just can never skip picking
+    # any tool at all.
     decision, decide_latency_ms, decide_error_code = _timed_model_call(
-        client, system=system, messages=history, tools=_TOOLS
+        client,
+        system=system,
+        messages=history,
+        tools=_TOOLS,
+        tool_choice={"type": "any"},
     )
 
     if decision is None:
@@ -1861,24 +1905,31 @@ def run_copilot_turn(
     tool_use = _first_tool_use(decision)
 
     if tool_use is None:
-        text = _extract_text(decision)
+        # The provider skipped every tool despite tool_choice="any" and
+        # returned prose instead -- that prose is never grounded in a
+        # real calculation, so it is never shown to the user. Same
+        # deterministic router free mode uses decides the real outcome
+        # (tool / clarification / unsupported) from the actual message.
         copilot_audit.record_event(
             db,
             user_id=user_id,
             request_id=request_id,
             mode=client.provider_name,
-            event_type="answer",
-            success=True,
+            event_type="provider_failure",
+            success=False,
+            error_code=copilot_audit.MODEL_INVALID_RESPONSE,
             latency_ms=decide_latency_ms,
             model=client.model,
             tool_call_count=0,
-            response_kind="answer",
-            provenance="ai_enhanced",
+            metadata={"stage": "decide", "reason": "no_tool_call"},
         )
-        return CopilotResponseOut(
-            kind="answer",
-            answer=text or _FALLBACK_ANSWER,
-            provenance="ai_enhanced",
+        return _run_free_mode(
+            db,
+            user_id,
+            current_user,
+            messages,
+            calculation_date,
+            request_id=request_id,
         )
 
     name = tool_use.name
@@ -1901,6 +1952,7 @@ def run_copilot_turn(
             tool_call_count=0,
             response_kind="clarifying_question",
             provenance="ai_enhanced",
+            metadata={"route_kind": "clarification"},
         )
         return CopilotResponseOut(
             kind="clarifying_question",
@@ -1926,6 +1978,7 @@ def run_copilot_turn(
             response_kind="out_of_scope",
             provenance="ai_enhanced",
             intent=category if isinstance(category, str) else None,
+            metadata={"route_kind": "unsupported"},
         )
         return CopilotResponseOut(
             kind="out_of_scope",
@@ -1937,7 +1990,11 @@ def run_copilot_turn(
 
     if handler is None:
         # The model named a tool outside our registry -- never
-        # executed, only ever answered from the fixed fallback text.
+        # executed under any circumstances. Rather than a static "I
+        # couldn't complete that" reply, the same deterministic router
+        # free mode uses gets a real shot at the actual message, so a
+        # rejected hallucinated tool call doesn't waste an otherwise
+        # answerable turn.
         copilot_audit.record_event(
             db,
             user_id=user_id,
@@ -1953,10 +2010,13 @@ def run_copilot_turn(
             response_kind="answer",
             provenance="ai_enhanced",
         )
-        return CopilotResponseOut(
-            kind="answer",
-            answer=_FALLBACK_ANSWER,
-            provenance="ai_enhanced",
+        return _run_free_mode(
+            db,
+            user_id,
+            current_user,
+            messages,
+            calculation_date,
+            request_id=request_id,
         )
 
     tool_start = time.monotonic()
@@ -2034,6 +2094,7 @@ def run_copilot_turn(
         response_kind="answer",
         provenance=provenance,
         intent=_extract_intent(tool_input),
+        metadata={"route_kind": "tool"},
     )
 
     return CopilotResponseOut(

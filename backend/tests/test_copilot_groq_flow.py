@@ -223,8 +223,11 @@ def test_groq_unregistered_tool_name_never_executes() -> None:
             as_of=TEST_DATE,
         )
 
-        # Never executed -- only the fixed fallback text comes back.
-        assert result.kind == "answer"
+        # Never executed -- the hallucinated tool call is rejected, and
+        # the deterministic router gets a real shot at the message; it
+        # finds no supported Discero capability in it, so this lands as
+        # out_of_scope rather than a static fallback string.
+        assert result.kind == "out_of_scope"
         assert "wipe" not in (result.answer or "").lower()
 
 
@@ -388,8 +391,9 @@ def test_groq_audit_rows_are_tagged_with_groq_provider() -> None:
         assert events[0].mode == "groq"
         assert events[0].model == "llama-3.3-70b-versatile"
         # No prompt text, no financial payload -- same privacy bound
-        # as the Anthropic path.
-        assert events[0].event_metadata is None
+        # as the Anthropic path. Only the bounded routing-outcome kind
+        # is stored, never raw prompt/model/financial content.
+        assert events[0].event_metadata == {"route_kind": "tool"}
 
 
 def test_groq_follow_up_question_uses_conversation_history() -> None:

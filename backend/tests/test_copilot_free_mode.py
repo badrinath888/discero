@@ -411,11 +411,12 @@ def test_lose_income_phrasing_matches_stress_test() -> None:
             as_of=TEST_DATE,
         )
 
-        # No dollar amount or percent was given, so the classifier
-        # correctly routes to the stress-test intent and then asks
-        # for the missing figure rather than guessing one.
-        assert result.kind == "clarifying_question"
-        assert result.clarifying_options
+        # A duration was stated ("2 months"), so this now resolves
+        # directly to a real temporary_income_loss stress scenario
+        # (amount auto-derived from real income history) instead of
+        # asking for a percentage the user never mentioned.
+        assert result.kind == "answer"
+        assert result.tool_used == "Financial Stress Test"
 
 
 def test_cash_flow_forecast_works_without_key() -> None:

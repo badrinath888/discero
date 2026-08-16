@@ -184,19 +184,21 @@ def test_malformed_tool_arguments_never_crash_and_never_guess(
 def test_followup_history_with_tool_result_round_trips_to_groq_format(
     monkeypatch,
 ) -> None:
-    # Mirrors exactly what copilot_service._narrate builds: the prior
-    # assistant turn's tool_use block replayed back, followed by a
-    # user-role tool_result block carrying the real deterministic
+    # Mirrors exactly what copilot_service._narrate builds: the tool
+    # already picked by the deterministic router, synthesized as a
+    # plain Anthropic-shaped dict (never a live SDK response object,
+    # since no DECIDE call happened this turn), followed by a
+    # user-role tool_result block carrying the normalized deterministic
     # result JSON.
     _patch_groq(monkeypatch, _groq_response(_groq_message(content="done")))
     client = GroqCopilotClient(api_key="fake-key")
 
-    prior_tool_use = SimpleNamespace(
-        type="tool_use",
-        id="call_1",
-        name="get_safe_to_spend",
-        input={},
-    )
+    prior_tool_use = {
+        "type": "tool_use",
+        "id": "call_1",
+        "name": "get_safe_to_spend",
+        "input": {},
+    }
 
     client.call(
         system="sys",

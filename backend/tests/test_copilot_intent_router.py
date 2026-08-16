@@ -511,6 +511,15 @@ def _tool_use_response(name: str, tool_input: dict) -> SimpleNamespace:
     )
 
 
+# Deliberately NOT phrasing the deterministic router classifies (unlike
+# "What's my safe to spend?") -- these tests exercise PATH B, where the
+# router has no safe resolution and the turn's one provider call is
+# spent on DECIDE.
+_ROUTER_UNCLASSIFIABLE_MESSAGE = (
+    "Is tonight a good night for me to go out to eat?"
+)
+
+
 def test_anthropic_decide_call_forces_a_tool_choice() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db)
@@ -519,22 +528,19 @@ def test_anthropic_decide_call_forces_a_tool_choice() -> None:
 
         def fake_call(**kwargs):
             calls.append(kwargs)
-            if len(calls) == 1:
-                return _tool_use_response("get_safe_to_spend", {})
-            return _tool_use_response(
-                "present_financial_answer", {"answer": "ok"}
-            )
+            return _tool_use_response("get_safe_to_spend", {})
 
         client.call = fake_call  # type: ignore[method-assign]
 
         run_copilot_turn(
-            db, user.id, user, _messages("What's my safe to spend?"),
+            db, user.id, user, _messages(_ROUTER_UNCLASSIFIABLE_MESSAGE),
             client, as_of=TEST_DATE,
         )
 
-        # DECIDE (the first call) must never use "auto" -- that's the
-        # exact gap that let a supported question fall through as
-        # ungrounded prose.
+        # DECIDE (this turn's one and only provider call) must never
+        # use "auto" -- that's the exact gap that let a supported
+        # question fall through as ungrounded prose.
+        assert len(calls) == 1
         assert calls[0]["tool_choice"] == {"type": "any"}
 
 
@@ -546,19 +552,16 @@ def test_groq_decide_call_translates_any_to_required() -> None:
 
         def fake_call(**kwargs):
             calls.append(kwargs)
-            if len(calls) == 1:
-                return _tool_use_response("get_safe_to_spend", {})
-            return _tool_use_response(
-                "present_financial_answer", {"answer": "ok"}
-            )
+            return _tool_use_response("get_safe_to_spend", {})
 
         client.call = fake_call  # type: ignore[method-assign]
 
         run_copilot_turn(
-            db, user.id, user, _messages("What's my safe to spend?"),
+            db, user.id, user, _messages(_ROUTER_UNCLASSIFIABLE_MESSAGE),
             client, as_of=TEST_DATE,
         )
 
+        assert len(calls) == 1
         assert calls[0]["tool_choice"] == {"type": "any"}
 
 

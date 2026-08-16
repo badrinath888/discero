@@ -206,15 +206,12 @@ def test_safe_to_spend_tool_grounds_chips_in_real_calculation() -> None:
 
         def fake_call(**kwargs):
             calls["n"] += 1
-            if calls["n"] == 1:
-                return _response(
-                    _tool_use_block(
-                        "tool_1", "get_safe_to_spend", {}
-                    )
-                )
+            # The deterministic router already resolves
+            # get_safe_to_spend before any provider call -- this
+            # turn's one provider call is NARRATE only.
             return _response(
                 _tool_use_block(
-                    "tool_2",
+                    "tool_1",
                     "present_financial_answer",
                     {
                         "answer": "You have plenty of room to spend.",
@@ -244,7 +241,7 @@ def test_safe_to_spend_tool_grounds_chips_in_real_calculation() -> None:
         )
         # 500_000 cents available, no obligations/reserve configured.
         assert safe_chip.value_display == "$5,000.00"
-        assert calls["n"] == 2
+        assert calls["n"] == 1
 
 
 def test_major_purchase_tool_converts_dollars_to_cents_via_schema() -> (
@@ -469,11 +466,17 @@ def test_request_clarification_short_circuits_without_narration() -> (
 
         client.call = fake_call  # type: ignore[method-assign]
 
+        # Deliberately NOT a phrase the deterministic router classifies
+        # (unlike "Can I afford it?", which the router now resolves to
+        # its own clarification with zero provider calls) -- this
+        # exercises PATH B's provider-authored clarification instead.
         result = run_copilot_turn(
             db,
             user.id,
             user,
-            _user_message("Can I afford it?"),
+            _user_message(
+                "I'm thinking about making a fairly large purchase soon."
+            ),
             client,
             as_of=TEST_DATE,
         )
@@ -483,7 +486,8 @@ def test_request_clarification_short_circuits_without_narration() -> (
             "What amount are you considering?"
         )
         assert result.clarifying_options == ["$1,000", "$2,000"]
-        # No second (narration) call for a clarifying question.
+        # DECIDE is the only provider call spent -- clarification never
+        # spends a second (narration) call.
         assert calls["n"] == 1
 
 
@@ -869,15 +873,12 @@ def test_recurring_intelligence_tool_grounds_chips_in_real_calculation() -> (
 
         def fake_call(**kwargs):
             calls["n"] += 1
-            if calls["n"] == 1:
-                return _response(
-                    _tool_use_block(
-                        "tool_1", "get_recurring_intelligence", {}
-                    )
-                )
+            # The deterministic router already resolves
+            # get_recurring_intelligence before any provider call --
+            # this turn's one provider call is NARRATE only.
             return _response(
                 _tool_use_block(
-                    "tool_2",
+                    "tool_1",
                     "present_financial_answer",
                     {
                         "answer": "You have one active recurring bill.",
@@ -902,7 +903,7 @@ def test_recurring_intelligence_tool_grounds_chips_in_real_calculation() -> (
             c for c in result.key_numbers if c.label == "Monthly recurring"
         )
         assert monthly_chip.value_display == "$1,500.00"
-        assert calls["n"] == 2
+        assert calls["n"] == 1
 
 
 def test_spending_anomalies_tool_grounds_chips_in_real_calculation() -> None:
@@ -915,13 +916,12 @@ def test_spending_anomalies_tool_grounds_chips_in_real_calculation() -> None:
 
         def fake_call(**kwargs):
             calls["n"] += 1
-            if calls["n"] == 1:
-                return _response(
-                    _tool_use_block("tool_1", "get_spending_anomalies", {})
-                )
+            # The deterministic router already resolves
+            # get_spending_anomalies before any provider call -- this
+            # turn's one provider call is NARRATE only.
             return _response(
                 _tool_use_block(
-                    "tool_2",
+                    "tool_1",
                     "present_financial_answer",
                     {"answer": "Nothing unusual stood out."},
                 )
@@ -944,7 +944,7 @@ def test_spending_anomalies_tool_grounds_chips_in_real_calculation() -> None:
             c for c in result.key_numbers if c.label == "Anomalies found"
         )
         assert anomalies_chip.value_display == "0"
-        assert calls["n"] == 2
+        assert calls["n"] == 1
 
 
 def test_spending_anomalies_key_cards_do_not_repeat_the_same_signal() -> (

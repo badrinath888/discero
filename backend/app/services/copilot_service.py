@@ -2104,6 +2104,57 @@ def _resolve_deterministic(
     )
 
 
+def unexpected_turn_failure_response(
+    db: Session,
+    user_id: int,
+    request_id: str,
+    exc: Exception,
+) -> CopilotResponseOut:
+    """Last-resort request-boundary responder for the Copilot router.
+
+    Reached only when `run_copilot_turn` raises something none of its
+    own handling caught -- a bug, not a classified provider/validation/
+    tool failure -- so there is never an already-built deterministic
+    response for this to discard; the crash necessarily happened before
+    one could be returned.
+
+    Logs only bounded, structured metadata: request_id, the exception's
+    type name, and a stable error code. Never `str(exc)` or a
+    traceback, since the exception may have originated inside a tool
+    handler and its message could echo prompt text or financial values
+    -- those must never reach logs or the audit trail.
+    """
+    db.rollback()
+    error_code = copilot_audit.classify_provider_error(exc)
+
+    logger.error(
+        "copilot_unexpected_failure request_id=%s error_type=%s "
+        "error_code=%s",
+        request_id,
+        type(exc).__name__,
+        error_code,
+    )
+
+    copilot_audit.record_event(
+        db,
+        user_id=user_id,
+        request_id=request_id,
+        mode="unknown",
+        event_type="unexpected_failure",
+        success=False,
+        error_code=error_code,
+        response_kind="answer",
+        provenance="deterministic",
+        metadata={"error_type": type(exc).__name__},
+    )
+
+    return CopilotResponseOut(
+        kind="answer",
+        answer=_FALLBACK_ANSWER,
+        provenance="deterministic",
+    )
+
+
 def run_copilot_turn(
     db: Session,
     user_id: int,

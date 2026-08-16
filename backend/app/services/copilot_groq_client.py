@@ -11,10 +11,16 @@ tool_use, `.id`/`.name`/`.input`.
 OpenAI-compatible chat-completions API, translating to/from Groq's
 wire format only inside this module. Orchestration in
 copilot_service.py never branches on provider -- it only ever sees the
-shared shape. A single Copilot turn's DECIDE and NARRATE calls always
-go through the same client instance, so this module only has to stay
-self-consistent (its own output feeding back into its own input), not
-compatible with Anthropic's wire format.
+shared shape.
+
+Under the one-provider-call-per-turn architecture, a NARRATE call's
+preceding assistant "tool_use" turn is never a live response this
+client produced -- the tool was already picked by the deterministic
+router, so copilot_service.py synthesizes that turn itself as plain
+Anthropic-shaped dicts (`{"type": "tool_use", "id": ..., "name": ...,
+"input": ...}`), the same format used to construct messages manually
+in Anthropic's own docs. `_assistant_blocks_to_groq` below only ever
+has to understand that dict shape, never a live SDK response object.
 """
 
 from __future__ import annotations
@@ -125,17 +131,17 @@ def _assistant_blocks_to_groq(blocks) -> dict:
     tool_calls: list[dict] = []
 
     for block in blocks:
-        block_type = getattr(block, "type", None)
-        if block_type == "text" and getattr(block, "text", None):
-            text_parts.append(block.text)
+        block_type = block.get("type")
+        if block_type == "text" and block.get("text"):
+            text_parts.append(block["text"])
         elif block_type == "tool_use":
             tool_calls.append(
                 {
-                    "id": block.id,
+                    "id": block["id"],
                     "type": "function",
                     "function": {
-                        "name": block.name,
-                        "arguments": json.dumps(block.input or {}),
+                        "name": block["name"],
+                        "arguments": json.dumps(block.get("input") or {}),
                     },
                 }
             )

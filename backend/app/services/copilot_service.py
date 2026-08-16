@@ -37,6 +37,8 @@ code.
 
 from __future__ import annotations
 
+import json
+import logging
 import time
 from datetime import date
 from typing import Protocol
@@ -86,6 +88,8 @@ from app.services.scenario_comparison_service import (
 from app.services.spending_anomaly_service import detect_spending_anomalies
 from app.services.what_if_service import simulate_what_if
 
+logger = logging.getLogger(__name__)
+
 _MAX_HISTORY_MESSAGES = 20
 _UNAVAILABLE_ANSWER = (
     "The Copilot needs an AI provider key configured "
@@ -97,6 +101,23 @@ _FALLBACK_ANSWER = (
 )
 _SCOPE_FALLBACK = (
     "I can only help with questions about your Discero finances."
+)
+
+# Deliberately static and DB-free (no goal list, no Plaid lookup) --
+# unlike _build_system_prompt (used only for DECIDE now), a NARRATE
+# call already has everything it needs in the normalized tool result
+# handed to it, so building this costs nothing per turn.
+_NARRATE_SYSTEM_PROMPT = (
+    "You narrate one already-computed Discero financial result for the "
+    "user. The tool result you are shown has already been normalized "
+    "for display -- every dollar figure is a formatted string (e.g. "
+    "\"$900.00\"), never raw cents. Use those figures exactly as given; "
+    "never reconstruct, rescale, or relabel a number yourself, and "
+    "never append a unit word (like \"cents\") to a figure that already "
+    "has one. If the result has a `selected_goal`, your answer is about "
+    "that goal specifically -- never substitute or blend in a "
+    "`portfolio` figure for it. Keep it to a few short sentences, no "
+    "filler."
 )
 
 _STATUS_TONE = {
@@ -147,6 +168,84 @@ def _currency(cents: int) -> str:
 
 def _percent(value: float) -> str:
     return f"{value:.1f}%"
+
+
+def _normalize_for_narration(value):
+    """Recursively rewrites a deterministic tool result into a
+    narration-safe payload, so the provider never has to convert a
+    raw unit itself -- the exact class of bug that produced malformed
+    output like "$90,000.00 cents" in production.
+
+    Generic suffix rules only (no per-tool special-casing):
+      *_cents   -> formatted currency string, key suffix dropped
+                   (required_monthly_cents -> required_monthly)
+      *_percent -> formatted percent string, key unchanged
+      *_days    -> "N day(s)" string, key unchanged
+      *_months  -> "N month(s)" string, key unchanged
+    Anything else (dates, which are already ISO strings from
+    model_dump(mode="json"), enums, ids, booleans, plain scores) is
+    passed through unchanged -- never invented, never guessed.
+    """
+    if isinstance(value, dict):
+        normalized = {}
+        for key, val in value.items():
+            if key.endswith("_cents") and isinstance(val, (int, type(None))):
+                normalized[key[: -len("_cents")]] = (
+                    _currency(val) if val is not None else None
+                )
+            elif key.endswith("_percent") and isinstance(val, (int, float)):
+                normalized[key] = _percent(val)
+            elif (
+                key.endswith("_days") or key.endswith("_months")
+            ) and isinstance(val, int):
+                unit = "day" if key.endswith("_days") else "month"
+                normalized[key] = f"{val} {unit}{'s' if val != 1 else ''}"
+            else:
+                normalized[key] = _normalize_for_narration(val)
+        return normalized
+    if isinstance(value, list):
+        return [_normalize_for_narration(item) for item in value]
+    return value
+
+
+def _goal_intelligence_narration_payload(
+    result: BaseModel, target_goal_name: str | None
+) -> dict:
+    """Scopes goal-intelligence narration so a portfolio-wide figure can
+    never be mistaken for the specifically-named goal the user asked
+    about (production symptom: goal-scoped "$900" vs. portfolio-scoped
+    "$1,225" both narrated under one ambiguous "required monthly").
+    """
+    dumped = result.model_dump(mode="json")
+    goals = dumped.pop("goals", [])
+    payload = {"portfolio": _normalize_for_narration(dumped)}
+
+    selected = None
+    if target_goal_name:
+        selected = next(
+            (g for g in goals if g.get("name") == target_goal_name), None
+        )
+
+    if selected is not None:
+        payload["selected_goal"] = _normalize_for_narration(selected)
+    else:
+        payload["goals"] = [_normalize_for_narration(g) for g in goals]
+
+    return payload
+
+
+def _narration_payload(
+    tool_name: str, result: BaseModel, target_goal_name: str | None = None
+) -> dict:
+    """The ONLY data a NARRATE call ever sees for a tool result -- never
+    the raw model_dump_json(), which put unconverted *_cents integers
+    directly in front of the provider.
+    """
+    if tool_name == "get_goal_intelligence":
+        return _goal_intelligence_narration_payload(
+            result, target_goal_name
+        )
+    return _normalize_for_narration(result.model_dump(mode="json"))
 
 
 def _chip(
@@ -1593,27 +1692,79 @@ def _timed_model_call(client: CopilotModelProvider, **kwargs):
     return response, latency_ms, None
 
 
+def _log_provider_failure(
+    *,
+    request_id: str,
+    provider: str,
+    phase: str,
+    error_code: str | None,
+    tool_name: str | None,
+    latency_ms: int,
+) -> None:
+    """Production-safe structured warning -- request_id/provider/phase/
+    error_code/tool/latency only, never a prompt, exception body, or
+    financial payload (those could leak user data into Render logs).
+    """
+    logger.warning(
+        "copilot_provider_failure request_id=%s provider=%s phase=%s "
+        "error_code=%s tool=%s latency_ms=%d",
+        request_id,
+        provider,
+        phase,
+        error_code,
+        tool_name or "-",
+        latency_ms,
+    )
+
+
 def _narrate(
     client: CopilotModelProvider,
-    system: str,
-    history: list[dict],
-    decision,
-    tool_use,
+    tool_name: str,
+    current_message: str,
+    tool_input: dict,
     result: BaseModel,
     *,
+    target_goal_name: str | None,
     db: Session,
     user_id: int,
     request_id: str,
-) -> dict:
-    followup_messages = history + [
-        {"role": "assistant", "content": decision.content},
+) -> tuple[dict, int]:
+    """The turn's one optional NARRATE call (Path A only -- see
+    run_copilot_turn). Never a real follow-up on a live provider
+    decision: the assistant/tool_use turn below is synthesized by us,
+    since the tool was already picked deterministically and no DECIDE
+    call happened this turn. Plain dicts (not SDK response objects) --
+    both CopilotClient (native Anthropic tool_use param shape) and
+    GroqCopilotClient (dict-aware, see copilot_groq_client.py) accept
+    this construction.
+
+    Returns (narration_dict_or_empty, latency_ms). An empty dict means
+    the caller must fall back to deterministic_narration -- the turn's
+    successful tool result is never discarded because of this call.
+    """
+    tool_use_id = "toolu_deterministic_route"
+    payload = _narration_payload(tool_name, result, target_goal_name)
+
+    followup_messages = [
+        {"role": "user", "content": current_message},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": tool_use_id,
+                    "name": tool_name,
+                    "input": tool_input,
+                }
+            ],
+        },
         {
             "role": "user",
             "content": [
                 {
                     "type": "tool_result",
-                    "tool_use_id": tool_use.id,
-                    "content": result.model_dump_json(),
+                    "tool_use_id": tool_use_id,
+                    "content": json.dumps(payload),
                 }
             ],
         },
@@ -1621,7 +1772,7 @@ def _narrate(
 
     response, latency_ms, error_code = _timed_model_call(
         client,
-        system=system,
+        system=_NARRATE_SYSTEM_PROMPT,
         messages=followup_messages,
         tools=[_NARRATION_TOOL],
         tool_choice={
@@ -1641,13 +1792,26 @@ def _narrate(
             error_code=error_code,
             latency_ms=latency_ms,
             model=client.model,
+            tool_name=tool_name,
             metadata={"stage": "narrate"},
         )
-        return {}
+        _log_provider_failure(
+            request_id=request_id,
+            provider=client.provider_name,
+            phase="narrate",
+            error_code=error_code,
+            tool_name=tool_name,
+            latency_ms=latency_ms,
+        )
+        return {}, latency_ms
 
     narrate_use = _first_tool_use(response)
 
-    if narrate_use is None or narrate_use.name != "present_financial_answer":
+    if (
+        narrate_use is None
+        or narrate_use.name != "present_financial_answer"
+        or not (narrate_use.input or {}).get("answer")
+    ):
         copilot_audit.record_event(
             db,
             user_id=user_id,
@@ -1658,11 +1822,20 @@ def _narrate(
             error_code=copilot_audit.MODEL_INVALID_RESPONSE,
             latency_ms=latency_ms,
             model=client.model,
+            tool_name=tool_name,
             metadata={"stage": "narrate"},
         )
-        return {}
+        _log_provider_failure(
+            request_id=request_id,
+            provider=client.provider_name,
+            phase="narrate",
+            error_code=copilot_audit.MODEL_INVALID_RESPONSE,
+            tool_name=tool_name,
+            latency_ms=latency_ms,
+        )
+        return {}, latency_ms
 
-    return narrate_use.input or {}
+    return narrate_use.input or {}, latency_ms
 
 
 def _load_goal_names(db: Session, user_id: int) -> list[str]:
@@ -1681,38 +1854,84 @@ def _load_goal_names(db: Session, user_id: int) -> list[str]:
     )
 
 
-def _run_free_mode(
+def _turn_latency_ms(turn_start: float) -> int:
+    return int((time.monotonic() - turn_start) * 1000)
+
+
+def _unsupported_response(
+    db: Session,
+    user_id: int,
+    request_id: str,
+    *,
+    route_source: str,
+    provider_call_count: int,
+    turn_start: float,
+) -> CopilotResponseOut:
+    """The terminal 'nothing can safely answer this' outcome -- reached
+    only when BOTH the deterministic router and (if consulted) provider
+    DECIDE have no safe resolution. Never the generic
+    "I couldn't complete that" apology: that string is reserved for the
+    true last-resort case where routing succeeded but something after
+    it failed unrecoverably, which this function is not.
+    """
+    copilot_audit.record_event(
+        db,
+        user_id=user_id,
+        request_id=request_id,
+        # Always "free": the returned text is always the deterministic
+        # CAPABILITY_EXPLANATION, regardless of whether a provider was
+        # consulted first -- `route_source` in metadata below is what
+        # distinguishes a clean deterministic unsupported outcome from
+        # one reached after a DECIDE failure/rejection.
+        mode="free",
+        event_type="answer",
+        success=True,
+        tool_call_count=0,
+        response_kind="out_of_scope",
+        provenance="deterministic",
+        metadata={
+            "route_kind": "unsupported",
+            "route_source": route_source,
+            "provider_call_count": provider_call_count,
+            "provider_phase": "decide" if provider_call_count else "none",
+            "total_latency_ms": _turn_latency_ms(turn_start),
+        },
+    )
+    return CopilotResponseOut(
+        kind="out_of_scope",
+        answer=copilot_free_mode.CAPABILITY_EXPLANATION,
+        provenance="deterministic",
+    )
+
+
+def _resolve_deterministic(
     db: Session,
     user_id: int,
     current_user: User,
     messages: list[CopilotMessageIn],
     as_of: date,
+    client: CopilotModelProvider,
     *,
     request_id: str,
-) -> CopilotResponseOut:
-    """Deterministic, zero-cost fallback -- see copilot_free_mode."""
+    turn_start: float,
+) -> CopilotResponseOut | None:
+    """PATH A/C -- Intent Router 2.0's deterministic semantic router runs
+    BEFORE any provider call. Returns the final response for a tool
+    match or a clarification (0 provider calls spent on ROUTING either
+    way); returns None only when the router has no safe resolution, so
+    the caller knows to spend this turn's one allowed provider call on
+    DECIDE instead.
+
+    A tool match may still spend that one provider call, but only on
+    NARRATE (never routing) -- so this turn spends at most 1 call
+    regardless of which branch below is taken.
+    """
     resolution = copilot_free_mode.resolve_intent(
         messages, as_of, _load_goal_names(db, user_id)
     )
 
     if resolution is None:
-        copilot_audit.record_event(
-            db,
-            user_id=user_id,
-            request_id=request_id,
-            mode="free",
-            event_type="answer",
-            success=True,
-            tool_call_count=0,
-            response_kind="out_of_scope",
-            provenance="deterministic",
-            metadata={"route_kind": "unsupported"},
-        )
-        return CopilotResponseOut(
-            kind="out_of_scope",
-            answer=copilot_free_mode.CAPABILITY_EXPLANATION,
-            provenance="deterministic",
-        )
+        return None
 
     if isinstance(resolution, copilot_free_mode.Clarify):
         copilot_audit.record_event(
@@ -1727,7 +1946,10 @@ def _run_free_mode(
             provenance="deterministic",
             metadata={
                 "route_kind": "clarification",
+                "route_source": "deterministic",
+                "provider_call_count": 0,
                 "candidate_count": len(resolution.options or []),
+                "total_latency_ms": _turn_latency_ms(turn_start),
             },
         )
         return CopilotResponseOut(
@@ -1740,6 +1962,9 @@ def _run_free_mode(
     handler = _TOOL_HANDLERS.get(resolution.tool_name)
 
     if handler is None:
+        # Defensive only -- resolution.tool_name always comes from the
+        # same registry _TOOL_HANDLERS is keyed by, so this never fires
+        # in practice, but a response is still owed if it somehow did.
         copilot_audit.record_event(
             db,
             user_id=user_id,
@@ -1752,6 +1977,11 @@ def _run_free_mode(
             tool_call_count=1,
             response_kind="answer",
             provenance="deterministic",
+            metadata={
+                "route_source": "deterministic",
+                "provider_call_count": 0,
+                "total_latency_ms": _turn_latency_ms(turn_start),
+            },
         )
         return CopilotResponseOut(
             kind="answer",
@@ -1780,6 +2010,11 @@ def _run_free_mode(
             response_kind="clarifying_question",
             provenance="deterministic",
             intent=_extract_intent(resolution.tool_input),
+            metadata={
+                "route_source": "deterministic",
+                "provider_call_count": 0,
+                "total_latency_ms": _turn_latency_ms(turn_start),
+            },
         )
         return CopilotResponseOut(
             kind="clarifying_question",
@@ -1792,29 +2027,67 @@ def _run_free_mode(
 
     tool_latency_ms = int((time.monotonic() - tool_start) * 1000)
 
-    answer, why, what_this_means, actions = (
-        copilot_free_mode.deterministic_narration(
+    narration: dict = {}
+    narrate_latency_ms: int | None = None
+
+    if client.enabled:
+        narration, narrate_latency_ms = _narrate(
+            client,
             resolution.tool_name,
+            messages[-1].content,
+            resolution.tool_input,
             result,
-            resolution.emphasize,
-            resolution.target_goal_name,
+            target_goal_name=resolution.target_goal_name,
+            db=db,
+            user_id=user_id,
+            request_id=request_id,
         )
-    )
+
+    if narration:
+        answer = narration.get("answer") or _FALLBACK_ANSWER
+        why = narration.get("why")
+        what_this_means = narration.get("what_this_means")
+        actions = list(narration.get("suggested_actions") or [])[:2]
+        provenance = "ai_enhanced"
+    else:
+        # No provider configured, or its one narrate attempt failed --
+        # either way the tool already succeeded, so the REAL result is
+        # always shown via the same deterministic templates free mode
+        # uses. A narrate failure can never turn a successful
+        # calculation into the generic "couldn't complete that" error.
+        answer, why, what_this_means, actions = (
+            copilot_free_mode.deterministic_narration(
+                resolution.tool_name,
+                result,
+                resolution.emphasize,
+                resolution.target_goal_name,
+            )
+        )
+        actions = actions[:2]
+        provenance = "deterministic"
 
     copilot_audit.record_event(
         db,
         user_id=user_id,
         request_id=request_id,
-        mode="free",
+        mode=client.provider_name if client.enabled else "free",
         event_type="tool_success",
         success=True,
         tool_name=resolution.tool_name,
         latency_ms=tool_latency_ms,
+        model=client.model if client.enabled else None,
         tool_call_count=1,
         response_kind="answer",
-        provenance="deterministic",
+        provenance=provenance,
         intent=_extract_intent(resolution.tool_input),
-        metadata={"route_kind": "tool"},
+        metadata={
+            "route_kind": "tool",
+            "route_source": "deterministic",
+            "provider_call_count": 1 if client.enabled else 0,
+            "provider_phase": "narrate" if client.enabled else "none",
+            "fallback_used": client.enabled and not narration,
+            "total_latency_ms": _turn_latency_ms(turn_start),
+        },
     )
 
     return CopilotResponseOut(
@@ -1823,11 +2096,11 @@ def _run_free_mode(
         why=why,
         what_this_means=what_this_means,
         key_numbers=chips,
-        suggested_actions=actions[:2],
+        suggested_actions=actions,
         tool_used=_TOOL_LABELS.get(resolution.tool_name, resolution.tool_name),
         confidence=confidence,
         low_data_warning=low_data_warning,
-        provenance="deterministic",
+        provenance=provenance,
     )
 
 
@@ -1841,19 +2114,52 @@ def run_copilot_turn(
     as_of: date | None = None,
     request_id: str | None = None,
 ) -> CopilotResponseOut:
+    """Orchestrates one Copilot turn under a hard invariant: at most ONE
+    external provider call per turn, whether Anthropic or Groq.
+
+    PATH A/C (deterministic router resolves or clarifies) -- checked
+    FIRST, regardless of whether a provider is configured. A tool match
+    may still spend the turn's one provider call, but only on NARRATE.
+    PATH B (router has no safe resolution, provider configured) --
+    spends the turn's one provider call on DECIDE (routing) instead;
+    a tool it picks is narrated with the same deterministic templates
+    Path A's narrate failure falls back to -- never a second provider
+    call.
+    PATH D (router has no safe resolution, no provider configured) --
+    the same concise unsupported response Path B's own DECIDE failure
+    falls back to, spending 0 calls.
+    """
     calculation_date = as_of or date.today()
     request_id = request_id or copilot_audit.new_request_id()
+    turn_start = time.monotonic()
+
+    deterministic = _resolve_deterministic(
+        db,
+        user_id,
+        current_user,
+        messages,
+        calculation_date,
+        client,
+        request_id=request_id,
+        turn_start=turn_start,
+    )
+    if deterministic is not None:
+        return deterministic
 
     if not client.enabled:
-        return _run_free_mode(
+        return _unsupported_response(
             db,
             user_id,
-            current_user,
-            messages,
-            calculation_date,
-            request_id=request_id,
+            request_id,
+            route_source="deterministic",
+            provider_call_count=0,
+            turn_start=turn_start,
         )
 
+    # PATH B: the deterministic router above already found no safe
+    # resolution -- ask the provider to DECIDE instead. This is the
+    # turn's one and only provider call; whatever it produces (tool,
+    # clarification, or decline), no second provider call follows.
     history = [
         {"role": m.role, "content": m.content}
         for m in messages[-_MAX_HISTORY_MESSAGES:]
@@ -1877,9 +2183,10 @@ def run_copilot_turn(
     )
 
     if decision is None:
-        # Anthropic unreachable/timed out/rate-limited -- fall back to
-        # the free deterministic pipeline instead of failing the
-        # request. Never fabricates a financial answer either way.
+        # Provider unreachable/timed out/rate-limited -- the turn's one
+        # provider call is already spent; the deterministic router
+        # already ruled out a safe resolution above, so there is
+        # nothing further to try.
         copilot_audit.record_event(
             db,
             user_id=user_id,
@@ -1891,15 +2198,28 @@ def run_copilot_turn(
             latency_ms=decide_latency_ms,
             model=client.model,
             tool_call_count=0,
-            metadata={"stage": "decide"},
+            metadata={
+                "stage": "decide",
+                "route_source": client.provider_name,
+                "provider_call_count": 1,
+                "provider_phase": "decide",
+            },
         )
-        return _run_free_mode(
+        _log_provider_failure(
+            request_id=request_id,
+            provider=client.provider_name,
+            phase="decide",
+            error_code=decide_error_code,
+            tool_name=None,
+            latency_ms=decide_latency_ms,
+        )
+        return _unsupported_response(
             db,
             user_id,
-            current_user,
-            messages,
-            calculation_date,
-            request_id=request_id,
+            request_id,
+            route_source=client.provider_name,
+            provider_call_count=1,
+            turn_start=turn_start,
         )
 
     tool_use = _first_tool_use(decision)
@@ -1907,9 +2227,7 @@ def run_copilot_turn(
     if tool_use is None:
         # The provider skipped every tool despite tool_choice="any" and
         # returned prose instead -- that prose is never grounded in a
-        # real calculation, so it is never shown to the user. Same
-        # deterministic router free mode uses decides the real outcome
-        # (tool / clarification / unsupported) from the actual message.
+        # real calculation, so it is never shown to the user.
         copilot_audit.record_event(
             db,
             user_id=user_id,
@@ -1921,15 +2239,20 @@ def run_copilot_turn(
             latency_ms=decide_latency_ms,
             model=client.model,
             tool_call_count=0,
-            metadata={"stage": "decide", "reason": "no_tool_call"},
+            metadata={
+                "stage": "decide",
+                "reason": "no_tool_call",
+                "route_source": client.provider_name,
+                "provider_call_count": 1,
+            },
         )
-        return _run_free_mode(
+        return _unsupported_response(
             db,
             user_id,
-            current_user,
-            messages,
-            calculation_date,
-            request_id=request_id,
+            request_id,
+            route_source=client.provider_name,
+            provider_call_count=1,
+            turn_start=turn_start,
         )
 
     name = tool_use.name
@@ -1952,7 +2275,13 @@ def run_copilot_turn(
             tool_call_count=0,
             response_kind="clarifying_question",
             provenance="ai_enhanced",
-            metadata={"route_kind": "clarification"},
+            metadata={
+                "route_kind": "clarification",
+                "route_source": client.provider_name,
+                "provider_call_count": 1,
+                "provider_phase": "decide",
+                "total_latency_ms": _turn_latency_ms(turn_start),
+            },
         )
         return CopilotResponseOut(
             kind="clarifying_question",
@@ -1978,7 +2307,13 @@ def run_copilot_turn(
             response_kind="out_of_scope",
             provenance="ai_enhanced",
             intent=category if isinstance(category, str) else None,
-            metadata={"route_kind": "unsupported"},
+            metadata={
+                "route_kind": "unsupported",
+                "route_source": client.provider_name,
+                "provider_call_count": 1,
+                "provider_phase": "decide",
+                "total_latency_ms": _turn_latency_ms(turn_start),
+            },
         )
         return CopilotResponseOut(
             kind="out_of_scope",
@@ -1989,12 +2324,11 @@ def run_copilot_turn(
     handler = _TOOL_HANDLERS.get(name)
 
     if handler is None:
-        # The model named a tool outside our registry -- never
-        # executed under any circumstances. Rather than a static "I
-        # couldn't complete that" reply, the same deterministic router
-        # free mode uses gets a real shot at the actual message, so a
-        # rejected hallucinated tool call doesn't waste an otherwise
-        # answerable turn.
+        # The model named a tool outside our registry -- never executed
+        # under any circumstances. The turn's one provider call is
+        # already spent, so this resolves straight to the same
+        # unsupported response a DECIDE failure falls back to, rather
+        # than spending a second provider call on another attempt.
         copilot_audit.record_event(
             db,
             user_id=user_id,
@@ -2009,14 +2343,18 @@ def run_copilot_turn(
             tool_call_count=1,
             response_kind="answer",
             provenance="ai_enhanced",
+            metadata={
+                "route_source": client.provider_name,
+                "provider_call_count": 1,
+            },
         )
-        return _run_free_mode(
+        return _unsupported_response(
             db,
             user_id,
-            current_user,
-            messages,
-            calculation_date,
-            request_id=request_id,
+            request_id,
+            route_source=client.provider_name,
+            provider_call_count=1,
+            turn_start=turn_start,
         )
 
     tool_start = time.monotonic()
@@ -2041,6 +2379,10 @@ def run_copilot_turn(
             response_kind="clarifying_question",
             provenance="ai_enhanced",
             intent=_extract_intent(tool_input),
+            metadata={
+                "route_source": client.provider_name,
+                "provider_call_count": 1,
+            },
         )
         return CopilotResponseOut(
             kind="clarifying_question",
@@ -2053,32 +2395,18 @@ def run_copilot_turn(
 
     tool_latency_ms = int((time.monotonic() - tool_start) * 1000)
 
-    narration = _narrate(
-        client,
-        system,
-        history,
-        decision,
-        tool_use,
-        result,
-        db=db,
-        user_id=user_id,
-        request_id=request_id,
+    # No second (NARRATE) provider call: this turn's one call was
+    # already spent on DECIDE, so the result is always presented via
+    # the same deterministic templates free mode and Path A's narrate
+    # fallback use -- both correctly cents-normalized and, for
+    # get_goal_intelligence, scoped to the named goal already resolved
+    # in `resolution` upstream (Path A) or, here, unscoped since Path B
+    # only runs when the deterministic router couldn't resolve a named
+    # goal in the first place.
+    answer, why, what_this_means, actions = (
+        copilot_free_mode.deterministic_narration(name, result)
     )
-
-    if narration:
-        answer = narration.get("answer") or _FALLBACK_ANSWER
-        why = narration.get("why")
-        what_this_means = narration.get("what_this_means")
-        actions = list(narration.get("suggested_actions") or [])[:2]
-        provenance = "ai_enhanced"
-    else:
-        # Narration call failed -- we already have the REAL tool
-        # result, so fall back to the same deterministic templates
-        # free mode uses rather than failing the request.
-        answer, why, what_this_means, actions = (
-            copilot_free_mode.deterministic_narration(name, result)
-        )
-        provenance = "deterministic"
+    provenance = "deterministic"
 
     copilot_audit.record_event(
         db,
@@ -2094,7 +2422,13 @@ def run_copilot_turn(
         response_kind="answer",
         provenance=provenance,
         intent=_extract_intent(tool_input),
-        metadata={"route_kind": "tool"},
+        metadata={
+            "route_kind": "tool",
+            "route_source": client.provider_name,
+            "provider_call_count": 1,
+            "provider_phase": "decide",
+            "total_latency_ms": _turn_latency_ms(turn_start),
+        },
     )
 
     return CopilotResponseOut(
@@ -2103,7 +2437,7 @@ def run_copilot_turn(
         why=why,
         what_this_means=what_this_means,
         key_numbers=chips,
-        suggested_actions=actions,
+        suggested_actions=actions[:2],
         tool_used=_TOOL_LABELS.get(name, name),
         confidence=confidence,
         low_data_warning=low_data_warning,

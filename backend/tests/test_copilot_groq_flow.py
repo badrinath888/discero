@@ -35,13 +35,12 @@ def test_groq_safe_to_spend_tool_selection_grounds_chips_in_real_calculation() -
 
         def fake_call(**kwargs):
             calls["n"] += 1
-            if calls["n"] == 1:
-                return _response(
-                    _tool_use_block("t1", "get_safe_to_spend", {})
-                )
+            # The deterministic router already resolves
+            # get_safe_to_spend before any provider call -- this
+            # turn's one provider call is NARRATE only.
             return _response(
                 _tool_use_block(
-                    "t2",
+                    "t1",
                     "present_financial_answer",
                     {"answer": "You have plenty of room to spend."},
                 )
@@ -66,7 +65,7 @@ def test_groq_safe_to_spend_tool_selection_grounds_chips_in_real_calculation() -
         )
         # Real calculate_safe_to_spend output, never invented by Groq.
         assert safe_chip.value_display == "$5,000.00"
-        assert calls["n"] == 2
+        assert calls["n"] == 1
 
 
 def test_groq_what_if_tool_selection() -> None:
@@ -361,13 +360,12 @@ def test_groq_audit_rows_are_tagged_with_groq_provider() -> None:
 
         def fake_call(**kwargs):
             calls["n"] += 1
-            if calls["n"] == 1:
-                return _response(
-                    _tool_use_block("t1", "get_safe_to_spend", {})
-                )
+            # The deterministic router already resolves
+            # get_safe_to_spend before any provider call -- this
+            # turn's one provider call is NARRATE only.
             return _response(
                 _tool_use_block(
-                    "t2", "present_financial_answer", {"answer": "ok"}
+                    "t1", "present_financial_answer", {"answer": "ok"}
                 )
             )
 
@@ -390,10 +388,16 @@ def test_groq_audit_rows_are_tagged_with_groq_provider() -> None:
         assert len(events) == 1
         assert events[0].mode == "groq"
         assert events[0].model == "llama-3.3-70b-versatile"
-        # No prompt text, no financial payload -- same privacy bound
-        # as the Anthropic path. Only the bounded routing-outcome kind
-        # is stored, never raw prompt/model/financial content.
-        assert events[0].event_metadata == {"route_kind": "tool"}
+        # No prompt text, no financial payload -- same privacy bound as
+        # the Anthropic path. Only bounded routing-outcome/call-budget
+        # metadata is stored, never raw prompt/model/financial content.
+        metadata = events[0].event_metadata
+        assert metadata["route_kind"] == "tool"
+        assert metadata["route_source"] == "deterministic"
+        assert metadata["provider_call_count"] == 1
+        assert metadata["provider_phase"] == "narrate"
+        assert metadata["fallback_used"] is False
+        assert isinstance(metadata["total_latency_ms"], int)
 
 
 def test_groq_follow_up_question_uses_conversation_history() -> None:

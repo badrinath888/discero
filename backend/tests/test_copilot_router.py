@@ -94,8 +94,9 @@ def test_chat_happy_path_with_injected_client(
 
     def fake_call(**kwargs):
         calls["n"] += 1
-        if calls["n"] == 1:
-            return _tool_use_response("get_safe_to_spend", {})
+        # The deterministic router already resolves get_safe_to_spend
+        # before any provider call -- this turn's one provider call is
+        # NARRATE only.
         return _tool_use_response(
             "present_financial_answer",
             {"answer": "You have room to spend."},

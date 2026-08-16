@@ -94,8 +94,18 @@ def _percent(value: float) -> str:
 # --- Parameter extraction --------------------------------------------
 
 _DOLLAR_SIGN_RE = re.compile(r"\$\s*([\d][\d,]*(?:\.\d{1,2})?)\s*([kK])?")
+# No `\s*` between the digits and the optional `[kK]` suffix (unlike
+# `_DOLLAR_SIGN_RE`, which is safe because its own optional `[kK]?` is
+# the last token in the pattern -- nothing required follows it, so it
+# never drives a backtracking search). Here a required literal
+# (`dollars|bucks`) DOES follow, so two adjacent `\s*` groups around an
+# optional group would give the engine ~N ways to split a run of N
+# whitespace characters before concluding a match fails -- O(n^2)
+# worst case, and CodeQL's py/polynomial-redos flags exactly this
+# shape. A single `\s*` before the required literal has no such
+# ambiguity to backtrack over.
 _WORD_DOLLAR_RE = re.compile(
-    r"\b([\d][\d,]*(?:\.\d{1,2})?)\s*([kK])?\s*(?:dollars|bucks)\b",
+    r"\b([\d][\d,]*(?:\.\d{1,2})?)([kK])?\s*(?:dollars|bucks)\b",
     re.IGNORECASE,
 )
 _BARE_NUMBER_RE = re.compile(r"([\d][\d,]*(?:\.\d{1,2})?)\s*([kK])?")
@@ -462,6 +472,33 @@ _COMPARISON_SIGNAL_RE = re.compile(
 )
 
 
+def _bounded_amount_count(text: str, *, limit: int) -> int:
+    """Counts amount-like tokens in `text`, stopping as soon as `limit`
+    is reached -- never `.findall()`, which walks the entire input and
+    materializes every match before the caller gets to look at any of
+    them, when this only ever needs to know "are there >= limit".
+    Mirrors `extract_amount_cents`'s dollar-sign-first-then-word-form
+    precedence: the word-form pattern is only consulted when no
+    dollar-sign amount was found at all.
+    """
+    count = 0
+
+    for _ in _DOLLAR_SIGN_RE.finditer(text):
+        count += 1
+        if count >= limit:
+            return count
+
+    if count:
+        return count
+
+    for _ in _WORD_DOLLAR_RE.finditer(text):
+        count += 1
+        if count >= limit:
+            return count
+
+    return count
+
+
 def _looks_like_multi_option_comparison(text: str) -> bool:
     """A two-option comparison ("compare a $100 rent increase versus
     $300") has no deterministic parser -- `compare_purchase_scenarios`,
@@ -474,13 +511,19 @@ def _looks_like_multi_option_comparison(text: str) -> bool:
     provider DECIDE instead, which has `compare_purchase_scenarios` in
     its tool registry -- or, with no provider configured, to the
     capability explanation -- never a silently partial answer.
+
+    Bounded to `_MAX_REGEX_INSPECT_CHARS` -- comparison wording is
+    always near the start of a realistic message, the same convention
+    this module already uses elsewhere -- so this has clearly bounded,
+    not just average-case, cost on adversarially long input, on top of
+    `_bounded_amount_count`'s early exit.
     """
-    if not _COMPARISON_SIGNAL_RE.search(text):
+    bounded = text[:_MAX_REGEX_INSPECT_CHARS]
+
+    if not _COMPARISON_SIGNAL_RE.search(bounded):
         return False
-    amount_count = len(_DOLLAR_SIGN_RE.findall(text)) or len(
-        _WORD_DOLLAR_RE.findall(text)
-    )
-    return amount_count >= 2
+
+    return _bounded_amount_count(bounded, limit=2) >= 2
 
 
 def classify_intent(text: str) -> str | None:

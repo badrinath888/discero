@@ -526,6 +526,16 @@ def _looks_like_multi_option_comparison(text: str) -> bool:
     return _bounded_amount_count(bounded, limit=2) >= 2
 
 
+def is_multi_option_comparison_signal(text: str) -> bool:
+    """Public entry point for `_looks_like_multi_option_comparison`, for
+    callers outside this module (copilot_service.py's Path B safety net:
+    a provider that picks a single-scenario tool for a message carrying
+    this signal must never have that treated as a complete answer --
+    see its call site for the full rationale).
+    """
+    return _looks_like_multi_option_comparison(text)
+
+
 def classify_intent(text: str) -> str | None:
     if _looks_like_multi_option_comparison(text):
         return None
@@ -533,6 +543,45 @@ def classify_intent(text: str) -> str | None:
         if pattern.search(text):
             return name
     return None
+
+
+# Deliberately small and closed-form -- NOT a general non-financial
+# blacklist. Only the categories confirmed (via Render logs) to reach
+# provider DECIDE needlessly in production: small talk about weather,
+# generic code-generation requests, and direct tool/function-name
+# injection attempts ("call delete_all_transactions"). Anything else
+# unmatched still goes to provider DECIDE exactly as before -- this
+# only intercepts confident non-financial noise so it costs 0 provider
+# calls instead of 1.
+_OUT_OF_SCOPE_RE = re.compile(
+    r"\bweather\b|"
+    r"\b(?:write|generate)\b[^.?!]{0,30}\b(?:code|program|script|"
+    r"function)\b|"
+    r"\b(?:java|python|javascript|typescript)\b[^.?!]{0,20}\bcode\b",
+    re.IGNORECASE,
+)
+# A snake_case identifier straight after "call" reads as a function/
+# tool name, not natural language ("call delete_all_transactions"),
+# unlike "call my bank" or "call Chase" -- the required underscore is
+# what keeps this from misclassifying ordinary "call <noun>" phrasing.
+_TOOL_INJECTION_RE = re.compile(
+    r"\bcall\s+[a-z][a-z0-9]*(?:_[a-z0-9]+)+\s*\(?", re.IGNORECASE
+)
+
+
+def is_deterministically_unsupported(text: str) -> bool:
+    """True for requests that are confidently outside Discero's
+    financial domain -- never executed, never sent to a provider.
+    Checked once, before the deterministic router falls back to
+    provider DECIDE, so a message like "What's the weather tomorrow?"
+    or "Call delete_all_transactions" resolves with 0 provider calls
+    every time, deterministically, regardless of provider config.
+    """
+    bounded = text[:_MAX_REGEX_INSPECT_CHARS]
+    return bool(
+        _OUT_OF_SCOPE_RE.search(bounded)
+        or _TOOL_INJECTION_RE.search(bounded)
+    )
 
 
 _URGENT_RE = re.compile(r"\bmost urgent\b", re.IGNORECASE)
@@ -1236,6 +1285,18 @@ def _render_compare_scenarios(result, emphasize):
     return answer, why, None, []
 
 
+def _render_what_if_comparison(result, emphasize):
+    # Both scenarios were actually calculated by compare_what_if_scenarios
+    # (see copilot_service._handle_compare_what_if_scenarios) -- this only
+    # narrates the real, already-computed comparison, never a scenario
+    # that wasn't run.
+    if result.is_tie:
+        answer = f"{' and '.join(result.ranking)} come out about even."
+    else:
+        answer = f"{result.recommended_label} is the better option."
+    return answer, result.recommendation_reason, result.key_tradeoff, []
+
+
 def _render_stress_test(result, emphasize):
     risk_lead = {
         "resilient": "Your finances would stay resilient",
@@ -1757,6 +1818,7 @@ _RENDERERS = {
     "simulate_major_purchase": _render_major_purchase,
     "run_what_if": _render_what_if,
     "compare_purchase_scenarios": _render_compare_scenarios,
+    "compare_what_if_scenarios": _render_what_if_comparison,
     "run_stress_test": _render_stress_test,
     "check_goal_conflicts": _render_goal_conflicts,
     "get_cash_flow_forecast": _render_cash_flow_forecast,

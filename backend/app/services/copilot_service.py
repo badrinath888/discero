@@ -109,15 +109,25 @@ _SCOPE_FALLBACK = (
 # handed to it, so building this costs nothing per turn.
 _NARRATE_SYSTEM_PROMPT = (
     "You narrate one already-computed Discero financial result for the "
-    "user. The tool result you are shown has already been normalized "
-    "for display -- every dollar figure is a formatted string (e.g. "
-    "\"$900.00\"), never raw cents. Use those figures exactly as given; "
-    "never reconstruct, rescale, or relabel a number yourself, and "
-    "never append a unit word (like \"cents\") to a figure that already "
-    "has one. If the result has a `selected_goal`, your answer is about "
-    "that goal specifically -- never substitute or blend in a "
-    "`portfolio` figure for it. Keep it to a few short sentences, no "
-    "filler."
+    "user, using ONLY the fields you were shown. The tool result has "
+    "already been normalized for display -- every dollar figure is a "
+    "formatted string (e.g. \"$900.00\"), never raw cents. Use those "
+    "figures exactly as given; never reconstruct, rescale, recalculate, "
+    "or relabel a number yourself, and never append a unit word (like "
+    "\"cents\") to a figure that already has one. Never state a status "
+    "(e.g. on track/at risk) stronger than the result's own status "
+    "field, and never claim a date target is met unless the result's "
+    "own fields say so. If the result has a `selected_goal`, your "
+    "answer is about that goal specifically, using its own fields "
+    "(status, target date, projected completion, required/allocated "
+    "monthly, gap) -- a `portfolio` figure in the same payload (total "
+    "monthly capacity, remaining headroom, total required, most "
+    "urgent goal) is background context only, never a substitute or "
+    "blend for the selected goal's own numbers, and 'capacity' and "
+    "'headroom' are two different figures that must never be called "
+    "each other. Ground any recommendation in the result's own "
+    "`recommended_action`/`explanation` fields rather than inventing "
+    "advice. Keep it to a few short sentences, no filler."
 )
 
 _STATUS_TONE = {
@@ -325,15 +335,17 @@ class CopilotClient:
         api_key: str | None,
         model: str = "claude-sonnet-4-6",
         timeout: float = 20.0,
+        max_retries: int = 1,
     ) -> None:
         self.api_key = api_key
         self.model = model
         # Bounds how long a single DECIDE/NARRATE call can hang -- a
         # synchronous request endpoint must never wait on the SDK's
-        # much longer default. max_retries=1 caps the SDK's own
+        # much longer default. max_retries caps the SDK's own
         # transient-error retry (its default is 2) so a flaky
-        # provider can't silently double a turn's latency/cost.
+        # provider can't silently multiply a turn's latency/cost.
         self.timeout = timeout
+        self.max_retries = max_retries
 
     @property
     def enabled(self) -> bool:
@@ -352,7 +364,7 @@ class CopilotClient:
         client = anthropic.Anthropic(
             api_key=self.api_key,
             timeout=self.timeout,
-            max_retries=1,
+            max_retries=self.max_retries,
         )
 
         return client.messages.create(
@@ -736,8 +748,12 @@ _NARRATION_TOOL = {
                 "items": {"type": "string"},
                 "maxItems": 2,
                 "description": (
-                    "0-2 short, concrete next steps phrased as "
-                    "things the user could ask next."
+                    "0-2 short, concrete next steps phrased as things "
+                    "the user could ask next. Only reference a goal, "
+                    "amount, or account that appears in the tool result "
+                    "or the facts you were given -- never suggest a "
+                    "goal the user doesn't have (e.g. 'retirement') or "
+                    "a Discero capability that doesn't exist."
                 ),
             },
         },
@@ -1115,30 +1131,101 @@ _CAPACITY_ESTIMATED_NOTE = (
 )
 
 
-def _handle_goal_intelligence(db, user_id, tool_input, as_of, current_user):
-    tool_input = dict(tool_input)
+def _goal_intelligence_selected_chips(goal, result) -> list[CopilotMetricOut]:
+    """Named-goal card: the selected goal's own fields lead. Portfolio
+    figures are appended last as clearly-labeled secondary context,
+    never the reverse -- this is the fix for the production symptom
+    where a named "Emergency Fund" question surfaced a dominant
+    portfolio-wide "Most urgent: New Laptop" chip instead of Emergency
+    Fund's own status/dates/amounts.
+    """
+    chips = [
+        _chip(
+            "Status",
+            goal.status.replace("_", " ").title(),
+            kind="text",
+            tone=_tone(goal.status),
+        ),
+    ]
 
-    # Same fallback convention as _handle_goal_conflicts: a genuinely
-    # unstated capacity is estimated from real income history rather
-    # than silently defaulting to zero. Recorded as `capacity_source`
-    # so the response can be transparent about which one happened --
-    # an estimated figure must never be presented as if the user said
-    # it, and vice versa.
-    explicit_capacity = tool_input.get("monthly_capacity_cents") is not None
-    capacity_source = "explicit" if explicit_capacity else "estimated"
-
-    if not explicit_capacity:
-        tool_input["monthly_capacity_cents"] = (
-            _average_monthly_income_cents(db, user_id, as_of)
+    if goal.target_date:
+        chips.append(
+            _chip(
+                "Target date",
+                goal.target_date.isoformat(),
+                kind="text",
+                tone="neutral",
+            )
         )
 
-    result = evaluate_goal_intelligence(
-        db,
-        user_id,
-        monthly_capacity_cents=tool_input["monthly_capacity_cents"],
-        as_of=as_of,
+    if goal.status != "completed" and goal.projected_completion_date:
+        on_time = (
+            goal.target_date is None
+            or goal.projected_completion_date <= goal.target_date
+        )
+        chips.append(
+            _chip(
+                "Projected completion",
+                goal.projected_completion_date.isoformat(),
+                kind="text",
+                tone="positive" if on_time else "warning",
+            )
+        )
+
+    chips.append(
+        _chip(
+            "Required monthly",
+            _currency(goal.required_monthly_cents),
+            tone="neutral",
+        )
+    )
+    chips.append(
+        _chip(
+            "Allocated monthly",
+            _currency(goal.allocated_monthly_cents),
+            tone="neutral",
+        )
+    )
+    chips.append(
+        _chip(
+            "Monthly gap",
+            _currency(goal.monthly_gap_cents),
+            tone="danger" if goal.monthly_gap_cents else "positive",
+        )
     )
 
+    # Secondary portfolio context -- distinctly labeled so it can never
+    # be mistaken for a figure scoped to this goal (PHASE 12/13:
+    # "capacity" and "headroom" are never the same number).
+    chips.append(
+        _chip(
+            "Portfolio capacity",
+            _currency(result.total_capacity_cents),
+            tone="neutral",
+        )
+    )
+    chips.append(
+        _chip(
+            "Remaining headroom",
+            _currency(result.monthly_headroom_cents),
+            tone="neutral",
+        )
+    )
+    chips.append(
+        _chip(
+            "Confidence",
+            f"{round(goal.confidence_score)}%",
+            kind="score",
+            tone=_tone(_confidence_level(goal.confidence_score)),
+        )
+    )
+
+    return chips
+
+
+def _goal_intelligence_portfolio_chips(
+    result, capacity_source: str
+) -> list[CopilotMetricOut]:
     chips = [
         _chip(
             "Status",
@@ -1162,6 +1249,11 @@ def _handle_goal_intelligence(db, user_id, tool_input, as_of, current_user):
         _chip(
             "Required monthly",
             _currency(result.total_required_cents),
+            tone="neutral",
+        ),
+        _chip(
+            "Remaining headroom",
+            _currency(result.monthly_headroom_cents),
             tone="neutral",
         ),
         _chip(
@@ -1191,6 +1283,51 @@ def _handle_goal_intelligence(db, user_id, tool_input, as_of, current_user):
         )
     )
 
+    return chips
+
+
+def _handle_goal_intelligence(db, user_id, tool_input, as_of, current_user):
+    tool_input = dict(tool_input)
+    # Injected only by _resolve_deterministic (Path A) when the router
+    # already resolved a specific named goal -- never part of the
+    # public tool schema a provider DECIDE call can set, and always
+    # popped before any request/service call sees this dict.
+    target_goal_name = tool_input.pop("_target_goal_name", None)
+
+    # Same fallback convention as _handle_goal_conflicts: a genuinely
+    # unstated capacity is estimated from real income history rather
+    # than silently defaulting to zero. Recorded as `capacity_source`
+    # so the response can be transparent about which one happened --
+    # an estimated figure must never be presented as if the user said
+    # it, and vice versa.
+    explicit_capacity = tool_input.get("monthly_capacity_cents") is not None
+    capacity_source = "explicit" if explicit_capacity else "estimated"
+
+    if not explicit_capacity:
+        tool_input["monthly_capacity_cents"] = (
+            _average_monthly_income_cents(db, user_id, as_of)
+        )
+
+    result = evaluate_goal_intelligence(
+        db,
+        user_id,
+        monthly_capacity_cents=tool_input["monthly_capacity_cents"],
+        as_of=as_of,
+    )
+
+    selected = None
+    if target_goal_name:
+        selected = next(
+            (g for g in result.goals if g.name == target_goal_name), None
+        )
+
+    if selected is not None:
+        chips = _goal_intelligence_selected_chips(selected, result)
+        confidence_score = selected.confidence_score
+    else:
+        chips = _goal_intelligence_portfolio_chips(result, capacity_source)
+        confidence_score = result.confidence_score
+
     # Only the estimated path needs a disclosure -- an explicitly
     # stated capacity needs no caveat, per the product requirement to
     # never call a user-provided figure "estimated".
@@ -1208,7 +1345,7 @@ def _handle_goal_intelligence(db, user_id, tool_input, as_of, current_user):
     return (
         result,
         chips,
-        _confidence(result.confidence_score),
+        _confidence(confidence_score),
         low_data_warning,
     )
 
@@ -1991,9 +2128,23 @@ def _resolve_deterministic(
 
     tool_start = time.monotonic()
 
+    tool_input = resolution.tool_input
+    if (
+        resolution.tool_name == "get_goal_intelligence"
+        and resolution.target_goal_name
+    ):
+        # Threads the already-resolved named goal into the handler so
+        # its structured chips can be scoped to that goal (PHASE 20) --
+        # not just its narration payload/prose, which were already
+        # scoped via `_narration_payload` above this call.
+        tool_input = {
+            **resolution.tool_input,
+            "_target_goal_name": resolution.target_goal_name,
+        }
+
     try:
         result, chips, confidence, low_data_warning = handler(
-            db, user_id, resolution.tool_input, as_of, current_user
+            db, user_id, tool_input, as_of, current_user
         )
     except (ValidationError, ValueError) as exc:
         copilot_audit.record_event(

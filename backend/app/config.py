@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     llm_model: str = "claude-sonnet-4-6"
     copilot_model_timeout_seconds: float = 20.0
+    # SDK-level retry count for a DECIDE/NARRATE HTTP attempt (Anthropic
+    # and Groq SDKs both default to 2). Kept at 1 by default -- one
+    # retry on a transient error without letting worst-case latency on
+    # the turn's single allowed provider call approach ~3x the timeout.
+    # Configurable rather than hardcoded so it can be tuned per
+    # deployment without a code change if production latency data
+    # supports it.
+    copilot_model_max_retries: int = 1
 
     # Default "anthropic" preserves pre-existing deployments' behavior
     # (Anthropic if ANTHROPIC_API_KEY is set, deterministic free mode

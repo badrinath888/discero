@@ -2061,6 +2061,20 @@ def test_why_spending_higher_question_works_without_key() -> None:
 # analysis of the pattern itself doesn't see runtime length guards). It
 # has been replaced entirely by _looks_like_follow_up_amount, plain
 # linear-time string parsing with no regex at all.
+#
+# _WORD_DOLLAR_RE (used by extract_amount_cents and the multi-option-
+# comparison guard) was flagged for its `\s*([kK])?\s*` shape: two
+# adjacent whitespace-quantified groups around an optional group,
+# followed by a required literal ("dollars"/"bucks"). That combination
+# gives the engine ~N ways to split a run of N whitespace characters
+# before concluding a match fails -- O(n^2) worst case. Fixed by
+# removing the leading `\s*` so only one `\s*` remains before the
+# required literal, which has no such ambiguity to backtrack over. The
+# comparison guard (_looks_like_multi_option_comparison) was also
+# changed to never call `.findall()` (which walks the whole message
+# collecting every match) in favor of `_bounded_amount_count`, which
+# stops as soon as it has found 2 matches, on top of the same 200-char
+# input bound this module already uses elsewhere.
 
 
 def test_resilience_emphasis_recognizes_all_supported_day_and_month_wording() -> (
@@ -2241,3 +2255,89 @@ def test_resolve_intent_handles_extreme_input_bypassing_schema_limit() -> (
 
     assert result is None
     assert elapsed < 1.0
+
+
+# --- Comparison-guard ReDoS regression tests ----------------------------
+
+
+def test_multi_option_comparison_recognizes_supported_phrasings() -> None:
+    for text in (
+        "Compare $100 vs $300",
+        "Compare $100 versus $300",
+        "$100 vs $300",
+        "compare 100 dollars with 300 dollars",
+    ):
+        assert copilot_free_mode._looks_like_multi_option_comparison(
+            text
+        ), text
+
+
+def test_multi_option_comparison_rejects_non_comparison_multi_amount_text() -> (
+    None
+):
+    # Multiple amounts alone must never trigger this -- only explicit
+    # comparison language (compare/versus/vs) does.
+    for text in (
+        "I spent $100 yesterday and $300 last month",
+        "My rent is $100 and groceries are $300",
+        "Compare my spending this month",
+        "$100",
+    ):
+        assert not copilot_free_mode._looks_like_multi_option_comparison(
+            text
+        ), text
+
+
+def test_word_dollar_pattern_has_no_adjacent_whitespace_ambiguity() -> None:
+    # The actual CodeQL fix: a run of whitespace with no trailing
+    # "dollars"/"bucks" must resolve in linear time -- there is no
+    # longer a second `\s*` group adjacent to the optional `[kK]?` for
+    # the engine to backtrack across.
+    adversarial = "5" + (" " * 200_000) + "not a currency word"
+
+    start = time.perf_counter()
+    match = copilot_free_mode._WORD_DOLLAR_RE.search(adversarial)
+    elapsed = time.perf_counter() - start
+
+    assert match is None
+    assert elapsed < 1.0
+
+
+def test_bounded_amount_count_stops_after_limit_without_findall() -> None:
+    # Many amounts in one message -- counting must stop at `limit`
+    # rather than enumerating every match in the text.
+    text = " ".join(f"${n}" for n in range(1, 50))
+
+    assert copilot_free_mode._bounded_amount_count(text, limit=2) == 2
+
+
+def test_multi_option_comparison_is_bounded_on_adversarial_whitespace() -> (
+    None
+):
+    # Comparison signal present, then a huge run of whitespace with no
+    # trailing "dollars"/"bucks" and no further "$" -- must still
+    # resolve quickly and correctly (only 1 amount found, so False).
+    adversarial = "compare $100 versus 5" + (" " * 200_000) + "nope"
+
+    start = time.perf_counter()
+    result = copilot_free_mode._looks_like_multi_option_comparison(
+        adversarial
+    )
+    elapsed = time.perf_counter() - start
+
+    assert result is False
+    assert elapsed < 1.0
+
+
+def test_classify_intent_defers_two_option_comparison_instead_of_matching_what_if() -> (
+    None
+):
+    # End-to-end: the guard must actually prevent classify_intent from
+    # letting run_what_if's own pattern silently claim this text and
+    # answer about only the first amount.
+    assert (
+        copilot_free_mode.classify_intent(
+            "Compare a $100 rent increase versus $300."
+        )
+        is None
+    )

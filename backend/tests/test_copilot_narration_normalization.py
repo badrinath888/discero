@@ -159,6 +159,74 @@ def test_goal_intelligence_narrate_payload_has_no_raw_cents_and_scopes_named_goa
             expected.total_required_cents
         )
 
+        # PHASE 20: the structured card (key_numbers), not just the
+        # narration payload, must be scoped to the named goal -- the
+        # production symptom was Emergency Fund questions still
+        # dominated by portfolio-wide chips like "Most urgent: New
+        # Laptop" or the portfolio's "Required monthly".
+        chip_labels = [c.label for c in result.key_numbers]
+        assert "Most urgent" not in chip_labels
+        assert "Target date" in chip_labels
+        assert "Allocated monthly" in chip_labels
+        assert "Monthly gap" in chip_labels
+
+        required_chip = next(
+            c for c in result.key_numbers if c.label == "Required monthly"
+        )
+        assert required_chip.value_display == currency(
+            expected_goal.required_monthly_cents
+        )
+        # Portfolio capacity/headroom appear only as clearly-labeled
+        # secondary context, never under the same "Required monthly"
+        # label the selected goal's own figure uses.
+        assert any(c.label == "Portfolio capacity" for c in result.key_numbers)
+        assert any(
+            c.label == "Remaining headroom" for c in result.key_numbers
+        )
+
+
+def test_goal_intelligence_portfolio_query_keeps_portfolio_card() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        seed_income(db, user)
+        create_goal(
+            db,
+            user,
+            name="Emergency Fund",
+            target_cents=600_000,
+            saved_cents=300_000,
+            target_date=date(2027, 6, 1),
+        )
+        create_goal(
+            db,
+            user,
+            name="New Laptop",
+            target_cents=200_000,
+            saved_cents=0,
+            target_date=date(2027, 6, 1),
+        )
+
+        client = _budgeted_client()
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message("Which goal is most urgent?"),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        chip_labels = [c.label for c in result.key_numbers]
+        # A genuine portfolio question still gets the portfolio card --
+        # scoping to a named goal must never apply when none was asked
+        # about.
+        assert "Most urgent" in chip_labels
+        assert "Monthly capacity" in chip_labels
+        assert "Remaining headroom" in chip_labels
+
 
 def test_narrate_payload_normalizes_duration_and_currency_units() -> None:
     with TestingSessionLocal() as db:

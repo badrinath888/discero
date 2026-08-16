@@ -521,6 +521,52 @@ def test_on_track_goal_not_marked_ahead_without_original_pace_surplus() -> None:
         assert goal.recommended_action.type == "no_change_needed"
 
 
+def test_on_track_goal_with_completion_after_target_date_is_downgraded() -> (
+    None
+):
+    """Reproduces the production contradiction: a goal fully funded by
+    the coarse required-monthly formula (monthly_gap_cents == 0, so the
+    pre-fix status would be "on_track") whose independently-computed
+    projected_completion_date -- anchored on today's day-of-month --
+    lands AFTER the target date, purely because the target date's
+    day-of-month (the 1st) is earlier than today's (the 8th). The
+    deterministic source must never claim on-time completion when the
+    real projected date says otherwise.
+    """
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_goal(
+            db,
+            user,
+            name="Emergency Fund",
+            target_cents=300_000,
+            saved_cents=0,
+            target_date=date(2026, 10, 1),
+        )
+
+        result = evaluate_goal_intelligence(
+            db, user.id, monthly_capacity_cents=150_000, as_of=TEST_DATE
+        )
+
+        goal = result.goals[0]
+        # Fully funded per the coarse monthly formula -- no shortfall.
+        assert goal.monthly_gap_cents == 0
+        assert goal.required_monthly_cents == 150_000
+        assert goal.allocated_monthly_cents == 150_000
+        # But the actual funded pace completes 7 days after the target.
+        assert goal.projected_completion_date == date(2026, 10, 8)
+        assert goal.target_date == date(2026, 10, 1)
+        assert goal.projected_completion_date > goal.target_date
+        # The strict invariant: never on_track/ahead when the real
+        # completion date trails the target, regardless of gap == 0.
+        assert goal.status == "at_risk"
+        assert goal.key_driver == "completion_after_target_date"
+        assert goal.suggested_feasible_target_date == date(2026, 10, 8)
+        assert goal.recommended_action.type == "extend_target_date"
+        assert goal.recommended_action.resulting_monthly_gap_cents == 0
+        assert "2026-10-08" in goal.recommended_action.message
+
+
 def test_not_feasible_overdue_goal_with_no_capacity_recommends_increase() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db)

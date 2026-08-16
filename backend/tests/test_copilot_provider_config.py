@@ -92,3 +92,30 @@ def test_groq_model_defaults_to_configured_tool_capable_model() -> None:
     client = build_copilot_client(config)
 
     assert client.model == "llama-3.3-70b-versatile"
+
+
+def test_max_retries_defaults_to_one_for_both_providers() -> None:
+    # Default preserves pre-existing behavior for anyone upgrading
+    # without setting COPILOT_MODEL_MAX_RETRIES.
+    anthropic_client = build_copilot_client(
+        make_settings(
+            copilot_provider="anthropic", anthropic_api_key="fake-key"
+        )
+    )
+    groq_client = build_copilot_client(
+        make_settings(copilot_provider="groq", groq_api_key="fake-key")
+    )
+
+    assert anthropic_client.max_retries == 1
+    assert groq_client.max_retries == 1
+
+
+def test_max_retries_is_configurable_per_deployment() -> None:
+    config = make_settings(
+        copilot_provider="anthropic",
+        anthropic_api_key="fake-key",
+        copilot_model_max_retries=0,
+    )
+    client = build_copilot_client(config)
+
+    assert client.max_retries == 0

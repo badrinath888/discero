@@ -358,7 +358,8 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"causing|behind)\b|how much[^.?!]{0,30}\bsave\b[^.?!]{0,20}"
             r"\b(months?|monthly|goals?)\b|when (can|will) i[^.?!]{0,20}"
             r"\b(finish|complete|reach)\b|when will[^.?!]{0,30}\bgoal\b"
-            r"[^.?!]{0,20}\b(done|finished|complete)\b|will i[^.?!]{0,20}"
+            r"[^.?!]{0,20}\b(done|finished|complete|finish)\b|will i"
+            r"[^.?!]{0,20}"
             r"\b(?:actually |realistically )?(?:reach|hit|finish|"
             r"complete|make)\b|am i (?:on (?:pace|track)\b|going to "
             r"(?:reach|hit|miss|make)\b|likely to (?:reach|hit|miss)"
@@ -431,7 +432,7 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"spending room|room to spend|room[^.?!]{0,20}i have"
             r"[^.?!]{0,20}spend|available to spend|room[^.?!]{0,30}"
             r"before i (?:should )?stop spending|realistically "
-            r"available",
+            r"available|safe (?:for me )?to (?:use|spend)",
             re.IGNORECASE,
         ),
     ),
@@ -456,7 +457,35 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
+_COMPARISON_SIGNAL_RE = re.compile(
+    r"\bcompare\b|\bversus\b|\bvs\.?\b", re.IGNORECASE
+)
+
+
+def _looks_like_multi_option_comparison(text: str) -> bool:
+    """A two-option comparison ("compare a $100 rent increase versus
+    $300") has no deterministic parser -- `compare_purchase_scenarios`,
+    the only tool built for it, isn't in `_INTENT_PATTERNS` at all.
+    Without this check, `run_what_if`/`simulate_major_purchase`'s own
+    patterns would still match this text (a rent increase, an amount)
+    and silently answer about only the FIRST amount, dropping the
+    comparison the user actually asked for. Detecting that signal here
+    and deferring (returning None from `classify_intent`) sends it to
+    provider DECIDE instead, which has `compare_purchase_scenarios` in
+    its tool registry -- or, with no provider configured, to the
+    capability explanation -- never a silently partial answer.
+    """
+    if not _COMPARISON_SIGNAL_RE.search(text):
+        return False
+    amount_count = len(_DOLLAR_SIGN_RE.findall(text)) or len(
+        _WORD_DOLLAR_RE.findall(text)
+    )
+    return amount_count >= 2
+
+
 def classify_intent(text: str) -> str | None:
+    if _looks_like_multi_option_comparison(text):
+        return None
     for name, pattern in _INTENT_PATTERNS:
         if pattern.search(text):
             return name

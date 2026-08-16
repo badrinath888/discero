@@ -31,6 +31,7 @@ def build_copilot_client(config: Settings) -> CopilotModelProvider:
             api_key=config.groq_api_key,
             model=config.copilot_groq_model,
             timeout=config.copilot_model_timeout_seconds,
+            max_retries=config.copilot_model_max_retries,
         )
 
     if config.copilot_provider == "free":
@@ -40,6 +41,7 @@ def build_copilot_client(config: Settings) -> CopilotModelProvider:
         api_key=config.anthropic_api_key,
         model=config.llm_model,
         timeout=config.copilot_model_timeout_seconds,
+        max_retries=config.copilot_model_max_retries,
     )
 
 

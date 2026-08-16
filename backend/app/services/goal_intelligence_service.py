@@ -158,6 +158,8 @@ def _goal_recommended_actions(
     status: str,
     projected_completion_date: date | None,
     all_goal_results: list[GoalConflictGoalOut],
+    *,
+    completion_after_target: bool = False,
 ) -> tuple[GoalConflictRecommendationOut, list[GoalConflictRecommendationOut]]:
     """The smallest deterministic action that restores the goal to
     on-track, plus at most two bounded alternatives (Discero product
@@ -165,6 +167,24 @@ def _goal_recommended_actions(
     """
     name = goal_result.name
     gap = goal_result.monthly_shortfall_cents
+
+    if completion_after_target and projected_completion_date is not None:
+        # Timing-only gap (see _goal_explanation): the monthly funding
+        # itself is already sufficient (gap is $0), so the fix is a
+        # target-date nudge, never a made-up dollar amount.
+        return (
+            GoalConflictRecommendationOut(
+                type="extend_target_date",
+                message=(
+                    f"Move {name}'s target date to "
+                    f"{projected_completion_date.isoformat()} to exactly "
+                    "match its current funded pace."
+                ),
+                goal_id=goal_result.goal_id,
+                resulting_monthly_gap_cents=0,
+            ),
+            [],
+        )
 
     if status == "completed":
         return _no_change_action(f"{name} has already reached its target."), []
@@ -289,6 +309,8 @@ def _goal_explanation(
     goal_result: GoalConflictGoalOut,
     status: str,
     projected_completion_date: date | None,
+    *,
+    completion_after_target: bool = False,
 ) -> str:
     name = goal_result.name
 
@@ -297,6 +319,18 @@ def _goal_explanation(
 
     if status == "no_deadline":
         return f"{name} has no target date, so timing pressure can't be measured."
+
+    if completion_after_target and projected_completion_date is not None:
+        # Fully funded per the required-monthly formula (no shortfall),
+        # but the exact funded pace still lands after the target date --
+        # a rounding/anchoring gap, not a real capacity shortfall.
+        return (
+            f"{name} is funded at "
+            f"{_currency(goal_result.allocated_monthly_cents)}/month, but "
+            "at that pace it's realistically projected to complete around "
+            f"{projected_completion_date.isoformat()}, after its "
+            f"{goal_result.target_date.isoformat()} target date."
+        )
 
     if status == "on_track":
         return (
@@ -375,6 +409,28 @@ def evaluate_goal_intelligence(
             calculation_date,
         )
 
+        # Strict invariant: a goal is never reported on_track/ahead when
+        # its own independently-computed projected completion date
+        # falls after its target date, even though `status` above says
+        # the monthly gap is $0. `required_monthly_cents` is a coarse
+        # whole-month estimate (see `_months_remaining` in
+        # goal_conflict_detection_service) -- it can under-count by up
+        # to a few weeks relative to `calculate_feasible_target_date`,
+        # whose day-of-month is anchored on `calculation_date` rather
+        # than the goal's `target_date`. When that anchoring gap pushes
+        # the funded completion date past the target, the goal is
+        # genuinely not on pace for that exact date -- this is the
+        # deterministic source of the "on track" / later-completion-date
+        # contradiction; no tolerance is invented, the real dates decide.
+        completion_after_target = (
+            status in ("on_track", "ahead")
+            and goal_result.target_date is not None
+            and projected_completion_date is not None
+            and projected_completion_date > goal_result.target_date
+        )
+        if completion_after_target:
+            status = "at_risk"
+
         suggested_feasible_target_date = (
             projected_completion_date
             if status in ("at_risk", "conflict", "not_feasible")
@@ -399,7 +455,11 @@ def evaluate_goal_intelligence(
         )
 
         recommended_action, alternative_actions = _goal_recommended_actions(
-            goal_result, status, projected_completion_date, conflict.goals
+            goal_result,
+            status,
+            projected_completion_date,
+            conflict.goals,
+            completion_after_target=completion_after_target,
         )
 
         pairs.append(
@@ -422,9 +482,16 @@ def evaluate_goal_intelligence(
                     urgency_rank=None,
                     confidence_score=conflict.confidence_score,
                     explanation=_goal_explanation(
-                        goal_result, status, projected_completion_date
+                        goal_result,
+                        status,
+                        projected_completion_date,
+                        completion_after_target=completion_after_target,
                     ),
-                    key_driver=_goal_key_driver(status),
+                    key_driver=(
+                        "completion_after_target_date"
+                        if completion_after_target
+                        else _goal_key_driver(status)
+                    ),
                     recommended_action=recommended_action,
                     alternative_actions=alternative_actions,
                 ),

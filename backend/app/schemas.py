@@ -1594,6 +1594,7 @@ class GoalIntelligenceGoalOut(BaseModel):
         "target_date_passed",
         "competing_goal_priority",
         "insufficient_monthly_capacity",
+        "completion_after_target_date",
     ]
     recommended_action: GoalConflictRecommendationOut
     alternative_actions: list[GoalConflictRecommendationOut] = Field(

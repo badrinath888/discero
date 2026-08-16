@@ -39,10 +39,12 @@ class GroqCopilotClient:
         api_key: str | None,
         model: str = "llama-3.3-70b-versatile",
         timeout: float = 20.0,
+        max_retries: int = 1,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
+        self.max_retries = max_retries
 
     @property
     def enabled(self) -> bool:
@@ -61,7 +63,7 @@ class GroqCopilotClient:
         client = Groq(
             api_key=self.api_key,
             timeout=self.timeout,
-            max_retries=1,
+            max_retries=self.max_retries,
         )
 
         groq_messages = [{"role": "system", "content": system}]

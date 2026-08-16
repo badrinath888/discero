@@ -119,6 +119,27 @@ def test_named_goal_partial_mention_resolves_uniquely() -> None:
         assert "New Laptop" in (result.answer or "")
 
 
+def test_when_will_goal_finish_phrasing_routes_to_goal_intelligence() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        _two_named_goal_setup(db, user)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("When will my New Laptop goal finish?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Goal Intelligence"
+        assert "New Laptop" in (result.answer or "")
+
+
 def test_how_far_behind_named_goal_question_works() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db)
@@ -273,6 +294,33 @@ def test_imagine_groceries_more_expensive_routes_to_what_if() -> None:
         assert result.tool_used == "What-If Simulator"
 
 
+def test_two_option_comparison_never_silently_answers_a_single_scenario() -> (
+    None
+):
+    # "compare $100 versus $300" superficially matches run_what_if's own
+    # "rent...increase" pattern -- without a guard, the deterministic
+    # router would silently run a single $100 what-if and drop the
+    # "versus $300" half of the question entirely. No deterministic
+    # parser builds compare_purchase_scenarios' two-option arguments, so
+    # this must defer (here: to the unsupported/capability response in
+    # free mode) rather than answer a question that was only half asked.
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Compare a $100 rent increase versus $300."),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "out_of_scope"
+        assert result.tool_used is None
+
+
 def test_bare_what_if_it_goes_up_asks_for_amount() -> None:
     # No commodity noun and no established scenario -- must be a
     # specific clarification, never the generic capability message.
@@ -374,6 +422,24 @@ def test_room_to_spend_phrasing_routes_to_safe_to_spend() -> None:
             user.id,
             user,
             _messages("How much room do I have to spend right now?"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Safe-to-Spend"
+
+
+def test_safe_for_me_to_use_phrasing_routes_to_safe_to_spend() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("What's safe for me to use right now?"),
             _free_client(),
             as_of=TEST_DATE,
         )

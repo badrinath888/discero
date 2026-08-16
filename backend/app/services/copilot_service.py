@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from datetime import date
 from typing import Protocol
@@ -59,6 +60,7 @@ from app.schemas import (
     MajorPurchaseSimulationRequest,
     SafeToSpendRequest,
     ScenarioComparisonRequest,
+    WhatIfComparisonRequest,
     WhatIfSimulationRequest,
 )
 from app.services.buy_now_vs_wait_service import evaluate_buy_now_vs_wait
@@ -86,6 +88,7 @@ from app.services.scenario_comparison_service import (
     compare_major_purchase_scenarios,
 )
 from app.services.spending_anomaly_service import detect_spending_anomalies
+from app.services.what_if_comparison_service import compare_what_if_scenarios
 from app.services.what_if_service import simulate_what_if
 
 logger = logging.getLogger(__name__)
@@ -114,7 +117,13 @@ _NARRATE_SYSTEM_PROMPT = (
     "formatted string (e.g. \"$900.00\"), never raw cents. Use those "
     "figures exactly as given; never reconstruct, rescale, recalculate, "
     "or relabel a number yourself, and never append a unit word (like "
-    "\"cents\") to a figure that already has one. Never state a status "
+    "\"cents\") to a figure that already has one. Do not perform "
+    "arithmetic on any figure you were shown (no adding, subtracting, "
+    "or combining two numbers into a new one, e.g. a \"surplus\" or "
+    "\"total\" not already present as its own field) -- if a figure "
+    "you need isn't in the payload, don't state it. Never write a "
+    "dollar amount that does not appear character-for-character "
+    "somewhere in the payload you were shown. Never state a status "
     "(e.g. on track/at risk) stronger than the result's own status "
     "field, and never claim a date target is met unless the result's "
     "own fields say so. If the result has a `selected_goal`, your "
@@ -244,6 +253,26 @@ def _goal_intelligence_narration_payload(
     return payload
 
 
+def _cash_flow_forecast_narration_payload(result: BaseModel) -> dict:
+    """Adds the same "monthly cash flow" figure the response's own
+    chips already show (expected_income_cents - upcoming_bills_cents,
+    computed in _handle_cash_flow_forecast) -- CashFlowForecastOut
+    itself has no such field, so without this the provider is shown
+    only income and bills separately and left to derive a "surplus"
+    itself (production symptom: a narrated total that matched no real
+    field). Giving it the real, correct figure removes the reason to
+    compute one; _narration_is_grounded below still catches it even if
+    it does anyway.
+    """
+    dumped = result.model_dump(mode="json")
+    monthly_flow_cents = (
+        dumped["expected_income_cents"] - dumped["upcoming_bills_cents"]
+    )
+    payload = _normalize_for_narration(dumped)
+    payload["monthly_cash_flow"] = _currency(monthly_flow_cents)
+    return payload
+
+
 def _narration_payload(
     tool_name: str, result: BaseModel, target_goal_name: str | None = None
 ) -> dict:
@@ -255,7 +284,37 @@ def _narration_payload(
         return _goal_intelligence_narration_payload(
             result, target_goal_name
         )
+    if tool_name == "get_cash_flow_forecast":
+        return _cash_flow_forecast_narration_payload(result)
     return _normalize_for_narration(result.model_dump(mode="json"))
+
+
+_MONEY_IN_TEXT_RE = re.compile(r"\$-?\d[\d,]*(?:\.\d{1,2})?")
+
+
+def _narration_is_grounded(payload: dict, narration: dict) -> bool:
+    """Financial Authority Rule, enforced in code rather than trusted to
+    prompt wording alone: every dollar figure the provider states must
+    appear verbatim in the real deterministic payload it was shown.
+    Production symptom this catches: a cash-flow narration stating a
+    "surplus" figure that matched no field in the tool result -- the
+    provider had done its own arithmetic on the real numbers it saw.
+    A smaller/faster model (this project also runs on Groq) is more
+    likely to do this than a larger one, so this cannot be prompt-only.
+    """
+    payload_text = json.dumps(payload)
+    narration_text = " ".join(
+        str(narration.get(field) or "")
+        for field in ("answer", "why", "what_this_means")
+    )
+    narration_text += " " + " ".join(
+        str(a) for a in (narration.get("suggested_actions") or [])
+    )
+
+    return all(
+        amount in payload_text
+        for amount in _MONEY_IN_TEXT_RE.findall(narration_text)
+    )
 
 
 def _chip(
@@ -443,6 +502,25 @@ _TOOLS = [
             },
             "required": ["option_a", "option_b"],
         },
+    },
+    {
+        "name": "compare_what_if_scenarios",
+        "description": (
+            "Compare TWO OR THREE alternative SUSTAINED monthly "
+            "changes side by side -- e.g. a $100/month rent increase "
+            "versus a $300/month rent increase, or two different "
+            "recurring expense/income/savings changes -- and "
+            "recommend the better outcome. Use whenever the user "
+            "asks to 'compare' or asks 'X versus Y' about two or "
+            "more recurring/monthly amounts. Each scenario needs its "
+            "own short, distinct `label` (e.g. \"$100 increase\", "
+            "\"$300 increase\") and its own scenario_type/amount, "
+            "exactly like run_what_if's fields but one per scenario. "
+            "Do NOT use run_what_if for a comparison question -- it "
+            "only simulates ONE scenario and would silently drop the "
+            "others. All *_cents fields must be in CENTS."
+        ),
+        "input_schema": _tool_schema(WhatIfComparisonRequest),
     },
     {
         "name": "run_stress_test",
@@ -766,6 +844,7 @@ _TOOL_LABELS = {
     "simulate_major_purchase": "Major Purchase Simulator",
     "run_what_if": "What-If Simulator",
     "compare_purchase_scenarios": "Scenario Comparison",
+    "compare_what_if_scenarios": "What-If Comparison",
     "run_stress_test": "Financial Stress Test",
     "check_goal_conflicts": "Goal Conflict Check",
     "get_goal_intelligence": "Goal Intelligence",
@@ -996,6 +1075,50 @@ def _handle_compare_scenarios(
     confidence_score = min(
         result.option_a.simulation.confidence_score,
         result.option_b.simulation.confidence_score,
+    )
+
+    return (
+        result,
+        chips,
+        _confidence(confidence_score),
+        _low_data_warning(confidence_score),
+    )
+
+
+def _handle_compare_what_if_scenarios(
+    db, user_id, tool_input, as_of, current_user
+):
+    payload = WhatIfComparisonRequest(**tool_input)
+    result = compare_what_if_scenarios(db, user_id, payload, as_of=as_of)
+
+    recommended_label = (
+        "Tie" if result.is_tie else (result.recommended_label or "Tie")
+    )
+
+    chips = [
+        _chip(
+            "Recommended", recommended_label, kind="text", tone="positive"
+        ),
+    ]
+
+    for scenario in result.scenarios:
+        chips.append(
+            _chip(
+                f"{scenario.label} safe-to-spend",
+                _currency(scenario.safe_to_spend_cents),
+                tone="danger" if scenario.shortfall_cents else "positive",
+            )
+        )
+        chips.append(
+            _chip(
+                f"{scenario.label} shortfall",
+                _currency(scenario.shortfall_cents),
+                tone="danger" if scenario.shortfall_cents else "positive",
+            )
+        )
+
+    confidence_score = min(
+        scenario.confidence_score for scenario in result.scenarios
     )
 
     return (
@@ -1712,6 +1835,7 @@ _TOOL_HANDLERS = {
     "simulate_major_purchase": _handle_major_purchase,
     "run_what_if": _handle_what_if,
     "compare_purchase_scenarios": _handle_compare_scenarios,
+    "compare_what_if_scenarios": _handle_compare_what_if_scenarios,
     "run_stress_test": _handle_stress_test,
     "check_goal_conflicts": _handle_goal_conflicts,
     "get_goal_intelligence": _handle_goal_intelligence,
@@ -1972,7 +2096,37 @@ def _narrate(
         )
         return {}, latency_ms
 
-    return narrate_use.input or {}, latency_ms
+    narration = narrate_use.input or {}
+
+    if not _narration_is_grounded(payload, narration):
+        # Same treatment as any other narrate failure: discarded, never
+        # shown, falls back to the deterministic template built from
+        # this turn's already-successful REAL tool result -- never a
+        # second provider call to re-ask.
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode=client.provider_name,
+            event_type="provider_failure",
+            success=False,
+            error_code=copilot_audit.MODEL_INVALID_RESPONSE,
+            latency_ms=latency_ms,
+            model=client.model,
+            tool_name=tool_name,
+            metadata={"stage": "narrate", "reason": "ungrounded_amount"},
+        )
+        _log_provider_failure(
+            request_id=request_id,
+            provider=client.provider_name,
+            phase="narrate",
+            error_code=copilot_audit.MODEL_INVALID_RESPONSE,
+            tool_name=tool_name,
+            latency_ms=latency_ms,
+        )
+        return {}, latency_ms
+
+    return narration, latency_ms
 
 
 def _load_goal_names(db: Session, user_id: int) -> list[str]:
@@ -2348,6 +2502,24 @@ def run_copilot_turn(
     if deterministic is not None:
         return deterministic
 
+    # Confidently non-financial input (weather, "write Java code", a
+    # "call <tool_name>" injection attempt) never reaches the provider
+    # at all -- checked before the enabled/disabled branch below so it
+    # costs 0 provider calls the same way whether or not a provider is
+    # configured, unlike the router-exhausted case just above, which
+    # still asks the provider to DECIDE when one is available.
+    if copilot_free_mode.is_deterministically_unsupported(
+        messages[-1].content
+    ):
+        return _unsupported_response(
+            db,
+            user_id,
+            request_id,
+            route_source="deterministic",
+            provider_call_count=0,
+            turn_start=turn_start,
+        )
+
     if not client.enabled:
         return _unsupported_response(
             db,
@@ -2459,6 +2631,50 @@ def run_copilot_turn(
 
     name = tool_use.name
     tool_input = tool_use.input or {}
+
+    if name in (
+        "run_what_if",
+        "simulate_major_purchase",
+    ) and copilot_free_mode.is_multi_option_comparison_signal(
+        messages[-1].content
+    ):
+        # The user's own message signaled a two-scenario comparison
+        # (copilot_free_mode's own guard already refuses to silently
+        # answer this deterministically, for the same reason) but the
+        # provider picked a single-scenario tool anyway -- executing it
+        # would silently answer only the first scenario and let
+        # narration describe the comparison as if both were run. Never
+        # executed: this turn's one provider call is already spent, so
+        # this resolves the same way the deterministic guard does,
+        # rather than a second provider call to re-ask.
+        copilot_audit.record_event(
+            db,
+            user_id=user_id,
+            request_id=request_id,
+            mode=client.provider_name,
+            event_type="safety_rejection",
+            success=False,
+            error_code=copilot_audit.MODEL_INVALID_RESPONSE,
+            tool_name=name,
+            latency_ms=decide_latency_ms,
+            model=client.model,
+            tool_call_count=0,
+            response_kind="answer",
+            provenance="ai_enhanced",
+            metadata={
+                "route_source": client.provider_name,
+                "provider_call_count": 1,
+                "reason": "single_scenario_for_comparison_question",
+            },
+        )
+        return _unsupported_response(
+            db,
+            user_id,
+            request_id,
+            route_source=client.provider_name,
+            provider_call_count=1,
+            turn_start=turn_start,
+        )
 
     if name == "request_clarification":
         question = str(tool_input.get("question", "")).strip()

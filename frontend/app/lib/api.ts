@@ -8,16 +8,27 @@ const SESSION_NOTICE_KEY = "sessionNotice";
 const INVALIDATED_SESSION_DETAIL =
   "session expired; please sign in again";
 const REQUEST_TIMEOUT_MS = 15_000;
+// The Copilot chat turn can run up to two sequential AI provider calls
+// (DECIDE, then NARRATE), each with its own backend-side timeout budget
+// (copilot_model_timeout_seconds) that alone exceeds REQUEST_TIMEOUT_MS.
+// It can also be the first request to a scale-to-zero backend instance
+// after it's been idle, which cold-starts (see
+// docs/TESTING_AND_DEPLOYMENT.md) -- REQUEST_TIMEOUT_MS was aborting
+// that combination client-side before the backend could ever respond,
+// which is what a page refresh (a fresh, no-longer-cold backend) then
+// appeared to "fix".
+export const COPILOT_REQUEST_TIMEOUT_MS = 45_000;
 
 async function fetchWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit = {},
-  allowRefresh = true
+  allowRefresh = true,
+  timeoutMs = REQUEST_TIMEOUT_MS
 ): Promise<Response> {
   const controller = new AbortController();
   const timeout = window.setTimeout(
     () => controller.abort(),
-    REQUEST_TIMEOUT_MS
+    timeoutMs
   );
 
   try {
@@ -48,7 +59,8 @@ async function fetchWithTimeout(
           ...init,
           headers: retryHeaders,
         },
-        false
+        false,
+        timeoutMs
       );
     }
 
@@ -1954,11 +1966,28 @@ compareWhatIfScenarios: (
     userId: number,
     messages: CopilotMessage[]
   ): Promise<CopilotResponse> =>
-    fetchWithTimeout(`${API_URL}/users/${userId}/copilot/chat`, {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ messages }),
-    }).then((res) => handle<CopilotResponse>(res)),
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/copilot/chat`,
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ messages }),
+      },
+      true,
+      COPILOT_REQUEST_TIMEOUT_MS
+    ).then((res) => {
+      if (!res.ok) {
+        // Bounded metadata only (status + backend request id) so a
+        // first-after-idle failure can be correlated against backend
+        // logs -- never the prompt or any financial value.
+        console.error("copilot_chat_failed", {
+          status: res.status,
+          requestId: res.headers.get("X-Request-Id"),
+        });
+      }
+
+      return handle<CopilotResponse>(res);
+    }),
 
   getRecommendations: (
     userId: number

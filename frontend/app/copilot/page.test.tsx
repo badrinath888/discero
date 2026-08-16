@@ -497,6 +497,69 @@ describe("Copilot auto-scroll", () => {
     );
   });
 
+  it("shows a distinct message when the request times out (e.g. a cold-started backend)", async () => {
+    mocks.sendCopilotChat.mockRejectedValue(
+      new Error("The server took too long to respond. Please try again.")
+    );
+
+    render(<CopilotPage />);
+
+    const input = await screen.findByLabelText("Message");
+    fireEvent.change(input, { target: { value: "Hello" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Discero is taking longer than usual to respond -- this can happen right after being idle. Please try again in a moment."
+        )
+      ).toBeInTheDocument()
+    );
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("redirects to sign-in instead of showing a generic error when the session was not recoverable", async () => {
+    // api.ts's centralized 401 handling already attempted a refresh and,
+    // on failure, cleared the stored token before this rejection reached
+    // the page -- a cleared token is how the page recognizes this case.
+    mocks.sendCopilotChat.mockImplementation(async () => {
+      mocks.getToken.mockReturnValue(null);
+      throw new Error("session expired; please sign in again (401)");
+    });
+
+    render(<CopilotPage />);
+
+    const input = await screen.findByLabelText("Message");
+    fireEvent.change(input, { target: { value: "Hello" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/"));
+    expect(
+      screen.queryByText(
+        "I couldn't complete that just now. Your financial data wasn't changed. Please try again."
+      )
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not redirect for a generic network error while the session is still valid", async () => {
+    mocks.sendCopilotChat.mockRejectedValue(new Error("network error"));
+
+    render(<CopilotPage />);
+
+    const input = await screen.findByLabelText("Message");
+    fireEvent.change(input, { target: { value: "Hello" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "I couldn't complete that just now. Your financial data wasn't changed. Please try again."
+        )
+      ).toBeInTheDocument()
+    );
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
   it("a programmatic/scroll event mid-flight does not cancel follow for the active request", async () => {
     // This is the actual production bug: scrollIntoView's own smooth
     // scroll fires "scroll" events, which previously flipped the

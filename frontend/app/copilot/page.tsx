@@ -229,12 +229,25 @@ export default function CopilotPage() {
         { role: "assistant", content: assistantHistoryText(response) },
       ]);
     } catch (caught) {
-      const isRateLimited =
-        caught instanceof Error && caught.message.includes("429");
+      const message = caught instanceof Error ? caught.message : "";
+      const isRateLimited = message.includes("429");
+
+      // api.ts already ran its centralized 401 handling (refresh
+      // attempted, then session cleared) before this rejection reached
+      // us -- a cleared token is how we know that's what happened,
+      // without this page re-deciding auth state on its own.
+      if (!isRateLimited && !session.getToken()) {
+        router.replace("/");
+        return;
+      }
+
+      const isTimeout = message.includes("took too long");
 
       setError(
         isRateLimited
           ? "You've sent a lot of questions in a short time. Please wait a moment before asking again."
+          : isTimeout
+          ? "Discero is taking longer than usual to respond -- this can happen right after being idle. Please try again in a moment."
           : "I couldn't complete that just now. Your financial data wasn't changed. Please try again."
       );
     } finally {

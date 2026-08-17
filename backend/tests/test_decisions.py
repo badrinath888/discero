@@ -1,13 +1,23 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import DecisionOutcome, FinancialAccount, PlaidItem, User
+from app.models import (
+    DecisionOutcome,
+    FinancialAccount,
+    PlaidItem,
+    SavedDecision,
+    User,
+)
 from app.schemas import SaveDecisionRequest
-from app.services import decision_history_service, decision_outcome_service
+from app.services import (
+    decision_calibration_service,
+    decision_history_service,
+    decision_outcome_service,
+)
 from tests.conftest import TestingSessionLocal
 
 
@@ -1368,3 +1378,671 @@ def test_list_decisions_outcome_metadata_scoped_to_owner() -> None:
         assert other_listed[0].id == other_decision.id
         assert other_listed[0].outcome_count == 0
         assert other_listed[0].latest_outcome_at is None
+
+
+# --- Decision calibration ------------------------------------------------
+
+
+def _numeric_metric(path: str, before: float, current: float) -> dict:
+    return {
+        "path": path,
+        "before": before,
+        "current": current,
+        "delta": current - before,
+        "change_type": "numeric",
+    }
+
+
+def _acted_on_decision(
+    db: Session,
+    user: User,
+    *,
+    decision_type: str = "major_purchase",
+    title: str = "Laptop",
+) -> SavedDecision:
+    payload = (
+        _major_purchase_input()
+        if decision_type == "major_purchase"
+        else _stress_test_input()
+    )
+    decision = decision_history_service.save_decision(
+        db,
+        user.id,
+        SaveDecisionRequest(
+            decision_type=decision_type,
+            title=title,
+            input=payload,
+        ),
+        as_of=TEST_DATE,
+    )
+    decision_history_service.update_decision_status(
+        db, user.id, decision.id, "acted_on"
+    )
+    return decision
+
+
+def _persist_outcome(
+    db: Session,
+    user: User,
+    decision: SavedDecision,
+    metrics: list[dict],
+    *,
+    evaluated_at: datetime | None = None,
+) -> DecisionOutcome:
+    metrics_changed = sum(
+        1 for metric in metrics if metric["before"] != metric["current"]
+    )
+    comparison_snapshot = {
+        "changed": metrics_changed > 0,
+        "metrics": metrics,
+        "summary": {
+            "metrics_compared": len(metrics),
+            "metrics_changed": metrics_changed,
+        },
+    }
+    outcome = DecisionOutcome(
+        decision_id=decision.id,
+        user_id=user.id,
+        evaluated_at=evaluated_at or datetime.now(timezone.utc),
+        current_result_snapshot=decision.result_snapshot,
+        comparison_snapshot=comparison_snapshot,
+    )
+    db.add(outcome)
+    db.commit()
+    db.refresh(outcome)
+    return outcome
+
+
+def test_calibration_with_no_outcomes_is_insufficient_data() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert calibration.tracked_decisions == 0
+        assert calibration.outcome_checks == 0
+        assert calibration.numeric_metrics_compared == 0
+        assert calibration.changed_numeric_metrics == 0
+        assert calibration.directional_metrics_compared == 0
+        assert calibration.favorable_count == 0
+        assert calibration.unfavorable_count == 0
+        assert calibration.unchanged_count == 0
+        assert calibration.favorable_rate is None
+        assert calibration.unfavorable_rate is None
+        assert calibration.calibration_label == "insufficient_data"
+        assert calibration.metric_groups == []
+        assert calibration.decision_types == []
+
+
+def test_calibration_one_decision_one_outcome_is_insufficient_data() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+        decision = _acted_on_decision(db, user)
+        _persist_outcome(
+            db,
+            user,
+            decision,
+            [_numeric_metric("safe_to_spend_after_purchase_cents", 100_000, 150_000)],
+        )
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert calibration.tracked_decisions == 1
+        assert calibration.outcome_checks == 1
+        assert calibration.directional_metrics_compared == 1
+        assert calibration.favorable_count == 1
+        assert calibration.calibration_label == "insufficient_data"
+
+
+def test_calibration_higher_is_better_favorable_delta() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+        decision = _acted_on_decision(db, user)
+        _persist_outcome(
+            db,
+            user,
+            decision,
+            [_numeric_metric("safe_to_spend_after_purchase_cents", 100_000, 150_000)],
+        )
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert calibration.favorable_count == 1
+        assert calibration.unfavorable_count == 0
+        assert calibration.unchanged_count == 0
+        group = calibration.metric_groups[0]
+        assert group.path == "safe_to_spend_after_purchase_cents"
+        assert group.direction == "higher_is_better"
+        assert group.unit == "currency"
+        assert group.favorable_count == 1
+        assert group.mean_signed_delta == 50_000
+        assert group.latest_delta == 50_000
+
+
+def test_calibration_higher_is_better_unfavorable_delta() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+        decision = _acted_on_decision(db, user)
+        _persist_outcome(
+            db,
+            user,
+            decision,
+            [_numeric_metric("confidence_score", 80, 60)],
+        )
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert calibration.favorable_count == 0
+        assert calibration.unfavorable_count == 1
+        group = calibration.metric_groups[0]
+        assert group.direction == "higher_is_better"
+        assert group.unit == "score"
+        assert group.unfavorable_count == 1
+
+
+def test_calibration_lower_is_better_logic() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+
+        favorable_decision = _acted_on_decision(db, user, title="Decrease")
+        _persist_outcome(
+            db,
+            user,
+            favorable_decision,
+            [_numeric_metric("shortfall_cents", 50_000, 20_000)],
+        )
+
+        unfavorable_decision = _acted_on_decision(db, user, title="Increase")
+        _persist_outcome(
+            db,
+            user,
+            unfavorable_decision,
+            [_numeric_metric("shortfall_cents", 20_000, 60_000)],
+        )
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert calibration.favorable_count == 1
+        assert calibration.unfavorable_count == 1
+        group = calibration.metric_groups[0]
+        assert group.path == "shortfall_cents"
+        assert group.direction == "lower_is_better"
+        assert group.favorable_count == 1
+        assert group.unfavorable_count == 1
+
+
+def test_calibration_unknown_metric_does_not_affect_label_or_directional_counts() -> (
+    None
+):
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+        decision = _acted_on_decision(db, user)
+        _persist_outcome(
+            db,
+            user,
+            decision,
+            [_numeric_metric("purchase_amount_cents", 100_000, 200_000)],
+        )
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert calibration.numeric_metrics_compared == 1
+        assert calibration.changed_numeric_metrics == 1
+        assert calibration.directional_metrics_compared == 0
+        assert calibration.favorable_count == 0
+        assert calibration.unfavorable_count == 0
+        assert calibration.calibration_label == "insufficient_data"
+        assert calibration.metric_groups[0].direction == "unknown"
+
+
+def test_calibration_unchanged_observation() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+        decision = _acted_on_decision(db, user)
+        _persist_outcome(
+            db,
+            user,
+            decision,
+            [_numeric_metric("buffer_difference_cents", 500, 500)],
+        )
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert calibration.unchanged_count == 1
+        assert calibration.favorable_count == 0
+        assert calibration.unfavorable_count == 0
+        assert calibration.changed_numeric_metrics == 0
+
+
+def test_calibration_mostly_conservative_at_65_percent_threshold() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+
+        decision_a = _acted_on_decision(db, user, title="A")
+        _persist_outcome(
+            db,
+            user,
+            decision_a,
+            [
+                _numeric_metric("safe_to_spend_after_purchase_cents", 100_000, 150_000),
+                _numeric_metric("confidence_score", 60, 70),
+            ],
+        )
+
+        decision_b = _acted_on_decision(
+            db, user, decision_type="stress_test", title="B"
+        )
+        _persist_outcome(
+            db,
+            user,
+            decision_b,
+            [
+                _numeric_metric("resilience_score", 40, 55),
+                _numeric_metric("shortfall_cents", 10_000, 30_000),
+            ],
+        )
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert calibration.tracked_decisions == 2
+        assert calibration.directional_metrics_compared == 4
+        assert calibration.favorable_count == 3
+        assert calibration.unfavorable_count == 1
+        assert calibration.favorable_rate == 0.75
+        assert calibration.calibration_label == "mostly_conservative"
+
+
+def test_calibration_mostly_optimistic_at_65_percent_threshold() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+
+        decision_a = _acted_on_decision(db, user, title="A")
+        _persist_outcome(
+            db,
+            user,
+            decision_a,
+            [
+                _numeric_metric("safe_to_spend_after_purchase_cents", 150_000, 100_000),
+                _numeric_metric("confidence_score", 70, 60),
+            ],
+        )
+
+        decision_b = _acted_on_decision(
+            db, user, decision_type="stress_test", title="B"
+        )
+        _persist_outcome(
+            db,
+            user,
+            decision_b,
+            [
+                _numeric_metric("resilience_score", 55, 40),
+                _numeric_metric("shortfall_cents", 10_000, 5_000),
+            ],
+        )
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert calibration.tracked_decisions == 2
+        assert calibration.directional_metrics_compared == 4
+        assert calibration.unfavorable_count == 3
+        assert calibration.favorable_count == 1
+        assert calibration.unfavorable_rate == 0.75
+        assert calibration.calibration_label == "mostly_optimistic"
+
+
+def test_calibration_balanced_case() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+
+        decision_a = _acted_on_decision(db, user, title="A")
+        _persist_outcome(
+            db,
+            user,
+            decision_a,
+            [
+                _numeric_metric("safe_to_spend_after_purchase_cents", 100_000, 150_000),
+                _numeric_metric("confidence_score", 70, 60),
+            ],
+        )
+
+        decision_b = _acted_on_decision(
+            db, user, decision_type="stress_test", title="B"
+        )
+        _persist_outcome(
+            db,
+            user,
+            decision_b,
+            [
+                _numeric_metric("resilience_score", 40, 55),
+                _numeric_metric("shortfall_cents", 10_000, 30_000),
+            ],
+        )
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert calibration.tracked_decisions == 2
+        assert calibration.directional_metrics_compared == 4
+        assert calibration.favorable_count == 2
+        assert calibration.unfavorable_count == 2
+        assert calibration.favorable_rate == 0.5
+        assert calibration.calibration_label == "balanced"
+
+
+def test_calibration_per_decision_type_aggregation() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+
+        purchase_decision = _acted_on_decision(db, user, title="Purchase")
+        _persist_outcome(
+            db,
+            user,
+            purchase_decision,
+            [_numeric_metric("safe_to_spend_after_purchase_cents", 100_000, 150_000)],
+        )
+
+        stress_decision = _acted_on_decision(
+            db, user, decision_type="stress_test", title="Stress"
+        )
+        _persist_outcome(
+            db,
+            user,
+            stress_decision,
+            [_numeric_metric("shortfall_cents", 10_000, 30_000)],
+        )
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        by_type = {
+            breakdown.decision_type: breakdown
+            for breakdown in calibration.decision_types
+        }
+        assert set(by_type.keys()) == {"major_purchase", "stress_test"}
+
+        purchase_breakdown = by_type["major_purchase"]
+        assert purchase_breakdown.tracked_decisions == 1
+        assert purchase_breakdown.outcome_checks == 1
+        assert purchase_breakdown.directional_observations == 1
+        assert purchase_breakdown.favorable_count == 1
+        assert purchase_breakdown.unfavorable_count == 0
+        assert purchase_breakdown.favorable_rate == 1.0
+
+        stress_breakdown = by_type["stress_test"]
+        assert stress_breakdown.tracked_decisions == 1
+        assert stress_breakdown.outcome_checks == 1
+        assert stress_breakdown.directional_observations == 1
+        assert stress_breakdown.favorable_count == 0
+        assert stress_breakdown.unfavorable_count == 1
+        assert stress_breakdown.favorable_rate == 0.0
+        # Only one tracked decision of each type -- still insufficient
+        # even though the single observation happens to be favorable.
+        assert purchase_breakdown.calibration_label == "insufficient_data"
+        assert stress_breakdown.calibration_label == "insufficient_data"
+
+
+def test_calibration_metric_grouping_and_deterministic_ordering() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+        decision = _acted_on_decision(db, user)
+
+        # "frequent_metric" observed across three separate outcome
+        # checks; "rare_metric" observed once.
+        _persist_outcome(
+            db, user, decision, [_numeric_metric("frequent_metric", 10, 20)]
+        )
+        _persist_outcome(
+            db, user, decision, [_numeric_metric("frequent_metric", 20, 25)]
+        )
+        _persist_outcome(
+            db,
+            user,
+            decision,
+            [
+                _numeric_metric("frequent_metric", 25, 15),
+                _numeric_metric("rare_metric", 5, 5),
+            ],
+        )
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert [group.path for group in calibration.metric_groups] == [
+            "frequent_metric",
+            "rare_metric",
+        ]
+        frequent = calibration.metric_groups[0]
+        assert frequent.observations == 3
+        assert frequent.mean_signed_delta == (10 + 5 + -10) / 3
+        assert frequent.mean_absolute_delta == (10 + 5 + 10) / 3
+        # Rows are considered newest-evaluated first, and the last
+        # `_persist_outcome` call (delta -10) is the most recent.
+        assert frequent.latest_delta == -10
+
+
+def test_calibration_metric_groups_are_capped_and_path_ordered() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+        decision = _acted_on_decision(db, user)
+
+        metrics = [
+            _numeric_metric(f"metric_{index:02d}", 0, 1)
+            for index in range(25)
+        ]
+        _persist_outcome(db, user, decision, metrics)
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert len(calibration.metric_groups) == 20
+        paths = [group.path for group in calibration.metric_groups]
+        assert paths == sorted(paths)
+        assert paths[0] == "metric_00"
+        assert paths[-1] == "metric_19"
+
+
+def test_calibration_cross_user_isolation() -> None:
+    with TestingSessionLocal() as db:
+        owner = create_user(db)
+        other = create_user(db)
+        create_account(db, owner)
+        create_account(db, other)
+
+        owner_decision = _acted_on_decision(db, owner, title="Owner")
+        _persist_outcome(
+            db,
+            owner,
+            owner_decision,
+            [_numeric_metric("safe_to_spend_after_purchase_cents", 100_000, 150_000)],
+        )
+
+        other_decision = _acted_on_decision(db, other, title="Other")
+        _persist_outcome(
+            db,
+            other,
+            other_decision,
+            [_numeric_metric("safe_to_spend_after_purchase_cents", 100_000, 400_000)],
+        )
+
+        owner_calibration = decision_calibration_service.get_decision_calibration(
+            db, owner.id
+        )
+
+        assert owner_calibration.tracked_decisions == 1
+        assert owner_calibration.outcome_checks == 1
+        assert owner_calibration.metric_groups[0].mean_signed_delta == 50_000
+
+
+def test_calibration_duplicate_outcome_checks_counted_correctly() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+        decision = _acted_on_decision(db, user)
+
+        _persist_outcome(
+            db,
+            user,
+            decision,
+            [_numeric_metric("safe_to_spend_after_purchase_cents", 100_000, 120_000)],
+        )
+        _persist_outcome(
+            db,
+            user,
+            decision,
+            [_numeric_metric("safe_to_spend_after_purchase_cents", 120_000, 140_000)],
+        )
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert calibration.tracked_decisions == 1
+        assert calibration.outcome_checks == 2
+        assert calibration.metric_groups[0].observations == 2
+
+
+def test_calibration_unique_tracked_decision_count() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user)
+
+        tracked_a = _acted_on_decision(db, user, title="Tracked A")
+        _persist_outcome(
+            db,
+            user,
+            tracked_a,
+            [_numeric_metric("safe_to_spend_after_purchase_cents", 100_000, 120_000)],
+        )
+        _persist_outcome(
+            db,
+            user,
+            tracked_a,
+            [_numeric_metric("safe_to_spend_after_purchase_cents", 120_000, 140_000)],
+        )
+
+        tracked_b = _acted_on_decision(db, user, title="Tracked B")
+        _persist_outcome(
+            db,
+            user,
+            tracked_b,
+            [_numeric_metric("safe_to_spend_after_purchase_cents", 100_000, 90_000)],
+        )
+
+        # Acted on but never checked -- must not count as tracked.
+        _acted_on_decision(db, user, title="Untracked")
+
+        calibration = decision_calibration_service.get_decision_calibration(
+            db, user.id
+        )
+
+        assert calibration.tracked_decisions == 2
+        assert calibration.outcome_checks == 3
+
+
+def test_decision_calibration_endpoint_requires_authentication(
+    client: TestClient,
+) -> None:
+    response = client.get("/users/9999/decisions/calibration")
+    assert response.status_code == 401
+
+
+def test_decision_calibration_endpoint_blocks_other_user(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(client, "calibration-owner")
+
+    response = client.get(
+        f"/users/{user_id + 1}/decisions/calibration", headers=headers
+    )
+
+    assert response.status_code == 403
+
+
+def test_decision_calibration_endpoint_returns_empty_state(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(client, "calibration-empty")
+
+    response = client.get(
+        f"/users/{user_id}/decisions/calibration", headers=headers
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tracked_decisions"] == 0
+    assert body["outcome_checks"] == 0
+    assert body["calibration_label"] == "insufficient_data"
+    assert body["favorable_rate"] is None
+    assert body["metric_groups"] == []
+    assert body["decision_types"] == []
+
+
+def test_decision_calibration_endpoint_reflects_persisted_outcomes(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(client, "calibration-http")
+
+    save_response = client.post(
+        f"/users/{user_id}/decisions",
+        headers=headers,
+        json={
+            "decision_type": "major_purchase",
+            "title": "Laptop",
+            "input": _http_major_purchase_input(),
+        },
+    )
+    decision_id = save_response.json()["id"]
+
+    client.patch(
+        f"/users/{user_id}/decisions/{decision_id}/status",
+        headers=headers,
+        json={"status": "acted_on"},
+    )
+    outcome_response = client.post(
+        f"/users/{user_id}/decisions/{decision_id}/outcomes",
+        headers=headers,
+    )
+    assert outcome_response.status_code == 201
+
+    response = client.get(
+        f"/users/{user_id}/decisions/calibration", headers=headers
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tracked_decisions"] == 1
+    assert body["outcome_checks"] == 1

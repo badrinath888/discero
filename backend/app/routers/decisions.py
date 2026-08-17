@@ -5,13 +5,18 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models import User
 from app.schemas import (
+    DecisionCalibrationOut,
     DecisionOutcomeOut,
     DecisionRerunOut,
     SaveDecisionRequest,
     SavedDecisionOut,
     UpdateDecisionLifecycleRequest,
 )
-from app.services import decision_history_service, decision_outcome_service
+from app.services import (
+    decision_calibration_service,
+    decision_history_service,
+    decision_outcome_service,
+)
 
 router = APIRouter(
     prefix="/users/{user_id}/decisions",
@@ -66,6 +71,20 @@ def list_decisions(
     return decision_history_service.list_decisions(
         db, user_id, limit=limit
     )
+
+
+@router.get(
+    "/calibration",
+    response_model=DecisionCalibrationOut,
+)
+def get_decision_calibration(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DecisionCalibrationOut:
+    _authorize_user(user_id, current_user)
+
+    return decision_calibration_service.get_decision_calibration(db, user_id)
 
 
 @router.get(

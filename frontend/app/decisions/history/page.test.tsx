@@ -8,7 +8,7 @@ import {
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SavedDecision } from "../../lib/api";
+import type { DecisionCalibration, SavedDecision } from "../../lib/api";
 import DecisionHistoryPage from "./page";
 
 const mocks = vi.hoisted(() => ({
@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   updateDecisionStatus: vi.fn(),
   evaluateDecisionOutcome: vi.fn(),
   getDecisionOutcomes: vi.fn(),
+  getDecisionCalibration: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
   clearSession: vi.fn(),
@@ -90,6 +91,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
       updateDecisionStatus: mocks.updateDecisionStatus,
       evaluateDecisionOutcome: mocks.evaluateDecisionOutcome,
       getDecisionOutcomes: mocks.getDecisionOutcomes,
+      getDecisionCalibration: mocks.getDecisionCalibration,
     },
     session: {
       ...actual.session,
@@ -198,6 +200,28 @@ const stressTestDecision: SavedDecision = {
   latest_outcome_at: null,
 };
 
+const emptyCalibration: DecisionCalibration = {
+  tracked_decisions: 0,
+  outcome_checks: 0,
+  numeric_metrics_compared: 0,
+  changed_numeric_metrics: 0,
+  directional_metrics_compared: 0,
+  favorable_count: 0,
+  unfavorable_count: 0,
+  unchanged_count: 0,
+  favorable_rate: null,
+  unfavorable_rate: null,
+  calibration_label: "insufficient_data",
+  metric_groups: [],
+  decision_types: [],
+};
+
+function calibrationFixture(
+  overrides: Partial<DecisionCalibration>
+): DecisionCalibration {
+  return { ...emptyCalibration, ...overrides };
+}
+
 beforeEach(() => {
   mocks.getUserId.mockReturnValue(1);
   mocks.getToken.mockReturnValue("test-token");
@@ -212,6 +236,8 @@ beforeEach(() => {
   mocks.updateDecisionStatus.mockReset();
   mocks.evaluateDecisionOutcome.mockReset();
   mocks.getDecisionOutcomes.mockReset();
+  mocks.getDecisionCalibration.mockReset();
+  mocks.getDecisionCalibration.mockResolvedValue(emptyCalibration);
 });
 
 describe("Decision history page", () => {
@@ -701,5 +727,306 @@ describe("Decision history page", () => {
 
     // The update was purely local -- no second list fetch/reload.
     expect(mocks.getSavedDecisions).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Decision calibration", () => {
+  it("shows a quiet empty state when there are no tracked outcomes", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionCalibration.mockResolvedValue(emptyCalibration);
+
+    render(<DecisionHistoryPage />);
+
+    const empty = await screen.findByTestId("calibration-empty");
+    expect(empty).toHaveTextContent(
+      "Calibration appears after you act on saved decisions and check their outcomes."
+    );
+    expect(
+      screen.queryByTestId("decision-calibration-section")
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows an insufficient-data message once at least one decision is tracked", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionCalibration.mockResolvedValue(
+      calibrationFixture({
+        tracked_decisions: 1,
+        outcome_checks: 1,
+        directional_metrics_compared: 1,
+        favorable_count: 1,
+        favorable_rate: 1,
+        calibration_label: "insufficient_data",
+      })
+    );
+
+    render(<DecisionHistoryPage />);
+
+    const section = await screen.findByTestId(
+      "decision-calibration-section"
+    );
+    expect(section).toHaveTextContent(
+      "More tracked outcomes are needed before Discero can identify a calibration pattern."
+    );
+    expect(screen.getByTestId("calibration-label")).toHaveTextContent(
+      "Insufficient data"
+    );
+  });
+
+  it("shows a mostly-conservative narrative", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionCalibration.mockResolvedValue(
+      calibrationFixture({
+        tracked_decisions: 2,
+        outcome_checks: 4,
+        directional_metrics_compared: 4,
+        favorable_count: 3,
+        unfavorable_count: 1,
+        favorable_rate: 0.75,
+        unfavorable_rate: 0.25,
+        calibration_label: "mostly_conservative",
+      })
+    );
+
+    render(<DecisionHistoryPage />);
+
+    const section = await screen.findByTestId(
+      "decision-calibration-section"
+    );
+    expect(section).toHaveTextContent(
+      "Discero has been mostly conservative across your tracked outcomes."
+    );
+    expect(screen.getByTestId("calibration-label")).toHaveTextContent(
+      "Mostly conservative"
+    );
+  });
+
+  it("shows a mostly-optimistic narrative", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionCalibration.mockResolvedValue(
+      calibrationFixture({
+        tracked_decisions: 2,
+        outcome_checks: 4,
+        directional_metrics_compared: 4,
+        favorable_count: 1,
+        unfavorable_count: 3,
+        favorable_rate: 0.25,
+        unfavorable_rate: 0.75,
+        calibration_label: "mostly_optimistic",
+      })
+    );
+
+    render(<DecisionHistoryPage />);
+
+    const section = await screen.findByTestId(
+      "decision-calibration-section"
+    );
+    expect(section).toHaveTextContent(
+      "Discero has been mostly optimistic across your tracked outcomes."
+    );
+    expect(screen.getByTestId("calibration-label")).toHaveTextContent(
+      "Mostly optimistic"
+    );
+  });
+
+  it("shows a balanced narrative", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionCalibration.mockResolvedValue(
+      calibrationFixture({
+        tracked_decisions: 2,
+        outcome_checks: 4,
+        directional_metrics_compared: 4,
+        favorable_count: 2,
+        unfavorable_count: 2,
+        favorable_rate: 0.5,
+        unfavorable_rate: 0.5,
+        calibration_label: "balanced",
+      })
+    );
+
+    render(<DecisionHistoryPage />);
+
+    const section = await screen.findByTestId(
+      "decision-calibration-section"
+    );
+    expect(section).toHaveTextContent(
+      "Discero has been balanced across your tracked outcomes."
+    );
+    expect(screen.getByTestId("calibration-label")).toHaveTextContent(
+      "Balanced"
+    );
+  });
+
+  it("renders the summary counts", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionCalibration.mockResolvedValue(
+      calibrationFixture({
+        tracked_decisions: 3,
+        outcome_checks: 7,
+        directional_metrics_compared: 5,
+        favorable_count: 3,
+        unfavorable_count: 2,
+        favorable_rate: 0.6,
+        unfavorable_rate: 0.4,
+        calibration_label: "balanced",
+      })
+    );
+
+    render(<DecisionHistoryPage />);
+
+    const section = await screen.findByTestId(
+      "decision-calibration-section"
+    );
+    expect(within(section).getByText("3")).toBeInTheDocument();
+    expect(within(section).getByText("7")).toBeInTheDocument();
+    expect(within(section).getByText("5")).toBeInTheDocument();
+  });
+
+  it("renders a decision-type breakdown when data exists", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionCalibration.mockResolvedValue(
+      calibrationFixture({
+        tracked_decisions: 2,
+        outcome_checks: 2,
+        directional_metrics_compared: 2,
+        favorable_count: 2,
+        favorable_rate: 1,
+        calibration_label: "insufficient_data",
+        decision_types: [
+          {
+            decision_type: "major_purchase",
+            tracked_decisions: 1,
+            outcome_checks: 1,
+            directional_observations: 1,
+            favorable_count: 1,
+            unfavorable_count: 0,
+            unchanged_count: 0,
+            favorable_rate: 1,
+            calibration_label: "insufficient_data",
+          },
+          {
+            decision_type: "stress_test",
+            tracked_decisions: 1,
+            outcome_checks: 1,
+            directional_observations: 1,
+            favorable_count: 1,
+            unfavorable_count: 0,
+            unchanged_count: 0,
+            favorable_rate: 1,
+            calibration_label: "insufficient_data",
+          },
+        ],
+      })
+    );
+
+    render(<DecisionHistoryPage />);
+
+    const breakdown = await screen.findByTestId(
+      "calibration-type-breakdown"
+    );
+    expect(within(breakdown).getByText("Major Purchase")).toBeInTheDocument();
+    expect(within(breakdown).getByText("Stress Test")).toBeInTheDocument();
+  });
+
+  it("humanizes metric paths instead of showing raw snapshot keys", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionCalibration.mockResolvedValue(
+      calibrationFixture({
+        tracked_decisions: 1,
+        outcome_checks: 1,
+        directional_metrics_compared: 1,
+        favorable_count: 1,
+        favorable_rate: 1,
+        calibration_label: "insufficient_data",
+        metric_groups: [
+          {
+            path: "safe_to_spend_after_purchase_cents",
+            unit: "currency",
+            direction: "higher_is_better",
+            observations: 4,
+            mean_signed_delta: 50_000,
+            mean_absolute_delta: 50_000,
+            latest_delta: 50_000,
+            favorable_count: 4,
+            unfavorable_count: 0,
+            unchanged_count: 0,
+          },
+        ],
+      })
+    );
+
+    render(<DecisionHistoryPage />);
+
+    const metricGroups = await screen.findByTestId(
+      "calibration-metric-groups"
+    );
+    expect(metricGroups).toHaveTextContent("safe to spend after purchase");
+    expect(metricGroups).not.toHaveTextContent(
+      "safe_to_spend_after_purchase_cents"
+    );
+  });
+
+  it("never dumps raw JSON in the calibration section", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionCalibration.mockResolvedValue(
+      calibrationFixture({
+        tracked_decisions: 1,
+        outcome_checks: 1,
+        directional_metrics_compared: 1,
+        favorable_count: 1,
+        favorable_rate: 1,
+        calibration_label: "insufficient_data",
+        metric_groups: [
+          {
+            path: "safe_to_spend_after_purchase_cents",
+            unit: "currency",
+            direction: "higher_is_better",
+            observations: 1,
+            mean_signed_delta: 50_000,
+            mean_absolute_delta: 50_000,
+            latest_delta: 50_000,
+            favorable_count: 1,
+            unfavorable_count: 0,
+            unchanged_count: 0,
+          },
+        ],
+        decision_types: [
+          {
+            decision_type: "major_purchase",
+            tracked_decisions: 1,
+            outcome_checks: 1,
+            directional_observations: 1,
+            favorable_count: 1,
+            unfavorable_count: 0,
+            unchanged_count: 0,
+            favorable_rate: 1,
+            calibration_label: "insufficient_data",
+          },
+        ],
+      })
+    );
+
+    render(<DecisionHistoryPage />);
+
+    const section = await screen.findByTestId(
+      "decision-calibration-section"
+    );
+    expect(section.textContent ?? "").not.toMatch(/[{}]/);
+  });
+
+  it("degrades gracefully when the calibration request fails, without breaking decision history", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionCalibration.mockRejectedValue(
+      new Error("network error")
+    );
+
+    render(<DecisionHistoryPage />);
+
+    expect(await screen.findByText("Laptop Purchase")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("decision-calibration-section")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("calibration-empty")
+    ).not.toBeInTheDocument();
   });
 });

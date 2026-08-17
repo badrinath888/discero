@@ -1118,13 +1118,19 @@ export type SaveDecisionRequest = {
   input: Record<string, unknown>;
 };
 
+export type DecisionLifecycleStatus = "saved" | "acted_on" | "dismissed";
+
 export type SavedDecision = {
   id: number;
   decision_type: DecisionType;
   title: string;
   input_snapshot: Record<string, unknown>;
   result_snapshot: Record<string, unknown>;
+  status: DecisionLifecycleStatus;
+  acted_on_at: string | null;
   created_at: string;
+  outcome_count: number;
+  latest_outcome_at: string | null;
 };
 
 export type DecisionRerunResult = {
@@ -1132,6 +1138,32 @@ export type DecisionRerunResult = {
   decision_type: DecisionType;
   evaluated_at: string;
   result_snapshot: Record<string, unknown>;
+};
+
+export type DecisionOutcomeComparisonMetric = {
+  path: string;
+  before: number | boolean | string;
+  current: number | boolean | string;
+  delta: number | null;
+  change_type: "numeric" | "boolean" | "text" | "date";
+};
+
+export type DecisionOutcomeComparison = {
+  changed: boolean;
+  metrics: DecisionOutcomeComparisonMetric[];
+  summary: {
+    metrics_compared: number;
+    metrics_changed: number;
+  };
+};
+
+export type DecisionOutcome = {
+  id: number;
+  decision_id: number;
+  evaluated_at: string;
+  current_result_snapshot: Record<string, unknown>;
+  comparison_snapshot: DecisionOutcomeComparison;
+  created_at: string;
 };
 
 export type RecurringPayment = {
@@ -2037,6 +2069,38 @@ compareWhatIfScenarios: (
       `${API_URL}/users/${userId}/decisions/${decisionId}/rerun`,
       { method: "POST", headers: authHeaders() }
     ).then((res) => handle<DecisionRerunResult>(res)),
+
+  updateDecisionStatus: (
+    userId: number,
+    decisionId: number,
+    status: DecisionLifecycleStatus
+  ): Promise<SavedDecision> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/decisions/${decisionId}/status`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ status }),
+      }
+    ).then((res) => handle<SavedDecision>(res)),
+
+  evaluateDecisionOutcome: (
+    userId: number,
+    decisionId: number
+  ): Promise<DecisionOutcome> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/decisions/${decisionId}/outcomes`,
+      { method: "POST", headers: authHeaders() }
+    ).then((res) => handle<DecisionOutcome>(res)),
+
+  getDecisionOutcomes: (
+    userId: number,
+    decisionId: number
+  ): Promise<DecisionOutcome[]> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/decisions/${decisionId}/outcomes`,
+      { headers: authHeaders() }
+    ).then((res) => handle<DecisionOutcome[]>(res)),
 
   createSavingsGoal: (
     userId: number,

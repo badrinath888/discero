@@ -5,11 +5,13 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models import User
 from app.schemas import (
+    DecisionOutcomeOut,
     DecisionRerunOut,
     SaveDecisionRequest,
     SavedDecisionOut,
+    UpdateDecisionLifecycleRequest,
 )
-from app.services import decision_history_service
+from app.services import decision_history_service, decision_outcome_service
 
 router = APIRouter(
     prefix="/users/{user_id}/decisions",
@@ -78,7 +80,7 @@ def get_decision(
 ) -> SavedDecisionOut:
     _authorize_user(user_id, current_user)
 
-    decision = decision_history_service.get_decision(
+    decision = decision_history_service.get_decision_with_outcome_metadata(
         db, user_id, decision_id
     )
 
@@ -110,6 +112,84 @@ def delete_decision(
         raise HTTPException(
             status_code=404, detail="saved decision not found"
         )
+
+
+@router.patch(
+    "/{decision_id}/status",
+    response_model=SavedDecisionOut,
+)
+def update_decision_status(
+    user_id: int,
+    decision_id: int,
+    payload: UpdateDecisionLifecycleRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SavedDecisionOut:
+    _authorize_user(user_id, current_user)
+
+    decision = decision_history_service.update_decision_status(
+        db, user_id, decision_id, payload.status
+    )
+
+    if decision is None:
+        raise HTTPException(
+            status_code=404, detail="saved decision not found"
+        )
+
+    return decision
+
+
+@router.post(
+    "/{decision_id}/outcomes",
+    response_model=DecisionOutcomeOut,
+    status_code=201,
+)
+def evaluate_decision_outcome(
+    user_id: int,
+    decision_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DecisionOutcomeOut:
+    _authorize_user(user_id, current_user)
+
+    try:
+        outcome = decision_outcome_service.evaluate_decision_outcome(
+            db, user_id, decision_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if outcome is None:
+        raise HTTPException(
+            status_code=404, detail="saved decision not found"
+        )
+
+    return outcome
+
+
+@router.get(
+    "/{decision_id}/outcomes",
+    response_model=list[DecisionOutcomeOut],
+)
+def list_decision_outcomes(
+    user_id: int,
+    decision_id: int,
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[DecisionOutcomeOut]:
+    _authorize_user(user_id, current_user)
+
+    outcomes = decision_outcome_service.list_decision_outcomes(
+        db, user_id, decision_id, limit=limit
+    )
+
+    if outcomes is None:
+        raise HTTPException(
+            status_code=404, detail="saved decision not found"
+        )
+
+    return outcomes
 
 
 @router.post(

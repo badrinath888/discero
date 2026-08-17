@@ -606,10 +606,70 @@ class SavedDecision(Base):
 
     result_snapshot: Mapped[dict] = mapped_column(JSON)
 
+    status: Mapped[str] = mapped_column(
+        String(16),
+        default="saved",
+        server_default="saved",
+        index=True,
+    )
+
+    acted_on_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=_utcnow,
         index=True,
+    )
+
+    outcomes: Mapped[list["DecisionOutcome"]] = relationship(
+        back_populates="decision",
+        cascade="all, delete-orphan",
+        order_by="(DecisionOutcome.evaluated_at.desc(), "
+        "DecisionOutcome.id.desc())",
+    )
+
+
+class DecisionOutcome(Base):
+    """A single point-in-time re-evaluation of an acted-on decision.
+
+    current_result_snapshot and comparison_snapshot are always
+    computed server-side from a deterministic re-run of the original
+    saved input -- never accepted from the client. See
+    app/services/decision_outcome_service.py.
+    """
+
+    __tablename__ = "decision_outcomes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    decision_id: Mapped[int] = mapped_column(
+        ForeignKey("saved_decisions.id", ondelete="CASCADE"),
+        index=True,
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+
+    evaluated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+    )
+
+    current_result_snapshot: Mapped[dict] = mapped_column(JSON)
+
+    comparison_snapshot: Mapped[dict] = mapped_column(JSON)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utcnow,
+    )
+
+    decision: Mapped["SavedDecision"] = relationship(
+        back_populates="outcomes",
     )
 
 

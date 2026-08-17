@@ -9,15 +9,16 @@ directly, so the stored snapshot is always a genuine calculation.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import SavedDecision
+from app.models import DecisionOutcome, SavedDecision
 from app.schemas import (
     BuyNowVsWaitRequest,
+    DecisionLifecycleStatus,
     FinancialStressTestRequest,
     MajorPurchaseSimulationRequest,
     SaveDecisionRequest,
@@ -104,10 +105,50 @@ def save_decision(
     return decision
 
 
+def _attach_outcome_metadata(
+    db: Session, user_id: int, decisions: list[SavedDecision]
+) -> list[SavedDecision]:
+    """Sets transient outcome_count/latest_outcome_at attributes on each
+    decision from a single grouped aggregate query -- never one query
+    per decision, regardless of how many decisions are passed in.
+    """
+    if not decisions:
+        return decisions
+
+    decision_ids = [decision.id for decision in decisions]
+
+    rows = db.execute(
+        select(
+            DecisionOutcome.decision_id,
+            func.count(DecisionOutcome.id),
+            func.max(DecisionOutcome.evaluated_at),
+        )
+        .where(
+            DecisionOutcome.user_id == user_id,
+            DecisionOutcome.decision_id.in_(decision_ids),
+        )
+        .group_by(DecisionOutcome.decision_id)
+    ).all()
+
+    metadata_by_decision_id = {
+        decision_id: (count, latest_outcome_at)
+        for decision_id, count, latest_outcome_at in rows
+    }
+
+    for decision in decisions:
+        count, latest_outcome_at = metadata_by_decision_id.get(
+            decision.id, (0, None)
+        )
+        decision.outcome_count = count
+        decision.latest_outcome_at = latest_outcome_at
+
+    return decisions
+
+
 def list_decisions(
     db: Session, user_id: int, *, limit: int = _MAX_LISTED_DECISIONS
 ) -> list[SavedDecision]:
-    return list(
+    decisions = list(
         db.scalars(
             select(SavedDecision)
             .where(SavedDecision.user_id == user_id)
@@ -115,6 +156,7 @@ def list_decisions(
             .limit(limit)
         ).all()
     )
+    return _attach_outcome_metadata(db, user_id, decisions)
 
 
 def get_decision(
@@ -128,6 +170,18 @@ def get_decision(
     )
 
 
+def get_decision_with_outcome_metadata(
+    db: Session, user_id: int, decision_id: int
+) -> SavedDecision | None:
+    decision = get_decision(db, user_id, decision_id)
+
+    if decision is None:
+        return None
+
+    _attach_outcome_metadata(db, user_id, [decision])
+    return decision
+
+
 def delete_decision(db: Session, user_id: int, decision_id: int) -> bool:
     decision = get_decision(db, user_id, decision_id)
 
@@ -137,6 +191,37 @@ def delete_decision(db: Session, user_id: int, decision_id: int) -> bool:
     db.delete(decision)
     db.commit()
     return True
+
+
+def update_decision_status(
+    db: Session,
+    user_id: int,
+    decision_id: int,
+    new_status: DecisionLifecycleStatus,
+) -> SavedDecision | None:
+    """Transitions a saved decision's lifecycle status.
+
+    acted_on_at is set the first time a decision reaches "acted_on"
+    and is never cleared by a later transition (including a later
+    "dismissed") -- it stays as audit evidence of when the user first
+    acted on the decision, even if a later re-evaluation moves the
+    status again.
+    """
+    decision = get_decision(db, user_id, decision_id)
+
+    if decision is None:
+        return None
+
+    decision.status = new_status
+
+    if new_status == "acted_on" and decision.acted_on_at is None:
+        decision.acted_on_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(decision)
+
+    _attach_outcome_metadata(db, user_id, [decision])
+    return decision
 
 
 def rerun_decision(

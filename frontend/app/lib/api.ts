@@ -1166,6 +1166,65 @@ export type DecisionOutcome = {
   created_at: string;
 };
 
+export type CalibrationMetricUnit =
+  | "currency"
+  | "score"
+  | "percentage"
+  | "days"
+  | "numeric";
+
+export type CalibrationMetricDirection =
+  | "higher_is_better"
+  | "lower_is_better"
+  | "unknown";
+
+export type CalibrationLabel =
+  | "insufficient_data"
+  | "mostly_conservative"
+  | "mostly_optimistic"
+  | "balanced";
+
+export type DecisionCalibrationMetricGroup = {
+  path: string;
+  unit: CalibrationMetricUnit;
+  direction: CalibrationMetricDirection;
+  observations: number;
+  mean_signed_delta: number;
+  mean_absolute_delta: number;
+  latest_delta: number | null;
+  favorable_count: number;
+  unfavorable_count: number;
+  unchanged_count: number;
+};
+
+export type DecisionCalibrationTypeBreakdown = {
+  decision_type: DecisionType;
+  tracked_decisions: number;
+  outcome_checks: number;
+  directional_observations: number;
+  favorable_count: number;
+  unfavorable_count: number;
+  unchanged_count: number;
+  favorable_rate: number | null;
+  calibration_label: CalibrationLabel;
+};
+
+export type DecisionCalibration = {
+  tracked_decisions: number;
+  outcome_checks: number;
+  numeric_metrics_compared: number;
+  changed_numeric_metrics: number;
+  directional_metrics_compared: number;
+  favorable_count: number;
+  unfavorable_count: number;
+  unchanged_count: number;
+  favorable_rate: number | null;
+  unfavorable_rate: number | null;
+  calibration_label: CalibrationLabel;
+  metric_groups: DecisionCalibrationMetricGroup[];
+  decision_types: DecisionCalibrationTypeBreakdown[];
+};
+
 export type RecurringPayment = {
   merchant: string;
   amount_cents: number;
@@ -2101,6 +2160,13 @@ compareWhatIfScenarios: (
       `${API_URL}/users/${userId}/decisions/${decisionId}/outcomes`,
       { headers: authHeaders() }
     ).then((res) => handle<DecisionOutcome[]>(res)),
+
+  getDecisionCalibration: (
+    userId: number
+  ): Promise<DecisionCalibration> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/decisions/calibration`, {
+      headers: authHeaders(),
+    }).then((res) => handle<DecisionCalibration>(res)),
 
   createSavingsGoal: (
     userId: number,

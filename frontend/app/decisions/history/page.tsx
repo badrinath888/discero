@@ -17,6 +17,9 @@ import Toast from "../../components/Toast";
 import { PageReveal, Reveal, Stagger } from "../../components/PremiumMotion";
 import {
   api,
+  CalibrationLabel,
+  DecisionCalibration,
+  DecisionCalibrationMetricGroup,
   DecisionOutcome,
   DecisionOutcomeComparisonMetric,
   DecisionType,
@@ -268,11 +271,230 @@ function statusLabel(decision: SavedDecision): string | null {
   return status ? humanize(status) : null;
 }
 
+const CALIBRATION_LABEL_TEXT: Record<CalibrationLabel, string> = {
+  mostly_conservative: "Mostly conservative",
+  mostly_optimistic: "Mostly optimistic",
+  balanced: "Balanced",
+  insufficient_data: "Insufficient data",
+};
+
+const CALIBRATION_LABEL_TONE: Record<CalibrationLabel, string> = {
+  mostly_conservative: "bg-[#58715A]/10 text-[#58715A]",
+  mostly_optimistic: "bg-[#B75C50]/10 text-[#B75C50]",
+  balanced: "bg-[#C59A52]/10 text-[#C59A52]",
+  insufficient_data: "bg-[#777168]/10 text-[#777168]",
+};
+
+function calibrationNarrative(label: CalibrationLabel): string {
+  switch (label) {
+    case "mostly_conservative":
+      return "Discero has been mostly conservative across your tracked outcomes.";
+    case "mostly_optimistic":
+      return "Discero has been mostly optimistic across your tracked outcomes.";
+    case "balanced":
+      return "Discero has been balanced across your tracked outcomes.";
+    default:
+      return "More tracked outcomes are needed before Discero can identify a calibration pattern.";
+  }
+}
+
+function directionLabel(
+  direction: DecisionCalibrationMetricGroup["direction"]
+): string {
+  if (direction === "higher_is_better") return "Higher is better";
+  if (direction === "lower_is_better") return "Lower is better";
+  return "Direction unknown";
+}
+
+function formatCalibrationMagnitude(
+  value: number,
+  unit: DecisionCalibrationMetricGroup["unit"]
+): string {
+  if (unit === "currency") return formatCents(Math.round(value));
+  if (unit === "percentage") return `${value.toFixed(1)}%`;
+  if (unit === "score") return `${value.toFixed(1)} pts`;
+  if (unit === "days") return `${value.toFixed(1)} days`;
+  return value.toFixed(2);
+}
+
+function formatSignedCalibrationValue(
+  value: number,
+  unit: DecisionCalibrationMetricGroup["unit"]
+): string {
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${formatCalibrationMagnitude(Math.abs(value), unit)}`;
+}
+
+function CalibrationSection({
+  calibration,
+}: {
+  calibration: DecisionCalibration;
+}) {
+  if (calibration.tracked_decisions === 0) {
+    return (
+      <div
+        data-testid="calibration-empty"
+        className="border border-[#181713]/10 bg-[#FFFCF7] px-6 py-6"
+      >
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
+          Decision calibration
+        </p>
+        <p className="mt-2 text-sm leading-6 text-[#777168]">
+          Calibration appears after you act on saved decisions and check
+          their outcomes.
+        </p>
+      </div>
+    );
+  }
+
+  const topMetrics = calibration.metric_groups.slice(0, 5);
+
+  return (
+    <div
+      data-testid="decision-calibration-section"
+      className="border border-[#181713]/10 bg-[#FFFCF7] px-6 py-6"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
+            Decision calibration
+          </p>
+          <p className="mt-1 max-w-lg text-sm leading-6 text-[#777168]">
+            How Discero&apos;s tracked decisions have compared with later
+            outcomes.
+          </p>
+        </div>
+        <span
+          data-testid="calibration-label"
+          className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] ${
+            CALIBRATION_LABEL_TONE[calibration.calibration_label]
+          }`}
+        >
+          {CALIBRATION_LABEL_TEXT[calibration.calibration_label]}
+        </span>
+      </div>
+
+      <p className="mt-3 text-sm leading-6 text-[#181713]">
+        {calibrationNarrative(calibration.calibration_label)}
+      </p>
+
+      <div className="mt-4 grid gap-px overflow-hidden bg-[#181713]/10 sm:grid-cols-3">
+        <div className="bg-[#FFFCF7] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
+            Tracked decisions
+          </p>
+          <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#181713]">
+            {calibration.tracked_decisions}
+          </p>
+        </div>
+        <div className="bg-[#FFFCF7] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
+            Outcome checks
+          </p>
+          <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#181713]">
+            {calibration.outcome_checks}
+          </p>
+        </div>
+        <div className="bg-[#FFFCF7] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
+            Directional observations
+          </p>
+          <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#181713]">
+            {calibration.directional_metrics_compared}
+          </p>
+        </div>
+      </div>
+
+      {calibration.decision_types.length > 0 && (
+        <div
+          data-testid="calibration-type-breakdown"
+          className="mt-5 border-t border-[#181713]/8 pt-4"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#777168]">
+            By decision type
+          </p>
+          <div className="mt-2 divide-y divide-[#181713]/8">
+            {calibration.decision_types.map((breakdown) => (
+              <div
+                key={breakdown.decision_type}
+                className="flex flex-wrap items-center justify-between gap-2 py-2"
+              >
+                <span className="text-xs font-medium text-[#181713]">
+                  {TYPE_LABEL[breakdown.decision_type]}
+                </span>
+                <span className="flex items-center gap-2 text-xs text-[#777168]">
+                  {breakdown.tracked_decisions} tracked
+                  {breakdown.favorable_rate !== null &&
+                    ` · ${Math.round(breakdown.favorable_rate * 100)}% favorable`}
+                  <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                      CALIBRATION_LABEL_TONE[breakdown.calibration_label]
+                    }`}
+                  >
+                    {CALIBRATION_LABEL_TEXT[breakdown.calibration_label]}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {topMetrics.length > 0 && (
+        <div
+          data-testid="calibration-metric-groups"
+          className="mt-5 border-t border-[#181713]/8 pt-4"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#777168]">
+            Most-tracked metrics
+          </p>
+          <div className="mt-2 divide-y divide-[#181713]/8">
+            {topMetrics.map((metric) => (
+              <div
+                key={metric.path}
+                className="flex flex-wrap items-center justify-between gap-2 py-2"
+              >
+                <span className="text-xs font-medium text-[#181713]">
+                  {metricLabel(metric.path)}
+                </span>
+                <span className="flex items-center gap-2 text-xs text-[#777168]">
+                  {metric.observations} checks
+                  <span className="font-semibold text-[#181713]">
+                    {formatSignedCalibrationValue(
+                      metric.mean_signed_delta,
+                      metric.unit
+                    )}
+                  </span>
+                  avg
+                  {metric.direction !== "unknown" && (
+                    <span
+                      className={
+                        metric.direction === "higher_is_better"
+                          ? "text-[#58715A]"
+                          : "text-[#B86D4B]"
+                      }
+                    >
+                      {directionLabel(metric.direction)}
+                    </span>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DecisionHistoryPage() {
   const router = useRouter();
   const [initializing, setInitializing] = useState(true);
   const [userId, setUserId] = useState<number | null>(null);
   const [decisions, setDecisions] = useState<SavedDecision[] | null>(null);
+  const [calibration, setCalibration] = useState<DecisionCalibration | null>(
+    null
+  );
   const [error, setError] = useState<string | null>(null);
   const [rerunResults, setRerunResults] = useState<
     Record<number, Record<string, unknown>>
@@ -311,10 +533,18 @@ export default function DecisionHistoryPage() {
 
         setUserId(id);
 
-        try {
-          setDecisions(await api.getSavedDecisions(id));
-        } catch {
+        const [decisionsResult, calibrationResult] = await Promise.allSettled(
+          [api.getSavedDecisions(id), api.getDecisionCalibration(id)]
+        );
+
+        if (decisionsResult.status === "fulfilled") {
+          setDecisions(decisionsResult.value);
+        } else {
           setError("Couldn't load your saved decisions just now.");
+        }
+
+        if (calibrationResult.status === "fulfilled") {
+          setCalibration(calibrationResult.value);
         }
       } catch {
         session.clear();
@@ -491,6 +721,14 @@ export default function DecisionHistoryPage() {
               </Link>
             </header>
           </Reveal>
+
+          {calibration && (
+            <Reveal>
+              <div className="mt-8">
+                <CalibrationSection calibration={calibration} />
+              </div>
+            </Reveal>
+          )}
 
           <div className="mt-8">
             {error && (

@@ -1810,6 +1810,71 @@ class DecisionOutcomeOut(BaseModel):
     created_at: datetime
 
 
+# --- Decision calibration ----------------------------------------------
+
+CalibrationMetricUnit = Literal[
+    "currency",
+    "score",
+    "percentage",
+    "days",
+    "numeric",
+]
+
+CalibrationMetricDirection = Literal[
+    "higher_is_better",
+    "lower_is_better",
+    "unknown",
+]
+
+CalibrationLabel = Literal[
+    "insufficient_data",
+    "mostly_conservative",
+    "mostly_optimistic",
+    "balanced",
+]
+
+
+class DecisionCalibrationMetricGroupOut(BaseModel):
+    path: str
+    unit: CalibrationMetricUnit
+    direction: CalibrationMetricDirection
+    observations: int
+    mean_signed_delta: float
+    mean_absolute_delta: float
+    latest_delta: float | None
+    favorable_count: int
+    unfavorable_count: int
+    unchanged_count: int
+
+
+class DecisionCalibrationTypeBreakdownOut(BaseModel):
+    decision_type: DecisionType
+    tracked_decisions: int
+    outcome_checks: int
+    directional_observations: int
+    favorable_count: int
+    unfavorable_count: int
+    unchanged_count: int
+    favorable_rate: float | None
+    calibration_label: CalibrationLabel
+
+
+class DecisionCalibrationOut(BaseModel):
+    tracked_decisions: int
+    outcome_checks: int
+    numeric_metrics_compared: int
+    changed_numeric_metrics: int
+    directional_metrics_compared: int
+    favorable_count: int
+    unfavorable_count: int
+    unchanged_count: int
+    favorable_rate: float | None
+    unfavorable_rate: float | None
+    calibration_label: CalibrationLabel
+    metric_groups: list[DecisionCalibrationMetricGroupOut]
+    decision_types: list[DecisionCalibrationTypeBreakdownOut]
+
+
 # --- Recurring-payment intelligence ----------------------------------
 
 

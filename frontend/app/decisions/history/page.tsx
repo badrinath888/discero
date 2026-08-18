@@ -139,9 +139,9 @@ function formatMetricValue(
 
 function summaryChips(
   decision: SavedDecision
-): { label: string; value: string }[] {
+): { label: string; value: string; wide?: boolean }[] {
   const r = decision.result_snapshot as Record<string, unknown>;
-  const chips: { label: string; value: string }[] = [];
+  const chips: { label: string; value: string; wide?: boolean }[] = [];
 
   if (decision.decision_type === "major_purchase") {
     const amount = asNumber(r.purchase_amount_cents);
@@ -210,7 +210,11 @@ function summaryChips(
 
     const assumption = asNonEmptyString(r.assumption);
     if (assumption !== undefined) {
-      chips.push({ label: "Assumption", value: assumption });
+      chips.push({
+        label: "Assumption",
+        value: assumption,
+        wide: true,
+      });
     }
 
     return chips;
@@ -1209,7 +1213,9 @@ export default function DecisionHistoryPage() {
                           {summaryChips(decision).map((chip) => (
                             <div
                               key={chip.label}
-                              className="bg-[#FFFCF7] px-4 py-3"
+                              className={`bg-[#FFFCF7] px-4 py-3 ${
+                                chip.wide ? "sm:col-span-3" : ""
+                              }`}
                             >
                               <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
                                 {chip.label}

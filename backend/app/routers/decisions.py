@@ -7,6 +7,8 @@ from app.models import User
 from app.schemas import (
     DecisionCalibrationOut,
     DecisionOutcomeOut,
+    DecisionPortfolioOut,
+    DecisionPortfolioRequest,
     DecisionRerunOut,
     SaveDecisionRequest,
     SavedDecisionOut,
@@ -16,6 +18,7 @@ from app.services import (
     decision_calibration_service,
     decision_history_service,
     decision_outcome_service,
+    decision_portfolio_service,
 )
 
 router = APIRouter(
@@ -85,6 +88,31 @@ def get_decision_calibration(
     _authorize_user(user_id, current_user)
 
     return decision_calibration_service.get_decision_calibration(db, user_id)
+
+
+@router.post(
+    "/portfolio",
+    response_model=DecisionPortfolioOut,
+)
+def evaluate_decision_portfolio(
+    user_id: int,
+    payload: DecisionPortfolioRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DecisionPortfolioOut:
+    _authorize_user(user_id, current_user)
+
+    try:
+        return decision_portfolio_service.evaluate_decision_portfolio(
+            db, user_id, payload.decision_ids
+        )
+    except decision_portfolio_service.DecisionPortfolioNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except decision_portfolio_service.DecisionPortfolioValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": str(exc), **exc.details},
+        ) from exc
 
 
 @router.get(

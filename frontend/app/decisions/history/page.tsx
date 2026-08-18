@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
   Ban,
   CheckCircle2,
   Clock,
+  Layers,
   RotateCcw,
   Search,
   Trash2,
+  TrendingDown,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -22,11 +25,22 @@ import {
   DecisionCalibrationMetricGroup,
   DecisionOutcome,
   DecisionOutcomeComparisonMetric,
+  DecisionPortfolioContributionLevel,
+  DecisionPortfolioResult,
+  DecisionPortfolioStatus,
   DecisionType,
   formatCents,
   SavedDecision,
   session,
 } from "../../lib/api";
+
+// v1 supports only decision types whose saved input reduces to a
+// single deterministic adjustment (see decision_portfolio_service) --
+// other types stay visible but disabled instead of being hidden or
+// silently reinterpreted.
+const PORTFOLIO_SUPPORTED_TYPES: DecisionType[] = ["major_purchase", "what_if"];
+const MIN_PORTFOLIO_SELECTION = 2;
+const MAX_PORTFOLIO_SELECTION = 5;
 
 const TYPE_LABEL: Record<DecisionType, string> = {
   major_purchase: "Major Purchase",
@@ -298,6 +312,206 @@ function calibrationNarrative(label: CalibrationLabel): string {
   }
 }
 
+function formatSignedCents(cents: number): string {
+  return cents > 0 ? `+${formatCents(cents)}` : formatCents(cents);
+}
+
+const PORTFOLIO_STATUS_TEXT: Record<DecisionPortfolioStatus, string> = {
+  comfortable: "Comfortable",
+  tight: "Tight",
+  high_risk: "High risk",
+};
+
+const PORTFOLIO_STATUS_TONE: Record<DecisionPortfolioStatus, string> = {
+  comfortable: "bg-[#58715A]/10 text-[#58715A]",
+  tight: "bg-[#C59A52]/10 text-[#C59A52]",
+  high_risk: "bg-[#B75C50]/10 text-[#B75C50]",
+};
+
+const CONTRIBUTION_TONE: Record<DecisionPortfolioContributionLevel, string> = {
+  high: "text-[#B75C50]",
+  medium: "text-[#C59A52]",
+  low: "text-[#58715A]",
+};
+
+function PortfolioSection({
+  result,
+  onChangeSelection,
+  onClearAnalysis,
+}: {
+  result: DecisionPortfolioResult;
+  onChangeSelection: () => void;
+  onClearAnalysis: () => void;
+}) {
+  const hasGoalEffects = result.goal_impacts.length > 0;
+  const hasConflictsOrWarnings =
+    result.conflicts.conflict_status !== "no_conflict" ||
+    result.warnings.length > 0;
+
+  return (
+    <div
+      data-testid="decision-portfolio-section"
+      className="border border-[#181713]/10 bg-[#FFFCF7] px-6 py-6"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
+            Decision portfolio
+          </p>
+          <p className="mt-1 max-w-lg text-sm leading-6 text-[#777168]">
+            How these decisions interact when considered together.
+          </p>
+        </div>
+        <span
+          data-testid="portfolio-status"
+          className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] ${
+            PORTFOLIO_STATUS_TONE[result.portfolio_status]
+          }`}
+        >
+          {PORTFOLIO_STATUS_TEXT[result.portfolio_status]}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-px overflow-hidden bg-[#181713]/10 sm:grid-cols-4">
+        <div className="bg-[#FFFCF7] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
+            Baseline safe to spend
+          </p>
+          <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#181713]">
+            {formatCents(result.baseline.safe_to_spend_cents)}
+          </p>
+        </div>
+        <div className="bg-[#FFFCF7] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
+            Combined safe to spend
+          </p>
+          <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#181713]">
+            {formatCents(result.combined.safe_to_spend_cents)}
+          </p>
+        </div>
+        <div className="bg-[#FFFCF7] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
+            Total change
+          </p>
+          <p
+            className={`mt-0.5 text-base font-semibold tracking-[-0.02em] ${
+              result.combined.safe_to_spend_delta_cents < 0
+                ? "text-[#B75C50]"
+                : "text-[#58715A]"
+            }`}
+          >
+            {formatSignedCents(result.combined.safe_to_spend_delta_cents)}
+          </p>
+        </div>
+        <div className="bg-[#FFFCF7] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
+            Confidence
+          </p>
+          <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#181713]">
+            {Math.round(result.combined.confidence_score)}%
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 border-t border-[#181713]/8 pt-4">
+        <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#777168]">
+          <TrendingDown className="h-3.5 w-3.5" />
+          Biggest pressure
+        </p>
+        <ol className="mt-2 divide-y divide-[#181713]/8">
+          {result.decision_impacts.map((impact) => (
+            <li
+              key={impact.decision_id}
+              className="flex flex-wrap items-center justify-between gap-2 py-2"
+            >
+              <span className="text-xs font-medium text-[#181713]">
+                {impact.risk_rank}. {impact.title}
+              </span>
+              <span
+                className={`text-xs font-semibold ${
+                  CONTRIBUTION_TONE[impact.contribution_level]
+                }`}
+              >
+                {formatSignedCents(
+                  impact.incremental_safe_to_spend_impact_cents
+                )}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      {hasGoalEffects && (
+        <div
+          data-testid="portfolio-goal-effects"
+          className="mt-5 border-t border-[#181713]/8 pt-4"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#777168]">
+            Goal effects
+          </p>
+          <div className="mt-2 divide-y divide-[#181713]/8">
+            {result.goal_impacts.map((goal) => (
+              <div
+                key={goal.goal_id}
+                className="py-2 text-xs leading-5 text-[#181713]"
+              >
+                <span className="font-medium">{goal.goal_name}</span>
+                <span className="text-[#777168]"> — {goal.explanation}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {hasConflictsOrWarnings && (
+        <div
+          data-testid="portfolio-conflicts-warnings"
+          className="mt-5 border-t border-[#181713]/8 pt-4"
+        >
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#777168]">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Conflicts &amp; warnings
+          </p>
+          {result.conflicts.conflict_status !== "no_conflict" && (
+            <p className="mt-2 text-xs leading-5 text-[#181713]">
+              {result.conflicts.explanation}
+            </p>
+          )}
+          {result.warnings.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {result.warnings.map((warning) => (
+                <li
+                  key={warning}
+                  className="text-xs leading-5 text-[#777168]"
+                >
+                  {warning}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-[#181713]/8 pt-4">
+        <button
+          type="button"
+          onClick={onChangeSelection}
+          className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#6E4B63]/25 bg-[#F8F4EE] px-3.5 py-1.5 text-xs font-semibold text-[#6E4B63] transition hover:bg-[#F0E9EE]"
+        >
+          Change selection
+        </button>
+        <button
+          type="button"
+          onClick={onClearAnalysis}
+          className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#181713]/15 bg-[#FFFCF7] px-3.5 py-1.5 text-xs font-semibold text-[#706961] transition hover:bg-[#eef1ec]"
+        >
+          Clear analysis
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function directionLabel(
   direction: DecisionCalibrationMetricGroup["direction"]
 ): string {
@@ -510,6 +724,14 @@ export default function DecisionHistoryPage() {
     null
   );
   const [message, setMessage] = useState("");
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedDecisionIds, setSelectedDecisionIds] = useState<number[]>(
+    []
+  );
+  const [portfolioResult, setPortfolioResult] =
+    useState<DecisionPortfolioResult | null>(null);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [portfolioError, setPortfolioError] = useState<string | null>(null);
 
   useEffect(() => {
     async function initialize() {
@@ -682,6 +904,60 @@ export default function DecisionHistoryPage() {
     }
   }
 
+  function startPortfolioSelection() {
+    setSelectionMode(true);
+    setSelectedDecisionIds([]);
+    setPortfolioResult(null);
+    setPortfolioError(null);
+  }
+
+  function exitPortfolioSelection() {
+    setSelectionMode(false);
+    setSelectedDecisionIds([]);
+    setPortfolioResult(null);
+    setPortfolioError(null);
+  }
+
+  function togglePortfolioSelection(decisionId: number) {
+    setSelectedDecisionIds((prev) => {
+      if (prev.includes(decisionId)) {
+        return prev.filter((id) => id !== decisionId);
+      }
+      if (prev.length >= MAX_PORTFOLIO_SELECTION) {
+        return prev;
+      }
+      return [...prev, decisionId];
+    });
+  }
+
+  async function handleAnalyzeTogether() {
+    if (
+      userId === null ||
+      selectedDecisionIds.length < MIN_PORTFOLIO_SELECTION
+    ) {
+      return;
+    }
+
+    setPortfolioLoading(true);
+    setPortfolioError(null);
+    try {
+      const result = await api.evaluateDecisionPortfolio(
+        userId,
+        selectedDecisionIds
+      );
+      setPortfolioResult(result);
+    } catch {
+      setPortfolioError("Couldn't analyze these decisions together just now.");
+    } finally {
+      setPortfolioLoading(false);
+    }
+  }
+
+  function handleChangeSelection() {
+    setPortfolioResult(null);
+    setPortfolioError(null);
+  }
+
   if (initializing) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#F5F1EA]">
@@ -721,6 +997,86 @@ export default function DecisionHistoryPage() {
               </Link>
             </header>
           </Reveal>
+
+          {decisions !== null && decisions.length > 0 && (
+            <Reveal>
+              <div className="mt-6">
+                {!selectionMode ? (
+                  <button
+                    type="button"
+                    data-testid="start-portfolio-selection"
+                    onClick={startPortfolioSelection}
+                    className="focus-ring inline-flex items-center gap-2 rounded-full border border-[#6E4B63]/25 bg-[#F8F4EE] px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#6E4B63] transition hover:bg-[#F0E9EE]"
+                  >
+                    <Layers className="h-3.5 w-3.5" />
+                    Compare decisions together
+                  </button>
+                ) : (
+                  <div
+                    data-testid="portfolio-selection-toolbar"
+                    className="flex flex-wrap items-center justify-between gap-3 border border-[#181713]/10 bg-[#FFFCF7] px-5 py-4"
+                  >
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
+                        Compare decisions together
+                      </p>
+                      <p
+                        data-testid="portfolio-selected-count"
+                        className="mt-1 text-sm text-[#706961]"
+                      >
+                        Selected {selectedDecisionIds.length} of{" "}
+                        {MAX_PORTFOLIO_SELECTION}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        data-testid="cancel-portfolio-selection"
+                        onClick={exitPortfolioSelection}
+                        className="focus-ring rounded-full border border-[#181713]/15 bg-[#FFFCF7] px-3.5 py-1.5 text-xs font-semibold text-[#706961] transition hover:bg-[#eef1ec]"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="analyze-together"
+                        disabled={
+                          selectedDecisionIds.length <
+                            MIN_PORTFOLIO_SELECTION || portfolioLoading
+                        }
+                        onClick={handleAnalyzeTogether}
+                        className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-[#181713] px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-[#2F2930] disabled:opacity-40"
+                      >
+                        {portfolioLoading ? "Analyzing…" : "Analyze together"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {portfolioError && (
+                  <p
+                    role="alert"
+                    className="mt-3 text-sm font-medium text-[#a64b3d]"
+                  >
+                    {portfolioError}
+                  </p>
+                )}
+              </div>
+            </Reveal>
+          )}
+
+          {portfolioResult && (
+            <Reveal>
+              <div className="mt-6">
+                <PortfolioSection
+                  result={portfolioResult}
+                  onChangeSelection={handleChangeSelection}
+                  onClearAnalysis={exitPortfolioSelection}
+                />
+              </div>
+            </Reveal>
+          )}
 
           {calibration && (
             <Reveal>
@@ -779,6 +1135,51 @@ export default function DecisionHistoryPage() {
                             : ""
                         }`}
                       >
+                        {selectionMode &&
+                          (() => {
+                            const isDismissed =
+                              decision.status === "dismissed";
+                            const isUnsupported =
+                              !PORTFOLIO_SUPPORTED_TYPES.includes(
+                                decision.decision_type
+                              );
+                            const isSelected = selectedDecisionIds.includes(
+                              decision.id
+                            );
+                            const isDisabled = isDismissed || isUnsupported;
+                            const isSelectionFull =
+                              selectedDecisionIds.length >=
+                                MAX_PORTFOLIO_SELECTION && !isSelected;
+
+                            return (
+                              <label
+                                data-testid={`portfolio-select-${decision.id}`}
+                                className={`mb-4 flex items-center gap-2.5 border border-[#181713]/10 px-3 py-2 text-xs font-medium ${
+                                  isDisabled
+                                    ? "cursor-not-allowed bg-[#F5F1EA] text-[#8a978f]"
+                                    : "cursor-pointer bg-[#FFFCF7] text-[#181713] hover:bg-[#F0E9EE]/40"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  disabled={isDisabled || isSelectionFull}
+                                  onChange={() =>
+                                    togglePortfolioSelection(decision.id)
+                                  }
+                                  className="h-4 w-4 accent-[#6E4B63]"
+                                />
+                                <span>
+                                  {isDismissed
+                                    ? "Dismissed decisions can't be compared."
+                                    : isUnsupported
+                                      ? "Not available for portfolio analysis yet."
+                                      : "Include in portfolio analysis"}
+                                </span>
+                              </label>
+                            );
+                          })()}
+
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="inline-flex items-center rounded-full bg-[#eef1ec] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#5F5751]">
                             {TYPE_LABEL[decision.decision_type]}

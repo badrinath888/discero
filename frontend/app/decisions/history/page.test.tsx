@@ -8,7 +8,11 @@ import {
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DecisionCalibration, SavedDecision } from "../../lib/api";
+import type {
+  DecisionCalibration,
+  DecisionPortfolioResult,
+  SavedDecision,
+} from "../../lib/api";
 import DecisionHistoryPage from "./page";
 
 const mocks = vi.hoisted(() => ({
@@ -21,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   evaluateDecisionOutcome: vi.fn(),
   getDecisionOutcomes: vi.fn(),
   getDecisionCalibration: vi.fn(),
+  evaluateDecisionPortfolio: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
   clearSession: vi.fn(),
@@ -92,6 +97,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
       evaluateDecisionOutcome: mocks.evaluateDecisionOutcome,
       getDecisionOutcomes: mocks.getDecisionOutcomes,
       getDecisionCalibration: mocks.getDecisionCalibration,
+      evaluateDecisionPortfolio: mocks.evaluateDecisionPortfolio,
     },
     session: {
       ...actual.session,
@@ -222,6 +228,132 @@ function calibrationFixture(
   return { ...emptyCalibration, ...overrides };
 }
 
+const whatIfDecision: SavedDecision = {
+  id: 6,
+  decision_type: "what_if",
+  title: "Rent increase",
+  input_snapshot: {
+    scenario_type: "monthly_expense_change",
+    scenario_name: "Rent increase",
+    monthly_amount_change_cents: 120_000,
+  },
+  result_snapshot: {
+    impact: { safe_to_spend_delta_cents: -120_000, level: "caution" },
+    scenario: { confidence_score: 80 },
+  },
+  status: "saved",
+  acted_on_at: null,
+  created_at: "2026-08-08T00:00:00Z",
+  outcome_count: 0,
+  latest_outcome_at: null,
+};
+
+const dismissedPurchaseDecision: SavedDecision = {
+  id: 7,
+  decision_type: "major_purchase",
+  title: "Boat (dismissed)",
+  input_snapshot: {
+    purchase_name: "Boat",
+    purchase_amount_cents: 900_000,
+  },
+  result_snapshot: {
+    affordability_status: "not_affordable",
+    purchase_amount_cents: 900_000,
+    safe_to_spend_after_purchase_cents: 0,
+    confidence_score: 60,
+  },
+  status: "dismissed",
+  acted_on_at: null,
+  created_at: "2026-08-08T00:00:00Z",
+  outcome_count: 0,
+  latest_outcome_at: null,
+};
+
+const portfolioResultFixture: DecisionPortfolioResult = {
+  as_of: "2026-08-08",
+  selected_decisions: [
+    { decision_id: 1, decision_type: "major_purchase", title: "New Laptop" },
+    { decision_id: 6, decision_type: "what_if", title: "Rent increase" },
+  ],
+  baseline: { safe_to_spend_cents: 10_000_000, confidence_score: 88 },
+  combined: {
+    safe_to_spend_cents: 6_660_000,
+    safe_to_spend_delta_cents: -3_340_000,
+    confidence_score: 88,
+    confidence_delta: 0,
+  },
+  portfolio_status: "comfortable",
+  decision_impacts: [
+    {
+      decision_id: 1,
+      title: "New Laptop",
+      decision_type: "major_purchase",
+      incremental_safe_to_spend_impact_cents: -220_000,
+      risk_rank: 1,
+      contribution_level: "high",
+    },
+    {
+      decision_id: 6,
+      title: "Rent increase",
+      decision_type: "what_if",
+      incremental_safe_to_spend_impact_cents: -120_000,
+      risk_rank: 2,
+      contribution_level: "medium",
+    },
+  ],
+  goal_impacts: [
+    {
+      goal_id: 1,
+      goal_name: "House Down Payment",
+      target_date: "2027-08-08",
+      target_amount_cents: 6_000_000,
+      saved_amount_cents: 0,
+      remaining_amount_cents: 6_000_000,
+      current_required_monthly_contribution_cents: 500_000,
+      baseline_monthly_allocation_cents: 500_000,
+      adjusted_monthly_allocation_cents: 200_000,
+      monthly_allocation_change_cents: -300_000,
+      baseline_estimated_completion_date: "2027-08-08",
+      adjusted_estimated_completion_date: "2029-02-08",
+      delay_months: 0,
+      funding_shortfall_cents: 3_600_000,
+      status: "at_risk",
+      explanation:
+        "House Down Payment is expected to fall short of its target by $3,600.00 at the target date under this scenario.",
+    },
+  ],
+  conflicts: {
+    as_of: "2026-08-08",
+    conflict_status: "conflict",
+    monthly_savings_capacity_cents: 200_000,
+    total_required_monthly_cents: 500_000,
+    monthly_shortfall_cents: 300_000,
+    monthly_headroom_cents: 0,
+    key_driver: "largest_required_goal",
+    confidence_score: 70,
+    goals: [],
+    explanation:
+      "Your goals require $5,000.00 per month, but only $2,000.00 is available, leaving a $3,000.00 monthly shortfall.",
+    recommendations: [],
+    recommendation: {
+      type: "increase_monthly_capacity",
+      message: "Increase available monthly savings.",
+      goal_id: null,
+      amount_cents: null,
+      extension_months: null,
+      resulting_monthly_gap_cents: 0,
+    },
+    recommendation_alternatives: [],
+    warnings: [],
+  },
+  warnings: [
+    "No active recurring or budget obligations were found for the selected period.",
+  ],
+  assumptions: [
+    "Combined evaluation uses a shared 30-day horizon, the longest horizon among the selected decisions.",
+  ],
+};
+
 beforeEach(() => {
   mocks.getUserId.mockReturnValue(1);
   mocks.getToken.mockReturnValue("test-token");
@@ -238,6 +370,7 @@ beforeEach(() => {
   mocks.getDecisionOutcomes.mockReset();
   mocks.getDecisionCalibration.mockReset();
   mocks.getDecisionCalibration.mockResolvedValue(emptyCalibration);
+  mocks.evaluateDecisionPortfolio.mockReset();
 });
 
 describe("Decision history page", () => {
@@ -1028,5 +1161,434 @@ describe("Decision calibration", () => {
     expect(
       screen.queryByTestId("calibration-empty")
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("Decision portfolio", () => {
+  function extraCompatibleDecision(id: number): SavedDecision {
+    return {
+      ...purchaseDecision,
+      id,
+      title: `Purchase ${id}`,
+    };
+  }
+
+  async function selectTwoCompatibleDecisions() {
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
+      ).getByRole("checkbox")
+    );
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${whatIfDecision.id}`)
+      ).getByRole("checkbox")
+    );
+  }
+
+  it("enters selection mode from Compare decisions together", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+
+    render(<DecisionHistoryPage />);
+
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    expect(
+      await screen.findByTestId("portfolio-selection-toolbar")
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("portfolio-selected-count")).toHaveTextContent(
+      "Selected 0 of 5"
+    );
+  });
+
+  it("allows selecting compatible decisions", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    const checkbox = within(
+      screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
+    ).getByRole("checkbox");
+
+    expect(checkbox).not.toBeDisabled();
+    fireEvent.click(checkbox);
+
+    expect(checkbox).toBeChecked();
+    expect(screen.getByTestId("portfolio-selected-count")).toHaveTextContent(
+      "Selected 1 of 5"
+    );
+  });
+
+  it("disables unsupported decision types with a short explanation", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      stressTestDecision,
+    ]);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    const control = screen.getByTestId(
+      `portfolio-select-${stressTestDecision.id}`
+    );
+
+    expect(within(control).getByRole("checkbox")).toBeDisabled();
+    expect(control).toHaveTextContent(
+      "Not available for portfolio analysis yet."
+    );
+  });
+
+  it("disables dismissed decisions", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      dismissedPurchaseDecision,
+    ]);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    const control = screen.getByTestId(
+      `portfolio-select-${dismissedPurchaseDecision.id}`
+    );
+
+    expect(within(control).getByRole("checkbox")).toBeDisabled();
+    expect(control).toHaveTextContent("Dismissed decisions can't be compared.");
+  });
+
+  it("requires at least two selections before Analyze together is enabled", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    const analyzeButton = screen.getByTestId("analyze-together");
+    expect(analyzeButton).toBeDisabled();
+
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
+      ).getByRole("checkbox")
+    );
+    expect(analyzeButton).toBeDisabled();
+
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${whatIfDecision.id}`)
+      ).getByRole("checkbox")
+    );
+    expect(analyzeButton).not.toBeDisabled();
+  });
+
+  it("enforces a maximum of five selected decisions", async () => {
+    const decisions = [101, 102, 103, 104, 105, 106].map(
+      extraCompatibleDecision
+    );
+    mocks.getSavedDecisions.mockResolvedValue(decisions);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    for (const decision of decisions.slice(0, 5)) {
+      fireEvent.click(
+        within(
+          screen.getByTestId(`portfolio-select-${decision.id}`)
+        ).getByRole("checkbox")
+      );
+    }
+
+    expect(screen.getByTestId("portfolio-selected-count")).toHaveTextContent(
+      "Selected 5 of 5"
+    );
+
+    const sixthCheckbox = within(
+      screen.getByTestId(`portfolio-select-${decisions[5].id}`)
+    ).getByRole("checkbox");
+    expect(sixthCheckbox).toBeDisabled();
+  });
+
+  it("sends the correct decision IDs to the API", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue(portfolioResultFixture);
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    await waitFor(() => {
+      expect(mocks.evaluateDecisionPortfolio).toHaveBeenCalledWith(1, [
+        purchaseDecision.id,
+        whatIfDecision.id,
+      ]);
+    });
+  });
+
+  it("shows a loading state while analyzing", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+
+    let resolvePromise: (value: DecisionPortfolioResult) => void = () => {};
+    mocks.evaluateDecisionPortfolio.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePromise = resolve;
+      })
+    );
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    expect(await screen.findByText("Analyzing…")).toBeInTheDocument();
+
+    resolvePromise(portfolioResultFixture);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("decision-portfolio-section")
+      ).toBeInTheDocument()
+    );
+  });
+
+  it("shows an error when the backend rejects the portfolio request", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockRejectedValue(
+      new Error("validation error")
+    );
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Couldn't analyze these decisions together just now."
+    );
+  });
+
+  it("renders the successful combined result with baseline, combined, and total change", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue(portfolioResultFixture);
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    const section = await screen.findByTestId("decision-portfolio-section");
+
+    expect(within(section).getByText("$100,000.00")).toBeInTheDocument();
+    expect(within(section).getByText("$66,600.00")).toBeInTheDocument();
+    expect(within(section).getByText("-$33,400.00")).toBeInTheDocument();
+    expect(within(section).getByText("Comfortable")).toBeInTheDocument();
+  });
+
+  it("renders the biggest-pressure ranking", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue(portfolioResultFixture);
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    const section = await screen.findByTestId("decision-portfolio-section");
+
+    expect(
+      within(section).getByText(/1\.\s*New Laptop/)
+    ).toBeInTheDocument();
+    expect(
+      within(section).getByText(/2\.\s*Rent increase/)
+    ).toBeInTheDocument();
+    expect(within(section).getByText("-$2,200.00")).toBeInTheDocument();
+    expect(within(section).getByText("-$1,200.00")).toBeInTheDocument();
+  });
+
+  it("renders goal impact when present", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue(portfolioResultFixture);
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    const section = await screen.findByTestId("decision-portfolio-section");
+    const goalSection = within(section).getByTestId("portfolio-goal-effects");
+
+    expect(goalSection).toHaveTextContent("House Down Payment");
+    expect(goalSection).toHaveTextContent(
+      "fall short of its target by $3,600.00"
+    );
+  });
+
+  it("omits the goal effects section when there are no goal impacts", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue({
+      ...portfolioResultFixture,
+      goal_impacts: [],
+    });
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    const section = await screen.findByTestId("decision-portfolio-section");
+    expect(
+      within(section).queryByTestId("portfolio-goal-effects")
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders warnings and conflict details", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue(portfolioResultFixture);
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    const section = await screen.findByTestId("decision-portfolio-section");
+    const warningsSection = within(section).getByTestId(
+      "portfolio-conflicts-warnings"
+    );
+
+    expect(warningsSection).toHaveTextContent(
+      "No active recurring or budget obligations were found for the selected period."
+    );
+    expect(warningsSection).toHaveTextContent(
+      portfolioResultFixture.conflicts.explanation
+    );
+  });
+
+  it("Change selection returns to editing without losing the checked decisions", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue(portfolioResultFixture);
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+    await screen.findByTestId("decision-portfolio-section");
+
+    fireEvent.click(screen.getByText("Change selection"));
+
+    expect(
+      screen.queryByTestId("decision-portfolio-section")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("portfolio-selection-toolbar")
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("portfolio-selected-count")).toHaveTextContent(
+      "Selected 2 of 5"
+    );
+
+    const checkbox = within(
+      screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
+    ).getByRole("checkbox");
+    expect(checkbox).toBeChecked();
+  });
+
+  it("Clear analysis exits selection mode entirely", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue(portfolioResultFixture);
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+    await screen.findByTestId("decision-portfolio-section");
+
+    fireEvent.click(screen.getByText("Clear analysis"));
+
+    expect(
+      screen.queryByTestId("decision-portfolio-section")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("portfolio-selection-toolbar")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("start-portfolio-selection")
+    ).toBeInTheDocument();
+  });
+
+  it("leaves ordinary Decision History unchanged outside selection mode", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+
+    render(<DecisionHistoryPage />);
+    await screen.findByText("Laptop Purchase");
+
+    expect(
+      screen.queryByTestId("portfolio-selection-toolbar")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId(`portfolio-select-${purchaseDecision.id}`)
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("I made this decision")).toBeInTheDocument();
+  });
+
+  it("still renders the calibration section alongside the portfolio feature", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.getDecisionCalibration.mockResolvedValue(
+      calibrationFixture({ tracked_decisions: 1 })
+    );
+
+    render(<DecisionHistoryPage />);
+
+    expect(
+      await screen.findByTestId("decision-calibration-section")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("start-portfolio-selection")
+    ).toBeInTheDocument();
+  });
+
+  it("never dumps raw JSON in the portfolio result", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue(portfolioResultFixture);
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    const section = await screen.findByTestId("decision-portfolio-section");
+    expect(section.textContent ?? "").not.toMatch(/[{}]/);
   });
 });

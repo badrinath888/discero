@@ -1225,6 +1225,57 @@ export type DecisionCalibration = {
   decision_types: DecisionCalibrationTypeBreakdown[];
 };
 
+// v1 supports major_purchase and what_if only -- other decision types
+// are shown as disabled/unavailable for portfolio analysis rather
+// than silently reinterpreted.
+export type DecisionPortfolioRequest = {
+  decision_ids: number[];
+};
+
+export type DecisionPortfolioDecision = {
+  decision_id: number;
+  decision_type: DecisionType;
+  title: string;
+};
+
+export type DecisionPortfolioBaseline = {
+  safe_to_spend_cents: number;
+  confidence_score: number;
+};
+
+export type DecisionPortfolioCombined = {
+  safe_to_spend_cents: number;
+  safe_to_spend_delta_cents: number;
+  confidence_score: number;
+  confidence_delta: number;
+};
+
+export type DecisionPortfolioContributionLevel = "low" | "medium" | "high";
+
+export type DecisionPortfolioImpact = {
+  decision_id: number;
+  title: string;
+  decision_type: DecisionType;
+  incremental_safe_to_spend_impact_cents: number;
+  risk_rank: number;
+  contribution_level: DecisionPortfolioContributionLevel;
+};
+
+export type DecisionPortfolioStatus = "comfortable" | "tight" | "high_risk";
+
+export type DecisionPortfolioResult = {
+  as_of: string;
+  selected_decisions: DecisionPortfolioDecision[];
+  baseline: DecisionPortfolioBaseline;
+  combined: DecisionPortfolioCombined;
+  portfolio_status: DecisionPortfolioStatus;
+  decision_impacts: DecisionPortfolioImpact[];
+  goal_impacts: GoalImpact[];
+  conflicts: GoalConflictDetection;
+  warnings: string[];
+  assumptions: string[];
+};
+
 export type RecurringPayment = {
   merchant: string;
   amount_cents: number;
@@ -2167,6 +2218,16 @@ compareWhatIfScenarios: (
     fetchWithTimeout(`${API_URL}/users/${userId}/decisions/calibration`, {
       headers: authHeaders(),
     }).then((res) => handle<DecisionCalibration>(res)),
+
+  evaluateDecisionPortfolio: (
+    userId: number,
+    decisionIds: number[]
+  ): Promise<DecisionPortfolioResult> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/decisions/portfolio`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ decision_ids: decisionIds }),
+    }).then((res) => handle<DecisionPortfolioResult>(res)),
 
   createSavingsGoal: (
     userId: number,

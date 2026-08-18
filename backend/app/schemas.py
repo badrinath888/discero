@@ -1875,6 +1875,59 @@ class DecisionCalibrationOut(BaseModel):
     decision_types: list[DecisionCalibrationTypeBreakdownOut]
 
 
+# --- Decision portfolio intelligence ------------------------------------
+#
+# v1 evaluates several saved decisions together as ONE combined
+# deterministic scenario -- never by arithmetically summing each
+# decision's independently-calculated result_snapshot. Client sends
+# only decision_ids; input/result snapshots are always loaded and
+# revalidated server-side.
+
+
+class DecisionPortfolioRequest(BaseModel):
+    decision_ids: list[int]
+
+
+class DecisionPortfolioSelectionOut(BaseModel):
+    decision_id: int
+    decision_type: DecisionType
+    title: str
+
+
+class DecisionPortfolioBaselineOut(BaseModel):
+    safe_to_spend_cents: int
+    confidence_score: float
+
+
+class DecisionPortfolioCombinedOut(BaseModel):
+    safe_to_spend_cents: int
+    safe_to_spend_delta_cents: int
+    confidence_score: float
+    confidence_delta: float
+
+
+class DecisionPortfolioImpactOut(BaseModel):
+    decision_id: int
+    title: str
+    decision_type: DecisionType
+    incremental_safe_to_spend_impact_cents: int
+    risk_rank: int
+    contribution_level: Literal["low", "medium", "high"]
+
+
+class DecisionPortfolioOut(BaseModel):
+    as_of: date
+    selected_decisions: list[DecisionPortfolioSelectionOut]
+    baseline: DecisionPortfolioBaselineOut
+    combined: DecisionPortfolioCombinedOut
+    portfolio_status: Literal["comfortable", "tight", "high_risk"]
+    decision_impacts: list[DecisionPortfolioImpactOut]
+    goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
+    conflicts: GoalConflictDetectionOut
+    warnings: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
 # --- Recurring-payment intelligence ----------------------------------
 
 

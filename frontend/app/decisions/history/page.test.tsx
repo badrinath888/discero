@@ -455,11 +455,11 @@ describe("Decision history page", () => {
     expect(screen.getAllByText("buy now").length).toBeGreaterThan(0);
     expect(screen.getByText("$450.00")).toBeInTheDocument();
     expect(screen.getByText("9 pts")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Assumes stable income and no other large purchases."
-      )
-    ).toBeInTheDocument();
+    const assumptionValue = screen.getByText(
+      "Assumes stable income and no other large purchases."
+    );
+    expect(assumptionValue).toBeInTheDocument();
+    expect(assumptionValue.closest("div")).toHaveClass("sm:col-span-3");
   });
 
   it("does not crash on a Buy Now vs Wait decision missing recommended_timing, and omits the chip instead of inventing one", async () => {

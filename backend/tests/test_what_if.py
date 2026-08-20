@@ -576,6 +576,13 @@ def test_goal_impacts_included_for_capacity_affecting_scenarios() -> None:
 
         assert len(result.goal_impacts) == 1
 
+        conflict_item = result.goal_conflict_intelligence.goals[0]
+        assert conflict_item.goal_id == result.goal_impacts[0].goal_id
+        assert (
+            conflict_item.adjusted_allocation_cents
+            == result.goal_impacts[0].adjusted_monthly_allocation_cents
+        )
+
 
 def test_goal_impacts_empty_for_one_time_expense() -> None:
     with TestingSessionLocal() as db:

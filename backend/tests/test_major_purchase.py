@@ -420,6 +420,22 @@ def test_goal_impacts_included_in_purchase_simulation() -> None:
             "impossible",
         )
 
+        # Goal Conflict Intelligence 2.0 is a normalized view over the
+        # same goal_impacts entries -- baseline/adjusted allocation
+        # must match exactly, never be recomputed.
+        assert result.goal_conflict_intelligence.supported is True
+        conflict_item = result.goal_conflict_intelligence.goals[0]
+        assert conflict_item.goal_id == impact.goal_id
+        assert (
+            conflict_item.baseline_allocation_cents
+            == impact.baseline_monthly_allocation_cents
+        )
+        assert (
+            conflict_item.adjusted_allocation_cents
+            == impact.adjusted_monthly_allocation_cents
+        )
+        assert conflict_item.status == impact.status
+
 
 def test_goal_impacts_empty_when_no_active_goals_in_purchase() -> None:
     with TestingSessionLocal() as db:

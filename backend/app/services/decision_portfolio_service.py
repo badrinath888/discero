@@ -46,6 +46,9 @@ from app.schemas import (
     SafeToSpendRequest,
     WhatIfSimulationRequest,
 )
+from app.services.decision_goal_conflict_intelligence_service import (
+    build_goal_conflict_intelligence,
+)
 from app.services.decision_history_service import _parse_input
 from app.services.goal_conflict_detection_service import detect_goal_conflicts
 from app.services.goal_impact_service import calculate_goal_impacts
@@ -251,6 +254,9 @@ def evaluate_decision_portfolio(
         portfolio_status=portfolio_status,
         decision_impacts=decision_impacts,
         goal_impacts=goal_impacts,
+        goal_conflict_intelligence=build_goal_conflict_intelligence(
+            goal_impacts
+        ),
         conflicts=conflicts,
         warnings=list(baseline.warnings),
         assumptions=_build_assumptions(

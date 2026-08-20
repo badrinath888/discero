@@ -5,7 +5,27 @@ import {
   TriangleAlert,
   XCircle,
 } from "lucide-react";
-import { formatCents, GoalImpact, GoalImpactStatus } from "../lib/api";
+import {
+  formatCents,
+  GoalConflictIntelligence,
+  GoalConflictSeverity,
+  GoalImpact,
+  GoalImpactStatus,
+} from "../lib/api";
+
+const SEVERITY_LABEL: Record<GoalConflictSeverity, string> = {
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  none: "None",
+};
+
+const SEVERITY_TONE: Record<GoalConflictSeverity, string> = {
+  high: "bg-[#f0b8a8] text-[#7b3528]",
+  medium: "bg-[#f5d66f] text-[#66500f]",
+  low: "bg-[#bcd6f5] text-[#1f3a5f]",
+  none: "bg-[#dff6c7] text-[#315d31]",
+};
 
 const GOAL_STATUS_CONTENT: Record<
   GoalImpactStatus,
@@ -51,17 +71,43 @@ function formatMonthYear(value: string | null): string {
 
 export default function GoalImpactList({
   goalImpacts,
+  conflictIntelligence,
 }: {
   goalImpacts: GoalImpact[];
+  conflictIntelligence?: GoalConflictIntelligence;
 }) {
+  const severityByGoalId = new Map(
+    conflictIntelligence?.supported
+      ? conflictIntelligence.goals.map((goal) => [goal.goal_id, goal])
+      : []
+  );
+
+  const orderedGoalImpacts = severityByGoalId.size
+    ? [...goalImpacts].sort(
+        (a, b) =>
+          (severityByGoalId.get(a.goal_id)?.rank ?? 0) -
+          (severityByGoalId.get(b.goal_id)?.rank ?? 0)
+      )
+    : goalImpacts;
+
   return (
     <section
       aria-label="Impact on your goals"
       className="mt-7 rounded-2xl border border-white/10 bg-white/[0.045] p-6"
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.15em] text-white/40">
-        Impact on your goals
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-white/40">
+          Impact on your goals
+        </p>
+        {conflictIntelligence && conflictIntelligence.conflict_count > 0 && (
+          <span
+            data-testid="goal-impact-conflict-count"
+            className="text-[11px] font-semibold text-[#f4a594]"
+          >
+            {conflictIntelligence.conflict_count} in conflict
+          </span>
+        )}
+      </div>
 
       {goalImpacts.length === 0 ? (
         <p className="mt-4 text-sm leading-6 text-white/55">
@@ -71,9 +117,10 @@ export default function GoalImpactList({
         </p>
       ) : (
         <ul className="mt-4 space-y-3">
-          {goalImpacts.map((impact) => {
+          {orderedGoalImpacts.map((impact) => {
             const statusContent = GOAL_STATUS_CONTENT[impact.status];
             const StatusIcon = statusContent.icon;
+            const severity = severityByGoalId.get(impact.goal_id)?.severity;
 
             return (
               <li
@@ -84,13 +131,23 @@ export default function GoalImpactList({
                   <h3 className="text-sm font-semibold text-white">
                     {impact.goal_name}
                   </h3>
-                  <span
-                    role="status"
-                    className={`inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusContent.className}`}
-                  >
-                    <StatusIcon aria-hidden="true" className="h-3.5 w-3.5" />
-                    {statusContent.label}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {severity && severity !== "none" && (
+                      <span
+                        data-testid="goal-impact-severity"
+                        className={`inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${SEVERITY_TONE[severity]}`}
+                      >
+                        {SEVERITY_LABEL[severity]} severity
+                      </span>
+                    )}
+                    <span
+                      role="status"
+                      className={`inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusContent.className}`}
+                    >
+                      <StatusIcon aria-hidden="true" className="h-3.5 w-3.5" />
+                      {statusContent.label}
+                    </span>
+                  </div>
                 </div>
 
                 <dl className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">

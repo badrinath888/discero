@@ -5,20 +5,29 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models import User
 from app.schemas import (
+    DashboardDecisionIntelligenceOut,
+    DecisionAdaptiveIntelligenceOut,
     DecisionCalibrationOut,
     DecisionOutcomeOut,
     DecisionPortfolioOut,
     DecisionPortfolioRequest,
     DecisionRerunOut,
+    DecisionReviewQueueOut,
+    DecisionTimelineOut,
     SaveDecisionRequest,
     SavedDecisionOut,
     UpdateDecisionLifecycleRequest,
 )
 from app.services import (
+    decision_adaptive_intelligence_service,
     decision_calibration_service,
+    decision_change_explanation_service,
+    decision_dashboard_intelligence_service,
     decision_history_service,
     decision_outcome_service,
     decision_portfolio_service,
+    decision_review_service,
+    decision_timeline_service,
 )
 
 router = APIRouter(
@@ -90,6 +99,26 @@ def get_decision_calibration(
     return decision_calibration_service.get_decision_calibration(db, user_id)
 
 
+@router.get(
+    "/adaptive-intelligence",
+    response_model=DecisionAdaptiveIntelligenceOut,
+)
+def get_decision_adaptive_intelligence(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DecisionAdaptiveIntelligenceOut:
+    _authorize_user(user_id, current_user)
+
+    calibration = decision_calibration_service.get_decision_calibration(
+        db, user_id
+    )
+
+    return decision_adaptive_intelligence_service.build_adaptive_intelligence(
+        calibration
+    )
+
+
 @router.post(
     "/portfolio",
     response_model=DecisionPortfolioOut,
@@ -113,6 +142,40 @@ def evaluate_decision_portfolio(
             status_code=422,
             detail={"message": str(exc), **exc.details},
         ) from exc
+
+
+@router.get(
+    "/review-queue",
+    response_model=DecisionReviewQueueOut,
+)
+def get_decision_review_queue(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DecisionReviewQueueOut:
+    _authorize_user(user_id, current_user)
+
+    items = decision_review_service.build_review_queue(db, user_id)
+
+    return DecisionReviewQueueOut(items=items, total_count=len(items))
+
+
+@router.get(
+    "/dashboard-intelligence",
+    response_model=DashboardDecisionIntelligenceOut,
+)
+def get_dashboard_decision_intelligence(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DashboardDecisionIntelligenceOut:
+    _authorize_user(user_id, current_user)
+
+    return (
+        decision_dashboard_intelligence_service.build_dashboard_intelligence(
+            db, user_id
+        )
+    )
 
 
 @router.get(
@@ -239,6 +302,30 @@ def list_decision_outcomes(
     return outcomes
 
 
+@router.get(
+    "/{decision_id}/timeline",
+    response_model=DecisionTimelineOut,
+)
+def get_decision_timeline(
+    user_id: int,
+    decision_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DecisionTimelineOut:
+    _authorize_user(user_id, current_user)
+
+    timeline = decision_timeline_service.build_decision_timeline(
+        db, user_id, decision_id
+    )
+
+    if timeline is None:
+        raise HTTPException(
+            status_code=404, detail="saved decision not found"
+        )
+
+    return timeline
+
+
 @router.post(
     "/{decision_id}/rerun",
     response_model=DecisionRerunOut,
@@ -262,9 +349,23 @@ def rerun_decision(
 
     decision, evaluated_at, result_snapshot = outcome
 
+    # Best-effort: the rerun result above is already a genuine,
+    # successful deterministic recalculation. A change-explanation
+    # failure (e.g. an unexpected legacy result_snapshot shape) must
+    # never turn that success into a failed rerun.
+    try:
+        change_explanation = (
+            decision_change_explanation_service.build_change_explanation(
+                decision.result_snapshot, result_snapshot
+            )
+        )
+    except Exception:
+        change_explanation = None
+
     return DecisionRerunOut(
         decision_id=decision.id,
         decision_type=decision.decision_type,
         evaluated_at=evaluated_at,
         result_snapshot=result_snapshot,
+        change_explanation=change_explanation,
     )

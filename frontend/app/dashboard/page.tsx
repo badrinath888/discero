@@ -19,7 +19,9 @@ import { PageReveal } from "../components/PremiumMotion";
 import SafeToSpendCard from "../components/SafeToSpendCard";
 import {
   api,
+  CalibrationLabel,
   CashFlowForecast,
+  DashboardDecisionIntelligence,
   FinancialResilience,
   formatCents,
   Overview,
@@ -51,6 +53,8 @@ export default function Dashboard() {
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
   const [cashFlow, setCashFlow] = useState<CashFlowForecast | null>(null);
   const [resilience, setResilience] = useState<FinancialResilience | null>(null);
+  const [decisionIntelligence, setDecisionIntelligence] =
+    useState<DashboardDecisionIntelligence | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [recommendationsLoading, setRecommendationsLoading] = useState(true);
@@ -64,17 +68,24 @@ export default function Dashboard() {
     setError("");
 
     try {
-      const [overviewData, goalData, cashFlowData, resilienceResult] =
-        await Promise.all([
-          api.overview(id),
-          api.getSavingsGoals(id),
-          api.getCashFlowForecast(id),
-          api.getFinancialResilience(id).catch(() => null),
-        ]);
+      const [
+        overviewData,
+        goalData,
+        cashFlowData,
+        resilienceResult,
+        decisionIntelligenceResult,
+      ] = await Promise.all([
+        api.overview(id),
+        api.getSavingsGoals(id),
+        api.getCashFlowForecast(id),
+        api.getFinancialResilience(id).catch(() => null),
+        api.getDashboardDecisionIntelligence(id).catch(() => null),
+      ]);
       setOverview(overviewData);
       setGoals(goalData);
       setCashFlow(cashFlowData);
       setResilience(resilienceResult);
+      setDecisionIntelligence(decisionIntelligenceResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load dashboard");
     } finally {
@@ -277,6 +288,12 @@ export default function Dashboard() {
 
           <GoalsSummary goals={goals} summary={goalSummary} progress={goalProgress} loading={showSkeleton} onOpen={() => router.push("/goals")} />
 
+          <DecisionIntelligenceSummary
+            data={decisionIntelligence}
+            loading={loading}
+            onReview={() => router.push("/decisions/history")}
+          />
+
           <section className="mt-6 flex flex-col gap-5 border-y border-[#181713]/10 bg-[#EDE5DE]/45 px-6 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-8">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Thinking about a purchase?</p>
@@ -400,6 +417,82 @@ function GoalsSummary({ goals, summary, progress, loading, onOpen }: { goals: Sa
         )}
         <button type="button" onClick={onOpen} className="w-fit text-sm font-semibold text-[#6E4B63]">Manage goals →</button>
       </div>
+    </section>
+  );
+}
+
+const DASHBOARD_CALIBRATION_LABEL: Record<CalibrationLabel, string> = {
+  mostly_conservative: "Mostly conservative",
+  mostly_optimistic: "Mostly optimistic",
+  balanced: "Balanced",
+  insufficient_data: "Insufficient data",
+};
+
+function DecisionIntelligenceSummary({
+  data,
+  loading,
+  onReview,
+}: {
+  data: DashboardDecisionIntelligence | null;
+  loading: boolean;
+  onReview: () => void;
+}) {
+  if (loading) {
+    return (
+      <section className="mt-6 rounded-[24px] bg-white px-6 py-6 shadow-[0_10px_32px_rgba(24,35,55,0.045)] ring-1 ring-[#181713]/[0.06] sm:px-8">
+        <div className="h-20 animate-pulse rounded-xl bg-[#181713]/[0.04]" />
+      </section>
+    );
+  }
+
+  // Failure-isolated: a null result (fetch failure or still loading)
+  // simply omits the section -- the rest of the dashboard is
+  // unaffected either way.
+  if (data === null) return null;
+
+  const reviewCount = data.review_queue.count;
+
+  return (
+    <section
+      data-testid="dashboard-decision-intelligence"
+      className="mt-6 rounded-[24px] bg-white px-6 py-6 shadow-[0_10px_32px_rgba(24,35,55,0.045)] ring-1 ring-[#181713]/[0.06] sm:px-8"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
+            Decision intelligence
+          </p>
+          <h2 className="mt-2 text-xl font-semibold tracking-[-0.03em]">
+            {reviewCount > 0
+              ? `${reviewCount} decision${reviewCount === 1 ? "" : "s"} need review`
+              : "You're all caught up"}
+          </h2>
+          <p className="mt-1 text-xs text-[#8A8178]">
+            Calibration: {DASHBOARD_CALIBRATION_LABEL[data.calibration.label]}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onReview}
+          className="discero-button-secondary w-fit shrink-0 rounded-full border px-4 py-2 text-sm font-semibold transition"
+        >
+          Review decisions
+        </button>
+      </div>
+
+      {data.review_queue.highest_priority && (
+        <div className="mt-4 border-t border-[#181713]/[0.07] pt-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8A8178]">
+            Highest priority
+          </p>
+          <p className="mt-1 text-sm font-semibold text-[#2F2930]">
+            {data.review_queue.highest_priority.title}
+          </p>
+          <p className="mt-0.5 text-xs text-[#8A8178]">
+            {data.review_queue.highest_priority.review_reason_text}
+          </p>
+        </div>
+      )}
     </section>
   );
 }

@@ -27,6 +27,7 @@ import {
   WhatIfSimulationRequest,
   WhatIfSimulationResult,
 } from "../lib/api";
+import AdaptiveIntelligenceSection from "./AdaptiveIntelligenceSection";
 import GoalImpactList from "./GoalImpactList";
 
 const SCENARIO_OPTIONS: { value: WhatIfScenarioType; label: string }[] = [
@@ -361,6 +362,9 @@ function SingleWhatIfSimulator({ userId }: { userId: number | null }) {
               input={lastInput}
             />
           )}
+          {userId !== null && (
+            <AdaptiveIntelligenceSection userId={userId} />
+          )}
         </div>
       ) : (
         <article className="flex min-h-[420px] flex-col items-center justify-center border-y border-[#181713]/10 bg-[#FFFCF7] p-8 text-center">
@@ -483,7 +487,10 @@ function WhatIfResultPanel({ result }: { result: WhatIfSimulationResult }) {
         </div>
 
         {result.goal_impacts.length > 0 && (
-          <GoalImpactList goalImpacts={result.goal_impacts} />
+          <GoalImpactList
+            goalImpacts={result.goal_impacts}
+            conflictIntelligence={result.goal_conflict_intelligence}
+          />
         )}
 
         <div className="mt-7 grid gap-4 sm:grid-cols-2">
@@ -1103,6 +1110,9 @@ function WhatIfComparisonPanel({ userId }: { userId: number | null }) {
               }
               input={lastInput}
             />
+          )}
+          {userId !== null && (
+            <AdaptiveIntelligenceSection userId={userId} />
           )}
         </div>
       )}

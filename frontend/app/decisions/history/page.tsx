@@ -7,6 +7,7 @@ import {
   Ban,
   CheckCircle2,
   Clock,
+  History,
   Layers,
   RotateCcw,
   Search,
@@ -23,13 +24,18 @@ import {
   CalibrationLabel,
   DecisionCalibration,
   DecisionCalibrationMetricGroup,
+  DecisionChangeExplanation,
   DecisionOutcome,
   DecisionOutcomeComparisonMetric,
   DecisionPortfolioContributionLevel,
   DecisionPortfolioResult,
   DecisionPortfolioStatus,
+  DecisionReviewQueueItem,
+  DecisionTimeline,
+  DecisionTimelineEvent,
   DecisionType,
   formatCents,
+  GoalConflictSeverity,
   SavedDecision,
   session,
 } from "../../lib/api";
@@ -338,6 +344,20 @@ const CONTRIBUTION_TONE: Record<DecisionPortfolioContributionLevel, string> = {
   low: "text-[#58715A]",
 };
 
+const SEVERITY_LABEL: Record<GoalConflictSeverity, string> = {
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  none: "None",
+};
+
+const SEVERITY_TONE: Record<GoalConflictSeverity, string> = {
+  high: "bg-[#B75C50]/10 text-[#B75C50]",
+  medium: "bg-[#C59A52]/10 text-[#C59A52]",
+  low: "bg-[#58715A]/10 text-[#58715A]",
+  none: "bg-[#eef1ec] text-[#5F5751]",
+};
+
 function PortfolioSection({
   result,
   onChangeSelection,
@@ -347,10 +367,13 @@ function PortfolioSection({
   onChangeSelection: () => void;
   onClearAnalysis: () => void;
 }) {
-  const hasGoalEffects = result.goal_impacts.length > 0;
+  const hasGoalEffects = result.goal_conflict_intelligence.goals.length > 0;
   const hasConflictsOrWarnings =
     result.conflicts.conflict_status !== "no_conflict" ||
     result.warnings.length > 0;
+  const goalExplanationById = new Map(
+    result.goal_impacts.map((goal) => [goal.goal_id, goal.explanation])
+  );
 
   return (
     <div
@@ -450,17 +473,42 @@ function PortfolioSection({
           data-testid="portfolio-goal-effects"
           className="mt-5 border-t border-[#181713]/8 pt-4"
         >
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#777168]">
-            Goal effects
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#777168]">
+              Goal effects
+            </p>
+            {result.goal_conflict_intelligence.conflict_count > 0 && (
+              <span
+                data-testid="portfolio-goal-conflict-count"
+                className="text-[11px] font-semibold text-[#B75C50]"
+              >
+                {result.goal_conflict_intelligence.conflict_count} in
+                conflict
+              </span>
+            )}
+          </div>
           <div className="mt-2 divide-y divide-[#181713]/8">
-            {result.goal_impacts.map((goal) => (
+            {result.goal_conflict_intelligence.goals.map((goal) => (
               <div
                 key={goal.goal_id}
+                data-testid="portfolio-goal-effect-item"
                 className="py-2 text-xs leading-5 text-[#181713]"
               >
-                <span className="font-medium">{goal.goal_name}</span>
-                <span className="text-[#777168]"> — {goal.explanation}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">
+                    {goal.rank}. {goal.goal_name}
+                  </span>
+                  <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                      SEVERITY_TONE[goal.severity]
+                    }`}
+                  >
+                    {SEVERITY_LABEL[goal.severity]}
+                  </span>
+                </div>
+                <span className="text-[#777168]">
+                  {goalExplanationById.get(goal.goal_id)}
+                </span>
               </div>
             ))}
           </div>
@@ -512,6 +560,171 @@ function PortfolioSection({
           Clear analysis
         </button>
       </div>
+    </div>
+  );
+}
+
+function ReviewQueueSection({
+  items,
+  busyId,
+  onMarkActedOn,
+  onDismiss,
+  onCheckOutcome,
+}: {
+  items: DecisionReviewQueueItem[];
+  busyId: number | null;
+  onMarkActedOn: (decisionId: number) => void;
+  onDismiss: (decisionId: number) => void;
+  onCheckOutcome: (decisionId: number) => void;
+}) {
+  return (
+    <div
+      data-testid="decision-review-queue-section"
+      className="border border-[#181713]/10 bg-[#FFFCF7] px-6 py-6"
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
+        Decisions to review
+      </p>
+      <p className="mt-1 max-w-lg text-sm leading-6 text-[#777168]">
+        Follow up on decisions that may need an outcome check.
+      </p>
+
+      <ul className="mt-4 divide-y divide-[#181713]/8">
+        {items.map((item) => (
+          <li
+            key={item.decision_id}
+            data-testid="decision-review-queue-item"
+            className="flex flex-wrap items-center justify-between gap-3 py-3"
+          >
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center rounded-full bg-[#eef1ec] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#5F5751]">
+                  {TYPE_LABEL[item.decision_type]}
+                </span>
+                <span className="text-sm font-semibold text-[#2F2930]">
+                  {item.title}
+                </span>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-[#777168]">
+                {item.review_reason_text}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {item.review_reason === "saved_unresolved" && (
+                <>
+                  <button
+                    type="button"
+                    disabled={busyId === item.decision_id}
+                    onClick={() => onMarkActedOn(item.decision_id)}
+                    className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-[#181713] px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-[#2F2930] disabled:opacity-50"
+                  >
+                    I made this decision
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === item.decision_id}
+                    onClick={() => onDismiss(item.decision_id)}
+                    className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#181713]/15 bg-[#FFFCF7] px-3.5 py-1.5 text-xs font-semibold text-[#706961] transition hover:bg-[#eef1ec] disabled:opacity-50"
+                  >
+                    Dismiss
+                  </button>
+                </>
+              )}
+
+              {item.review_reason === "acted_on_never_checked" && (
+                <button
+                  type="button"
+                  disabled={busyId === item.decision_id}
+                  onClick={() => onCheckOutcome(item.decision_id)}
+                  className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#6E4B63]/25 bg-[#F8F4EE] px-3.5 py-1.5 text-xs font-semibold text-[#6E4B63] transition hover:bg-[#dff6c7] disabled:opacity-50"
+                >
+                  Check outcome
+                </button>
+              )}
+
+              {item.review_reason === "acted_on_recheck_due" && (
+                <button
+                  type="button"
+                  disabled={busyId === item.decision_id}
+                  onClick={() => onCheckOutcome(item.decision_id)}
+                  className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#6E4B63]/25 bg-[#F8F4EE] px-3.5 py-1.5 text-xs font-semibold text-[#6E4B63] transition hover:bg-[#dff6c7] disabled:opacity-50"
+                >
+                  Review again
+                </button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const TIMELINE_EVENT_LABEL: Record<
+  DecisionTimelineEvent["event_type"],
+  string
+> = {
+  decision_saved: "Analyzed & saved",
+  decision_acted_on: "Acted on",
+  outcome_checked: "Outcome checked",
+};
+
+function TimelineSection({
+  timeline,
+  loading,
+  error,
+}: {
+  timeline: DecisionTimeline | undefined;
+  loading: boolean;
+  error: boolean;
+}) {
+  return (
+    <div
+      data-testid="decision-timeline-panel"
+      className="mt-4 border border-[#181713]/10 bg-[#FFFCF7] px-4 py-3"
+    >
+      {loading && (
+        <p
+          data-testid="decision-timeline-loading"
+          className="text-xs text-[#706961]"
+        >
+          Loading timeline…
+        </p>
+      )}
+
+      {!loading && error && (
+        <p
+          role="alert"
+          data-testid="decision-timeline-error"
+          className="text-xs text-[#a64b3d]"
+        >
+          Couldn&apos;t load the timeline just now.
+        </p>
+      )}
+
+      {!loading && !error && timeline && (
+        <ol className="space-y-2.5">
+          {timeline.events.map((event, index) => (
+            <li
+              key={`${event.event_type}-${event.occurred_at}-${index}`}
+              className="flex items-baseline justify-between gap-3 text-xs"
+            >
+              <span className="font-medium text-[#2F2930]">
+                {TIMELINE_EVENT_LABEL[event.event_type]}
+                {event.event_type === "outcome_checked" &&
+                  event.changed !== null &&
+                  (event.changed
+                    ? " · change found"
+                    : " · no change")}
+              </span>
+              <span className="text-[#8a978f]">
+                {formatDate(event.occurred_at)}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
@@ -713,9 +926,15 @@ export default function DecisionHistoryPage() {
   const [calibration, setCalibration] = useState<DecisionCalibration | null>(
     null
   );
+  const [reviewQueue, setReviewQueue] = useState<
+    DecisionReviewQueueItem[] | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [rerunResults, setRerunResults] = useState<
     Record<number, Record<string, unknown>>
+  >({});
+  const [rerunChangeExplanations, setRerunChangeExplanations] = useState<
+    Record<number, DecisionChangeExplanation | null>
   >({});
   const [busyId, setBusyId] = useState<number | null>(null);
   const [outcomesByDecision, setOutcomesByDecision] = useState<
@@ -725,6 +944,18 @@ export default function DecisionHistoryPage() {
     null
   );
   const [outcomesLoadingId, setOutcomesLoadingId] = useState<number | null>(
+    null
+  );
+  const [timelinesByDecision, setTimelinesByDecision] = useState<
+    Record<number, DecisionTimeline>
+  >({});
+  const [expandedTimelineId, setExpandedTimelineId] = useState<number | null>(
+    null
+  );
+  const [timelineLoadingId, setTimelineLoadingId] = useState<number | null>(
+    null
+  );
+  const [timelineErrorId, setTimelineErrorId] = useState<number | null>(
     null
   );
   const [message, setMessage] = useState("");
@@ -759,9 +990,12 @@ export default function DecisionHistoryPage() {
 
         setUserId(id);
 
-        const [decisionsResult, calibrationResult] = await Promise.allSettled(
-          [api.getSavedDecisions(id), api.getDecisionCalibration(id)]
-        );
+        const [decisionsResult, calibrationResult, reviewQueueResult] =
+          await Promise.allSettled([
+            api.getSavedDecisions(id),
+            api.getDecisionCalibration(id),
+            api.getDecisionReviewQueue(id),
+          ]);
 
         if (decisionsResult.status === "fulfilled") {
           setDecisions(decisionsResult.value);
@@ -771,6 +1005,10 @@ export default function DecisionHistoryPage() {
 
         if (calibrationResult.status === "fulfilled") {
           setCalibration(calibrationResult.value);
+        }
+
+        if (reviewQueueResult.status === "fulfilled") {
+          setReviewQueue(reviewQueueResult.value.items);
         }
       } catch {
         session.clear();
@@ -809,6 +1047,10 @@ export default function DecisionHistoryPage() {
         ...prev,
         [decisionId]: outcome.result_snapshot,
       }));
+      setRerunChangeExplanations((prev) => ({
+        ...prev,
+        [decisionId]: outcome.change_explanation,
+      }));
     } catch {
       setError("Couldn't re-run that decision just now.");
     } finally {
@@ -832,6 +1074,9 @@ export default function DecisionHistoryPage() {
       setDecisions(
         (prev) =>
           prev?.map((d) => (d.id === decisionId ? updated : d)) ?? null
+      );
+      setReviewQueue(
+        (prev) => prev?.filter((item) => item.decision_id !== decisionId) ?? null
       );
       setMessage(
         status === "acted_on"
@@ -870,7 +1115,19 @@ export default function DecisionHistoryPage() {
               : d
           ) ?? null
       );
+      setReviewQueue(
+        (prev) => prev?.filter((item) => item.decision_id !== decisionId) ?? null
+      );
       setExpandedOutcomeId(decisionId);
+
+      // Calibration is derived from outcomes and would otherwise stay
+      // stale on this page until reload -- refreshed best-effort so a
+      // failure here never affects the outcome operation that already
+      // succeeded above.
+      api
+        .getDecisionCalibration(userId)
+        .then(setCalibration)
+        .catch(() => {});
     } catch {
       setError("Couldn't check the outcome just now.");
     } finally {
@@ -905,6 +1162,38 @@ export default function DecisionHistoryPage() {
       setError("Couldn't load the outcome history just now.");
     } finally {
       setOutcomesLoadingId(null);
+    }
+  }
+
+  // A timeline is never fetched for every card on load -- only when the
+  // user explicitly opens it, and only once per decision (subsequent
+  // toggles reuse what's already cached in timelinesByDecision). A
+  // fetch failure only affects this one panel, never the rest of the
+  // page.
+  async function handleToggleTimeline(decisionId: number) {
+    if (userId === null) return;
+
+    if (expandedTimelineId === decisionId) {
+      setExpandedTimelineId(null);
+      return;
+    }
+
+    setExpandedTimelineId(decisionId);
+    setTimelineErrorId(null);
+
+    if (timelinesByDecision[decisionId]) return;
+
+    setTimelineLoadingId(decisionId);
+    try {
+      const timeline = await api.getDecisionTimeline(userId, decisionId);
+      setTimelinesByDecision((prev) => ({
+        ...prev,
+        [decisionId]: timeline,
+      }));
+    } catch {
+      setTimelineErrorId(decisionId);
+    } finally {
+      setTimelineLoadingId(null);
     }
   }
 
@@ -1001,6 +1290,24 @@ export default function DecisionHistoryPage() {
               </Link>
             </header>
           </Reveal>
+
+          {reviewQueue !== null && reviewQueue.length > 0 && (
+            <Reveal>
+              <div className="mt-8">
+                <ReviewQueueSection
+                  items={reviewQueue}
+                  busyId={busyId}
+                  onMarkActedOn={(decisionId) =>
+                    handleUpdateStatus(decisionId, "acted_on")
+                  }
+                  onDismiss={(decisionId) =>
+                    handleUpdateStatus(decisionId, "dismissed")
+                  }
+                  onCheckOutcome={handleCheckOutcome}
+                />
+              </div>
+            </Reveal>
+          )}
 
           {decisions !== null && decisions.length > 0 && (
             <Reveal>
@@ -1122,6 +1429,8 @@ export default function DecisionHistoryPage() {
                 {decisions.map((decision) => {
                   const status = statusLabel(decision);
                   const rerun = rerunResults[decision.id];
+                  const rerunExplanation =
+                    rerunChangeExplanations[decision.id];
                   const outcomes = outcomesByDecision[decision.id] ?? [];
                   const latestOutcome = outcomes[0];
                   const isOutcomeHistoryOpen =
@@ -1253,6 +1562,82 @@ export default function DecisionHistoryPage() {
                                 </div>
                               ))}
                             </div>
+
+                            {rerunExplanation && (
+                              <div
+                                data-testid="decision-change-explanation"
+                                className="mt-4 border-t border-[#181713]/10 pt-3"
+                              >
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
+                                  What changed
+                                </p>
+
+                                {rerunExplanation.changed_metrics.length ===
+                                0 ? (
+                                  <p className="mt-2 text-xs leading-5 text-[#706961]">
+                                    No meaningful change since the saved
+                                    analysis.
+                                  </p>
+                                ) : (
+                                  <div className="mt-2 divide-y divide-[#181713]/8">
+                                    {rerunExplanation.changed_metrics.map(
+                                      (metric) => {
+                                        const currency =
+                                          metric.unit === "currency";
+
+                                        return (
+                                          <div
+                                            key={metric.path}
+                                            className="flex flex-wrap items-center justify-between gap-2 py-2"
+                                          >
+                                            <span className="text-xs font-medium capitalize text-[#2F2930]">
+                                              {metric.label}
+                                            </span>
+                                            <span className="flex items-center gap-2 text-xs">
+                                              <span className="text-[#8a978f]">
+                                                {formatMetricValue(
+                                                  metric.before,
+                                                  metric.change_type,
+                                                  currency
+                                                )}
+                                              </span>
+                                              <ArrowRight className="h-3 w-3 text-[#c7bfb4]" />
+                                              <span className="font-semibold text-[#2F2930]">
+                                                {formatMetricValue(
+                                                  metric.current,
+                                                  metric.change_type,
+                                                  currency
+                                                )}
+                                              </span>
+                                              {metric.change_type ===
+                                                "numeric" &&
+                                                metric.delta !== null && (
+                                                  <span
+                                                    className={
+                                                      metric.delta >= 0
+                                                        ? "font-semibold text-[#48634B]"
+                                                        : "font-semibold text-[#a64b3d]"
+                                                    }
+                                                  >
+                                                    {metric.delta >= 0
+                                                      ? "+"
+                                                      : ""}
+                                                    {formatMetricValue(
+                                                      metric.delta,
+                                                      metric.change_type,
+                                                      currency
+                                                    )}
+                                                  </span>
+                                                )}
+                                            </span>
+                                          </div>
+                                        );
+                                      }
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -1334,6 +1719,17 @@ export default function DecisionHistoryPage() {
 
                           <button
                             type="button"
+                            onClick={() => handleToggleTimeline(decision.id)}
+                            className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#6E4B63]/25 bg-[#F8F4EE] px-3.5 py-1.5 text-xs font-semibold text-[#6E4B63] transition hover:bg-[#dff6c7]"
+                          >
+                            <History className="h-3.5 w-3.5" />
+                            {expandedTimelineId === decision.id
+                              ? "Hide timeline"
+                              : "View timeline"}
+                          </button>
+
+                          <button
+                            type="button"
                             disabled={busyId === decision.id}
                             onClick={() => handleRerun(decision.id)}
                             className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#6E4B63]/25 bg-[#F8F4EE] px-3.5 py-1.5 text-xs font-semibold text-[#6E4B63] transition hover:bg-[#dff6c7] disabled:opacity-50"
@@ -1352,6 +1748,14 @@ export default function DecisionHistoryPage() {
                             Delete
                           </button>
                         </div>
+
+                        {expandedTimelineId === decision.id && (
+                          <TimelineSection
+                            timeline={timelinesByDecision[decision.id]}
+                            loading={timelineLoadingId === decision.id}
+                            error={timelineErrorId === decision.id}
+                          />
+                        )}
 
                         {decision.status === "acted_on" &&
                           isOutcomeHistoryOpen &&

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type {
   WhatIfComparisonResult,
@@ -9,6 +15,7 @@ import WhatIfSimulator from "./WhatIfSimulator";
 const mocks = vi.hoisted(() => ({
   simulateWhatIf: vi.fn(),
   compareWhatIfScenarios: vi.fn(),
+  getDecisionAdaptiveIntelligence: vi.fn(),
 }));
 
 vi.mock("../lib/api", async (importOriginal) => {
@@ -19,6 +26,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       ...actual.api,
       simulateWhatIf: mocks.simulateWhatIf,
       compareWhatIfScenarios: mocks.compareWhatIfScenarios,
+      getDecisionAdaptiveIntelligence: mocks.getDecisionAdaptiveIntelligence,
     },
   };
 });
@@ -55,6 +63,7 @@ const baseResult: WhatIfSimulationResult = {
     },
   ],
   goal_impacts: [],
+  goal_conflict_intelligence: { supported: true, goals: [], most_affected_goal_id: null, conflict_count: 0 },
   safe_to_spend: {
     as_of: "2026-08-11",
     through_date: "2026-09-10",
@@ -131,6 +140,10 @@ beforeEach(() => {
   mocks.simulateWhatIf.mockResolvedValue(baseResult);
   mocks.compareWhatIfScenarios.mockReset();
   mocks.compareWhatIfScenarios.mockResolvedValue(baseComparisonResult);
+  mocks.getDecisionAdaptiveIntelligence.mockReset();
+  mocks.getDecisionAdaptiveIntelligence.mockResolvedValue({
+    status: "insufficient_data",
+  });
 });
 
 function switchToCompareMode() {
@@ -255,6 +268,33 @@ describe("WhatIfSimulator", () => {
         screen.getByRole("button", { name: "Run simulation" })
       ).toBeInTheDocument()
     );
+  });
+
+  it("shows restrained historical context alongside the single scenario result", async () => {
+    mocks.getDecisionAdaptiveIntelligence.mockResolvedValue({
+      status: "available",
+      calibration_label: "balanced",
+      tracked_decisions: 3,
+      outcome_checks: 4,
+      directional_observations: 3,
+      favorable_rate: 0.5,
+      unfavorable_rate: 0.5,
+      narrative: "Your tracked outcomes have been mixed.",
+      metric_patterns: [],
+    });
+
+    render(<WhatIfSimulator userId={1} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run simulation" }));
+
+    const section = await screen.findByTestId(
+      "adaptive-intelligence-section"
+    );
+    expect(
+      within(section).getByText("Your tracked outcomes have been mixed.")
+    ).toBeInTheDocument();
+
+    // The deterministic result itself is unaffected by this section.
+    expect(screen.getByText("$5,000.00")).toBeInTheDocument();
   });
 });
 
@@ -387,5 +427,29 @@ describe("WhatIfSimulator comparison mode", () => {
         screen.getByRole("button", { name: "Run comparison" })
       ).toBeInTheDocument()
     );
+  });
+
+  it("shows restrained historical context alongside the comparison result", async () => {
+    mocks.getDecisionAdaptiveIntelligence.mockResolvedValue({
+      status: "available",
+      calibration_label: "balanced",
+      tracked_decisions: 3,
+      outcome_checks: 4,
+      directional_observations: 3,
+      favorable_rate: 0.5,
+      unfavorable_rate: 0.5,
+      narrative: "Your tracked outcomes have been mixed.",
+      metric_patterns: [],
+    });
+
+    switchToCompareMode();
+    fireEvent.click(screen.getByRole("button", { name: "Run comparison" }));
+
+    const section = await screen.findByTestId(
+      "adaptive-intelligence-section"
+    );
+    expect(
+      within(section).getByText("Your tracked outcomes have been mixed.")
+    ).toBeInTheDocument();
   });
 });

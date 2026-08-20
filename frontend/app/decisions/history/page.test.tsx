@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   DecisionCalibration,
   DecisionPortfolioResult,
+  DecisionReviewQueueItem,
+  DecisionTimeline,
   SavedDecision,
 } from "../../lib/api";
 import DecisionHistoryPage from "./page";
@@ -24,7 +26,9 @@ const mocks = vi.hoisted(() => ({
   updateDecisionStatus: vi.fn(),
   evaluateDecisionOutcome: vi.fn(),
   getDecisionOutcomes: vi.fn(),
+  getDecisionTimeline: vi.fn(),
   getDecisionCalibration: vi.fn(),
+  getDecisionReviewQueue: vi.fn(),
   evaluateDecisionPortfolio: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
@@ -96,7 +100,9 @@ vi.mock("../../lib/api", async (importOriginal) => {
       updateDecisionStatus: mocks.updateDecisionStatus,
       evaluateDecisionOutcome: mocks.evaluateDecisionOutcome,
       getDecisionOutcomes: mocks.getDecisionOutcomes,
+      getDecisionTimeline: mocks.getDecisionTimeline,
       getDecisionCalibration: mocks.getDecisionCalibration,
+      getDecisionReviewQueue: mocks.getDecisionReviewQueue,
       evaluateDecisionPortfolio: mocks.evaluateDecisionPortfolio,
     },
     session: {
@@ -228,6 +234,54 @@ function calibrationFixture(
   return { ...emptyCalibration, ...overrides };
 }
 
+const savedUnresolvedItem: DecisionReviewQueueItem = {
+  decision_id: 1,
+  decision_type: "major_purchase",
+  title: "Laptop Purchase",
+  status: "saved",
+  created_at: "2026-08-07T00:00:00Z",
+  acted_on_at: null,
+  outcome_count: 0,
+  latest_outcome_at: null,
+  review_reason: "saved_unresolved",
+  review_reason_text:
+    "Saved 12 days ago. Tell Discero whether you acted on this decision.",
+  age_days: 12,
+  recommended_action: "mark_acted_or_dismiss",
+};
+
+const neverCheckedItem: DecisionReviewQueueItem = {
+  decision_id: 2,
+  decision_type: "major_purchase",
+  title: "Kitchen Remodel",
+  status: "acted_on",
+  created_at: "2026-07-01T00:00:00Z",
+  acted_on_at: "2026-08-09T00:00:00Z",
+  outcome_count: 0,
+  latest_outcome_at: null,
+  review_reason: "acted_on_never_checked",
+  review_reason_text:
+    "Acted on 10 days ago. Check how this decision compares with your finances today.",
+  age_days: 10,
+  recommended_action: "check_outcome",
+};
+
+const recheckDueItem: DecisionReviewQueueItem = {
+  decision_id: 3,
+  decision_type: "major_purchase",
+  title: "Car Purchase",
+  status: "acted_on",
+  created_at: "2026-05-01T00:00:00Z",
+  acted_on_at: "2026-05-05T00:00:00Z",
+  outcome_count: 2,
+  latest_outcome_at: "2026-07-16T00:00:00Z",
+  review_reason: "acted_on_recheck_due",
+  review_reason_text:
+    "Last checked 34 days ago. Review this decision again with current data.",
+  age_days: 34,
+  recommended_action: "recheck_outcome",
+};
+
 const whatIfDecision: SavedDecision = {
   id: 6,
   decision_type: "what_if",
@@ -322,6 +376,28 @@ const portfolioResultFixture: DecisionPortfolioResult = {
         "House Down Payment is expected to fall short of its target by $3,600.00 at the target date under this scenario.",
     },
   ],
+  goal_conflict_intelligence: {
+    supported: true,
+    goals: [
+      {
+        goal_id: 1,
+        goal_name: "House Down Payment",
+        baseline_allocation_cents: 500_000,
+        adjusted_allocation_cents: 200_000,
+        allocation_change_cents: -300_000,
+        baseline_completion_date: "2027-08-08",
+        adjusted_completion_date: "2029-02-08",
+        delay_months: 0,
+        funding_shortfall_cents: 3_600_000,
+        status: "at_risk",
+        conflict: true,
+        severity: "high",
+        rank: 1,
+      },
+    ],
+    most_affected_goal_id: 1,
+    conflict_count: 1,
+  },
   conflicts: {
     as_of: "2026-08-08",
     conflict_status: "conflict",
@@ -368,8 +444,14 @@ beforeEach(() => {
   mocks.updateDecisionStatus.mockReset();
   mocks.evaluateDecisionOutcome.mockReset();
   mocks.getDecisionOutcomes.mockReset();
+  mocks.getDecisionTimeline.mockReset();
   mocks.getDecisionCalibration.mockReset();
   mocks.getDecisionCalibration.mockResolvedValue(emptyCalibration);
+  mocks.getDecisionReviewQueue.mockReset();
+  mocks.getDecisionReviewQueue.mockResolvedValue({
+    items: [],
+    total_count: 0,
+  });
   mocks.evaluateDecisionPortfolio.mockReset();
 });
 
@@ -427,6 +509,7 @@ describe("Decision history page", () => {
         safe_to_spend_after_purchase_cents: 7_000_000,
         confidence_score: 90,
       },
+      change_explanation: null,
     });
 
     render(<DecisionHistoryPage />);
@@ -1444,6 +1527,34 @@ describe("Decision portfolio", () => {
     );
   });
 
+  it("shows the ranked severity and conflict count for affected goals", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue(portfolioResultFixture);
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    const section = await screen.findByTestId("decision-portfolio-section");
+    const goalSection = within(section).getByTestId("portfolio-goal-effects");
+
+    expect(
+      within(goalSection).getByText(/1\.\s*House Down Payment/)
+    ).toBeInTheDocument();
+    expect(within(goalSection).getByText("High")).toBeInTheDocument();
+    expect(
+      within(goalSection).getByTestId("portfolio-goal-conflict-count")
+    ).toHaveTextContent("1 in conflict");
+
+    // The underlying goal_impacts values remain exactly what the
+    // deterministic engine produced -- this section only normalizes
+    // presentation, it never recomputes them.
+    expect(goalSection).toHaveTextContent("$3,600.00");
+  });
+
   it("omits the goal effects section when there are no goal impacts", async () => {
     mocks.getSavedDecisions.mockResolvedValue([
       purchaseDecision,
@@ -1452,6 +1563,12 @@ describe("Decision portfolio", () => {
     mocks.evaluateDecisionPortfolio.mockResolvedValue({
       ...portfolioResultFixture,
       goal_impacts: [],
+      goal_conflict_intelligence: {
+        supported: true,
+        goals: [],
+        most_affected_goal_id: null,
+        conflict_count: 0,
+      },
     });
 
     render(<DecisionHistoryPage />);
@@ -1590,5 +1707,557 @@ describe("Decision portfolio", () => {
 
     const section = await screen.findByTestId("decision-portfolio-section");
     expect(section.textContent ?? "").not.toMatch(/[{}]/);
+  });
+});
+
+describe("Decision review queue", () => {
+  it("renders above calibration and decision history", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionCalibration.mockResolvedValue(
+      calibrationFixture({ tracked_decisions: 1 })
+    );
+    mocks.getDecisionReviewQueue.mockResolvedValue({
+      items: [savedUnresolvedItem],
+      total_count: 1,
+    });
+
+    render(<DecisionHistoryPage />);
+
+    const reviewSection = await screen.findByTestId(
+      "decision-review-queue-section"
+    );
+    const calibrationSection = await screen.findByTestId(
+      "decision-calibration-section"
+    );
+    const historyCard = await screen.findByTestId("decision-history-card");
+
+    expect(
+      reviewSection.compareDocumentPosition(calibrationSection) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      reviewSection.compareDocumentPosition(historyCard) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("renders the correct actions and reason text for a saved-unresolved item", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([]);
+    mocks.getDecisionReviewQueue.mockResolvedValue({
+      items: [savedUnresolvedItem],
+      total_count: 1,
+    });
+
+    render(<DecisionHistoryPage />);
+
+    const item = await screen.findByTestId("decision-review-queue-item");
+    expect(
+      within(item).getByRole("button", { name: /i made this decision/i })
+    ).toBeInTheDocument();
+    expect(
+      within(item).getByRole("button", { name: /dismiss/i })
+    ).toBeInTheDocument();
+    expect(
+      within(item).getByText(savedUnresolvedItem.review_reason_text)
+    ).toBeInTheDocument();
+  });
+
+  it("renders Check outcome for a never-checked acted-on item", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([]);
+    mocks.getDecisionReviewQueue.mockResolvedValue({
+      items: [neverCheckedItem],
+      total_count: 1,
+    });
+
+    render(<DecisionHistoryPage />);
+
+    const item = await screen.findByTestId("decision-review-queue-item");
+    expect(
+      within(item).getByRole("button", { name: /check outcome/i })
+    ).toBeInTheDocument();
+    expect(
+      within(item).queryByRole("button", { name: /review again/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders Review again for a recheck-due item", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([]);
+    mocks.getDecisionReviewQueue.mockResolvedValue({
+      items: [recheckDueItem],
+      total_count: 1,
+    });
+
+    render(<DecisionHistoryPage />);
+
+    const item = await screen.findByTestId("decision-review-queue-item");
+    expect(
+      within(item).getByRole("button", { name: /review again/i })
+    ).toBeInTheDocument();
+  });
+
+  it("only renders items included in the returned queue", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([]);
+    mocks.getDecisionReviewQueue.mockResolvedValue({
+      items: [savedUnresolvedItem],
+      total_count: 1,
+    });
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByTestId("decision-review-queue-item");
+    expect(
+      screen.getAllByTestId("decision-review-queue-item")
+    ).toHaveLength(1);
+    expect(screen.queryByText(neverCheckedItem.title)).not.toBeInTheDocument();
+  });
+
+  it("removes only the acted-on item from the queue after marking it acted on", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([]);
+    mocks.getDecisionReviewQueue.mockResolvedValue({
+      items: [savedUnresolvedItem, neverCheckedItem],
+      total_count: 2,
+    });
+    mocks.updateDecisionStatus.mockResolvedValue({
+      ...purchaseDecision,
+      id: savedUnresolvedItem.decision_id,
+      status: "acted_on",
+    });
+
+    render(<DecisionHistoryPage />);
+
+    expect(
+      await screen.findAllByTestId("decision-review-queue-item")
+    ).toHaveLength(2);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /i made this decision/i })
+    );
+
+    await waitFor(() =>
+      expect(mocks.updateDecisionStatus).toHaveBeenCalledWith(
+        1,
+        savedUnresolvedItem.decision_id,
+        "acted_on"
+      )
+    );
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId("decision-review-queue-item")
+      ).toHaveLength(1)
+    );
+    expect(screen.queryByText(savedUnresolvedItem.title)).not.toBeInTheDocument();
+    expect(screen.getByText(neverCheckedItem.title)).toBeInTheDocument();
+  });
+
+  it("removes only the checked item from the queue after checking its outcome", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([]);
+    mocks.getDecisionReviewQueue.mockResolvedValue({
+      items: [neverCheckedItem, recheckDueItem],
+      total_count: 2,
+    });
+    mocks.evaluateDecisionOutcome.mockResolvedValue({
+      id: 99,
+      decision_id: neverCheckedItem.decision_id,
+      evaluated_at: "2026-08-19T00:00:00Z",
+      current_result_snapshot: {},
+      comparison_snapshot: {
+        changed: false,
+        metrics: [],
+        summary: { metrics_compared: 0, metrics_changed: 0 },
+      },
+    });
+
+    render(<DecisionHistoryPage />);
+
+    expect(
+      await screen.findAllByTestId("decision-review-queue-item")
+    ).toHaveLength(2);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /^check outcome$/i })
+    );
+
+    await waitFor(() =>
+      expect(mocks.evaluateDecisionOutcome).toHaveBeenCalledWith(
+        1,
+        neverCheckedItem.decision_id
+      )
+    );
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId("decision-review-queue-item")
+      ).toHaveLength(1)
+    );
+    expect(screen.queryByText(neverCheckedItem.title)).not.toBeInTheDocument();
+    expect(screen.getByText(recheckDueItem.title)).toBeInTheDocument();
+  });
+
+  it("refreshes decision calibration after a successful outcome check", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([]);
+    mocks.getDecisionReviewQueue.mockResolvedValue({
+      items: [neverCheckedItem],
+      total_count: 1,
+    });
+    mocks.getDecisionCalibration.mockResolvedValueOnce(emptyCalibration);
+    mocks.evaluateDecisionOutcome.mockResolvedValue({
+      id: 99,
+      decision_id: neverCheckedItem.decision_id,
+      evaluated_at: "2026-08-19T00:00:00Z",
+      current_result_snapshot: {},
+      comparison_snapshot: {
+        changed: false,
+        metrics: [],
+        summary: { metrics_compared: 0, metrics_changed: 0 },
+      },
+    });
+    const refreshedCalibration = calibrationFixture({
+      tracked_decisions: 1,
+      outcome_checks: 1,
+      calibration_label: "balanced",
+    });
+    mocks.getDecisionCalibration.mockResolvedValueOnce(refreshedCalibration);
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByTestId("decision-review-queue-item");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /^check outcome$/i })
+    );
+
+    await waitFor(() =>
+      expect(mocks.evaluateDecisionOutcome).toHaveBeenCalled()
+    );
+    await waitFor(() =>
+      expect(mocks.getDecisionCalibration).toHaveBeenCalledTimes(2)
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("calibration-label")).toHaveTextContent(
+        "Balanced"
+      )
+    );
+  });
+
+  it("keeps the outcome check successful even when the calibration refresh fails", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([]);
+    mocks.getDecisionReviewQueue.mockResolvedValue({
+      items: [neverCheckedItem],
+      total_count: 1,
+    });
+    mocks.getDecisionCalibration.mockResolvedValueOnce(emptyCalibration);
+    mocks.evaluateDecisionOutcome.mockResolvedValue({
+      id: 99,
+      decision_id: neverCheckedItem.decision_id,
+      evaluated_at: "2026-08-19T00:00:00Z",
+      current_result_snapshot: {},
+      comparison_snapshot: {
+        changed: false,
+        metrics: [],
+        summary: { metrics_compared: 0, metrics_changed: 0 },
+      },
+    });
+    mocks.getDecisionCalibration.mockRejectedValueOnce(
+      new Error("network error")
+    );
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByTestId("decision-review-queue-item");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /^check outcome$/i })
+    );
+
+    await waitFor(() =>
+      expect(mocks.evaluateDecisionOutcome).toHaveBeenCalled()
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("decision-review-queue-item")
+      ).not.toBeInTheDocument()
+    );
+    expect(
+      screen.queryByText("Couldn't check the outcome just now.")
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not break Decision History when the review queue request fails", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionReviewQueue.mockRejectedValue(
+      new Error("network error")
+    );
+
+    render(<DecisionHistoryPage />);
+
+    expect(await screen.findByText("Laptop Purchase")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("decision-review-queue-section")
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not render the section when there are no queue items", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionReviewQueue.mockResolvedValue({
+      items: [],
+      total_count: 0,
+    });
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    expect(
+      screen.queryByTestId("decision-review-queue-section")
+    ).not.toBeInTheDocument();
+  });
+
+  it("leaves existing Decision History rendering unchanged when review queue items are present", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionReviewQueue.mockResolvedValue({
+      items: [savedUnresolvedItem],
+      total_count: 1,
+    });
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByTestId("decision-review-queue-section");
+    const historyCard = await screen.findByTestId("decision-history-card");
+    expect(within(historyCard).getByText("Laptop Purchase")).toBeInTheDocument();
+    expect(within(historyCard).getByText("$60,569.00")).toBeInTheDocument();
+  });
+});
+
+describe("Decision timeline", () => {
+  const timelineFixture: DecisionTimeline = {
+    decision_id: purchaseDecision.id,
+    decision_type: "major_purchase",
+    title: "Laptop Purchase",
+    current_status: "saved",
+    events: [
+      {
+        event_type: "decision_saved",
+        occurred_at: "2026-08-04T00:00:00Z",
+        outcome_id: null,
+        changed: null,
+      },
+      {
+        event_type: "decision_acted_on",
+        occurred_at: "2026-08-17T00:00:00Z",
+        outcome_id: null,
+        changed: null,
+      },
+      {
+        event_type: "outcome_checked",
+        occurred_at: "2026-09-20T00:00:00Z",
+        outcome_id: 42,
+        changed: true,
+      },
+    ],
+  };
+
+  it("does not fetch a timeline until the user opens it", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByTestId("decision-history-card");
+    expect(mocks.getDecisionTimeline).not.toHaveBeenCalled();
+  });
+
+  it("lazily fetches and renders the timeline when opened", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionTimeline.mockResolvedValue(timelineFixture);
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByTestId("decision-history-card");
+    fireEvent.click(
+      screen.getByRole("button", { name: /view timeline/i })
+    );
+
+    expect(mocks.getDecisionTimeline).toHaveBeenCalledWith(
+      1,
+      purchaseDecision.id
+    );
+
+    const panel = await screen.findByTestId("decision-timeline-panel");
+    expect(within(panel).getByText("Analyzed & saved")).toBeInTheDocument();
+    expect(within(panel).getByText("Acted on")).toBeInTheDocument();
+    expect(
+      within(panel).getByText("Outcome checked · change found")
+    ).toBeInTheDocument();
+  });
+
+  it("caches the fetched timeline so reopening does not refetch", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionTimeline.mockResolvedValue(timelineFixture);
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByTestId("decision-history-card");
+    const toggle = screen.getByRole("button", { name: /view timeline/i });
+
+    fireEvent.click(toggle);
+    await screen.findByTestId("decision-timeline-panel");
+
+    fireEvent.click(screen.getByRole("button", { name: /hide timeline/i }));
+    expect(
+      screen.queryByTestId("decision-timeline-panel")
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /view timeline/i }));
+    await screen.findByTestId("decision-timeline-panel");
+
+    expect(mocks.getDecisionTimeline).toHaveBeenCalledTimes(1);
+  });
+
+  it("isolates a timeline failure from the rest of the page", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionTimeline.mockRejectedValue(new Error("network error"));
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByTestId("decision-history-card");
+    fireEvent.click(
+      screen.getByRole("button", { name: /view timeline/i })
+    );
+
+    expect(
+      await screen.findByTestId("decision-timeline-error")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Laptop Purchase")).toBeInTheDocument();
+  });
+});
+
+describe("Decision change explanation", () => {
+  it("renders What changed metrics after a successful rerun", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.rerunSavedDecision.mockResolvedValue({
+      decision_id: 1,
+      decision_type: "major_purchase",
+      evaluated_at: "2026-08-09",
+      result_snapshot: {
+        affordability_status: "affordable",
+        purchase_amount_cents: 200_000,
+        safe_to_spend_after_purchase_cents: 7_000_000,
+        confidence_score: 90,
+      },
+      change_explanation: {
+        changed_metrics: [
+          {
+            path: "safe_to_spend_after_purchase_cents",
+            label: "safe to spend after purchase",
+            before: 6_056_900,
+            current: 7_000_000,
+            delta: 943_100,
+            change_type: "numeric",
+            unit: "currency",
+            direction: "higher_is_better",
+          },
+          {
+            path: "affordability_status",
+            label: "affordability status",
+            before: "caution",
+            current: "affordable",
+            delta: null,
+            change_type: "text",
+            unit: null,
+            direction: null,
+          },
+        ],
+        total_changed_metric_count: 2,
+        unchanged_metric_count: 1,
+      },
+    });
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    fireEvent.click(screen.getByRole("button", { name: /run again/i }));
+
+    const section = await screen.findByTestId(
+      "decision-change-explanation"
+    );
+    expect(within(section).getByText(/what changed/i)).toBeInTheDocument();
+    expect(
+      within(section).getByText("safe to spend after purchase")
+    ).toBeInTheDocument();
+    expect(within(section).getByText("$60,569.00")).toBeInTheDocument();
+    expect(within(section).getByText("$70,000.00")).toBeInTheDocument();
+    expect(within(section).getByText("+$9,431.00")).toBeInTheDocument();
+    expect(within(section).getByText("caution")).toBeInTheDocument();
+    expect(within(section).getByText("affordable")).toBeInTheDocument();
+  });
+
+  it("shows a no-change message when nothing changed", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.rerunSavedDecision.mockResolvedValue({
+      decision_id: 1,
+      decision_type: "major_purchase",
+      evaluated_at: "2026-08-09",
+      result_snapshot: {
+        affordability_status: "affordable",
+        purchase_amount_cents: 200_000,
+      },
+      change_explanation: {
+        changed_metrics: [],
+        total_changed_metric_count: 0,
+        unchanged_metric_count: 2,
+      },
+    });
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    fireEvent.click(screen.getByRole("button", { name: /run again/i }));
+
+    const section = await screen.findByTestId(
+      "decision-change-explanation"
+    );
+    expect(
+      within(section).getByText(/no meaningful change/i)
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the rerun result visible when change_explanation is unavailable", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.rerunSavedDecision.mockResolvedValue({
+      decision_id: 1,
+      decision_type: "major_purchase",
+      evaluated_at: "2026-08-09",
+      result_snapshot: {
+        affordability_status: "affordable",
+        purchase_amount_cents: 200_000,
+      },
+      change_explanation: null,
+    });
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    fireEvent.click(screen.getByRole("button", { name: /run again/i }));
+
+    await screen.findByTestId("decision-rerun-result");
+    expect(
+      screen.queryByTestId("decision-change-explanation")
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not create a decision outcome from Run Again", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.rerunSavedDecision.mockResolvedValue({
+      decision_id: 1,
+      decision_type: "major_purchase",
+      evaluated_at: "2026-08-09",
+      result_snapshot: { affordability_status: "affordable" },
+      change_explanation: null,
+    });
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    fireEvent.click(screen.getByRole("button", { name: /run again/i }));
+
+    await screen.findByTestId("decision-rerun-result");
+    expect(mocks.evaluateDecisionOutcome).not.toHaveBeenCalled();
   });
 });

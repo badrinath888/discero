@@ -1545,6 +1545,14 @@ def test_goal_impacts_included_for_active_goal_in_stress_test() -> None:
         # the new individual-goal list (backward compatibility).
         assert len(result.affected_goals) == 1
 
+        conflict_item = result.goal_conflict_intelligence.goals[0]
+        assert conflict_item.goal_id == impact.goal_id
+        assert conflict_item.status == impact.status
+        assert (
+            conflict_item.adjusted_allocation_cents
+            == impact.adjusted_monthly_allocation_cents
+        )
+
 
 def test_goal_impacts_empty_when_no_active_goals_in_stress_test() -> None:
     with TestingSessionLocal() as db:

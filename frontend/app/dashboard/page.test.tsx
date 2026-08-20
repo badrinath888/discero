@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   getCashFlowForecast: vi.fn(),
   getRecommendations: vi.fn(),
   getFinancialResilience: vi.fn(),
+  getDashboardDecisionIntelligence: vi.fn(),
   uploadTransactions: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
@@ -60,6 +61,8 @@ vi.mock("../lib/api", async (importOriginal) => {
       getCashFlowForecast: mocks.getCashFlowForecast,
       getRecommendations: mocks.getRecommendations,
       getFinancialResilience: mocks.getFinancialResilience,
+      getDashboardDecisionIntelligence:
+        mocks.getDashboardDecisionIntelligence,
       uploadTransactions: mocks.uploadTransactions,
     },
     session: {
@@ -168,6 +171,15 @@ beforeEach(() => {
   mocks.getSavingsGoals.mockResolvedValue(goals);
   mocks.getCashFlowForecast.mockResolvedValue(cashFlow);
   mocks.getFinancialResilience.mockResolvedValue(resilience);
+  mocks.getDashboardDecisionIntelligence.mockResolvedValue({
+    review_queue: { count: 0, highest_priority: null },
+    calibration: {
+      label: "insufficient_data",
+      tracked_decisions: 0,
+      outcome_checks: 0,
+    },
+    recent_decision: null,
+  });
   mocks.getRecommendations.mockResolvedValue({ as_of: "2026-08-09", recommendations: [] });
 });
 
@@ -206,5 +218,92 @@ describe("Dashboard redesign", () => {
     const file = new File(["a,b"], "transactions.csv", { type: "text/csv" });
     fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [file] } });
     expect(await screen.findByText("2 imported, 1 duplicates skipped.")).toBeInTheDocument();
+  });
+});
+
+describe("Dashboard decision intelligence", () => {
+  it("shows the review count and highest-priority item, and navigates on the CTA", async () => {
+    mocks.getDashboardDecisionIntelligence.mockResolvedValue({
+      review_queue: {
+        count: 2,
+        highest_priority: {
+          decision_id: 7,
+          decision_type: "major_purchase",
+          title: "Phone Upgrade",
+          status: "acted_on",
+          created_at: "2026-07-01T00:00:00Z",
+          acted_on_at: "2026-07-20T00:00:00Z",
+          outcome_count: 0,
+          latest_outcome_at: null,
+          review_reason: "acted_on_never_checked",
+          review_reason_text:
+            "Acted on 19 days ago. Check how this decision compares with your finances today.",
+          age_days: 19,
+          recommended_action: "check_outcome",
+        },
+      },
+      calibration: {
+        label: "insufficient_data",
+        tracked_decisions: 1,
+        outcome_checks: 1,
+      },
+      recent_decision: null,
+    });
+
+    render(<Dashboard />);
+
+    const section = await screen.findByTestId(
+      "dashboard-decision-intelligence"
+    );
+    expect(
+      within(section).getByText("2 decisions need review")
+    ).toBeInTheDocument();
+    expect(
+      within(section).getByText("Calibration: Insufficient data")
+    ).toBeInTheDocument();
+    expect(within(section).getByText("Phone Upgrade")).toBeInTheDocument();
+
+    fireEvent.click(
+      within(section).getByRole("button", { name: /review decisions/i })
+    );
+    expect(mocks.push).toHaveBeenCalledWith("/decisions/history");
+  });
+
+  it("shows a caught-up state when there are no decisions to review", async () => {
+    render(<Dashboard />);
+
+    const section = await screen.findByTestId(
+      "dashboard-decision-intelligence"
+    );
+    expect(
+      within(section).getByText("You're all caught up")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Highest priority")
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not affect the rest of the dashboard when the intelligence endpoint fails", async () => {
+    mocks.getDashboardDecisionIntelligence.mockRejectedValue(
+      new Error("network error")
+    );
+
+    render(<Dashboard />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Overview" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Cash trajectory")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("dashboard-decision-intelligence")
+    ).not.toBeInTheDocument();
+  });
+
+  it("loads decision intelligence as a read-only aggregate, scoped to the user", async () => {
+    render(<Dashboard />);
+
+    await screen.findByTestId("dashboard-decision-intelligence");
+
+    expect(mocks.getDashboardDecisionIntelligence).toHaveBeenCalledWith(1);
   });
 });

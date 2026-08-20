@@ -5,8 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import DecisionOutcome, FinancialAccount, SavedDecision, User
-from app.schemas import SaveDecisionRequest
+from app.schemas import GoalImpactOut, SaveDecisionRequest
 from app.services import decision_history_service, decision_portfolio_service
+from app.services.decision_goal_conflict_intelligence_service import (
+    build_goal_conflict_intelligence,
+)
 from app.services.decision_portfolio_service import (
     DecisionPortfolioNotFoundError,
     DecisionPortfolioValidationError,
@@ -681,6 +684,25 @@ def test_portfolio_surfaces_goal_impact_and_conflict() -> None:
         assert result.conflicts.conflict_status == "conflict"
         assert result.conflicts.monthly_shortfall_cents == 300_000
 
+        # Goal Conflict Intelligence normalizes the SAME goal_impacts
+        # entry above -- it must never recompute or diverge from it.
+        intelligence = result.goal_conflict_intelligence
+        assert intelligence.supported is True
+        assert len(intelligence.goals) == 1
+        item = intelligence.goals[0]
+        assert item.goal_id == goal_impact.goal_id
+        assert item.funding_shortfall_cents == goal_impact.funding_shortfall_cents
+        assert item.status == goal_impact.status == "at_risk"
+        assert item.severity == "high"
+        assert item.conflict is True
+        assert intelligence.conflict_count == 1
+        assert intelligence.most_affected_goal_id == goal_impact.goal_id
+
+        # Regression: the underlying goal_impacts values are exactly as
+        # they were before this feature existed.
+        assert result.goal_impacts[0].funding_shortfall_cents == 3_600_000
+        assert result.goal_impacts[0].status == "at_risk"
+
 
 # --- Legacy / corrupt input --------------------------------------------
 
@@ -821,3 +843,138 @@ def test_portfolio_endpoint_rejects_missing_decision(
     )
 
     assert response.status_code == 404
+
+
+# --- Goal conflict intelligence (pure unit tests) ---------------------
+
+
+def _goal_impact(
+    goal_id: int,
+    status: str,
+    *,
+    funding_shortfall_cents: int = 0,
+    delay_months: int = 0,
+    baseline_allocation_cents: int = 10_000,
+    adjusted_allocation_cents: int = 10_000,
+) -> GoalImpactOut:
+    return GoalImpactOut(
+        goal_id=goal_id,
+        goal_name=f"Goal {goal_id}",
+        target_date=None,
+        target_amount_cents=100_000,
+        saved_amount_cents=0,
+        remaining_amount_cents=100_000,
+        current_required_monthly_contribution_cents=10_000,
+        baseline_monthly_allocation_cents=baseline_allocation_cents,
+        adjusted_monthly_allocation_cents=adjusted_allocation_cents,
+        monthly_allocation_change_cents=(
+            adjusted_allocation_cents - baseline_allocation_cents
+        ),
+        baseline_estimated_completion_date=None,
+        adjusted_estimated_completion_date=None,
+        delay_months=delay_months,
+        funding_shortfall_cents=funding_shortfall_cents,
+        status=status,
+        explanation="x",
+    )
+
+
+def test_goal_conflict_intelligence_unaffected_goal_has_no_conflict() -> None:
+    result = build_goal_conflict_intelligence(
+        [_goal_impact(1, "unaffected")]
+    )
+
+    item = result.goals[0]
+    assert item.conflict is False
+    assert item.severity == "none"
+    assert result.conflict_count == 0
+    assert result.most_affected_goal_id is None
+
+
+def test_goal_conflict_intelligence_reduced_allocation_is_low_not_conflict() -> (
+    None
+):
+    result = build_goal_conflict_intelligence(
+        [
+            _goal_impact(
+                1,
+                "reduced",
+                baseline_allocation_cents=10_000,
+                adjusted_allocation_cents=6_000,
+            )
+        ]
+    )
+
+    item = result.goals[0]
+    assert item.severity == "low"
+    assert item.conflict is False
+    assert item.allocation_change_cents == -4_000
+
+
+def test_goal_conflict_intelligence_completion_delay_is_medium_conflict() -> (
+    None
+):
+    result = build_goal_conflict_intelligence(
+        [_goal_impact(1, "delayed", delay_months=3)]
+    )
+
+    item = result.goals[0]
+    assert item.severity == "medium"
+    assert item.conflict is True
+    assert item.delay_months == 3
+
+
+def test_goal_conflict_intelligence_at_risk_and_impossible_are_high_severity() -> (
+    None
+):
+    result = build_goal_conflict_intelligence(
+        [
+            _goal_impact(1, "at_risk", funding_shortfall_cents=100),
+            _goal_impact(2, "impossible", funding_shortfall_cents=200),
+        ]
+    )
+
+    assert all(item.severity == "high" for item in result.goals)
+    assert all(item.conflict for item in result.goals)
+    assert result.conflict_count == 2
+
+
+def test_goal_conflict_intelligence_ranks_multiple_goals_by_severity_then_magnitude() -> (
+    None
+):
+    unaffected = _goal_impact(1, "unaffected")
+    delayed = _goal_impact(2, "delayed", delay_months=1)
+    at_risk_small = _goal_impact(3, "at_risk", funding_shortfall_cents=500)
+    at_risk_large = _goal_impact(4, "at_risk", funding_shortfall_cents=1_000)
+
+    result = build_goal_conflict_intelligence(
+        [unaffected, delayed, at_risk_small, at_risk_large]
+    )
+
+    assert [item.goal_id for item in result.goals] == [4, 3, 2, 1]
+    assert [item.rank for item in result.goals] == [1, 2, 3, 4]
+    assert result.most_affected_goal_id == 4
+
+
+def test_goal_conflict_intelligence_deterministic_tie_break_by_goal_id() -> (
+    None
+):
+    result = build_goal_conflict_intelligence(
+        [
+            _goal_impact(5, "at_risk", funding_shortfall_cents=1_000),
+            _goal_impact(3, "at_risk", funding_shortfall_cents=1_000),
+        ]
+    )
+
+    assert [item.goal_id for item in result.goals] == [3, 5]
+
+
+def test_goal_conflict_intelligence_empty_goal_impacts_is_supported_empty() -> (
+    None
+):
+    result = build_goal_conflict_intelligence([])
+
+    assert result.supported is True
+    assert result.goals == []
+    assert result.most_affected_goal_id is None
+    assert result.conflict_count == 0

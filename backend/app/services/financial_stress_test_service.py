@@ -17,6 +17,9 @@ from app.schemas import (
     StressRecoveryRecommendationOut,
     StressResilienceFactorOut,
 )
+from app.services.decision_goal_conflict_intelligence_service import (
+    build_goal_conflict_intelligence,
+)
 from app.services.forecast_confidence_service import (
     calculate_forecast_confidence,
 )
@@ -347,6 +350,9 @@ def run_financial_stress_test(
         estimated_recovery_days=recovery_days,
         data_disclaimer=_DATA_DISCLAIMER,
         goal_impacts=goal_impacts,
+        goal_conflict_intelligence=build_goal_conflict_intelligence(
+            goal_impacts
+        ),
         explanation=_build_explanation(
             scenario_type=payload.scenario_type,
             scenario_name=scenario_name,

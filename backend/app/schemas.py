@@ -916,6 +916,15 @@ class FinancialResilienceOut(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+GoalImpactStatus = Literal[
+    "unaffected",
+    "reduced",
+    "delayed",
+    "at_risk",
+    "impossible",
+]
+
+
 class GoalImpactOut(BaseModel):
     goal_id: int
     goal_name: str
@@ -931,14 +940,44 @@ class GoalImpactOut(BaseModel):
     adjusted_estimated_completion_date: date | None
     delay_months: int
     funding_shortfall_cents: int
-    status: Literal[
-        "unaffected",
-        "reduced",
-        "delayed",
-        "at_risk",
-        "impossible",
-    ]
+    status: GoalImpactStatus
     explanation: str
+
+
+# --- Goal conflict intelligence -------------------------------------------
+#
+# A normalized, ranked view over ALREADY-COMPUTED GoalImpactOut entries
+# -- never a second goal-impact/funding-allocation engine. Severity is
+# derived only from goal_impact_service's own deterministic status
+# classification (see app/services/decision_goal_conflict_intelligence_
+# service.py), never an invented risk score.
+
+GoalConflictSeverity = Literal["none", "low", "medium", "high"]
+
+
+class GoalConflictIntelligenceItemOut(BaseModel):
+    goal_id: int
+    goal_name: str
+    baseline_allocation_cents: int
+    adjusted_allocation_cents: int
+    allocation_change_cents: int
+    baseline_completion_date: date | None
+    adjusted_completion_date: date | None
+    delay_months: int
+    funding_shortfall_cents: int
+    status: GoalImpactStatus
+    conflict: bool
+    severity: GoalConflictSeverity
+    rank: int
+
+
+class GoalConflictIntelligenceOut(BaseModel):
+    supported: bool
+    goals: list[GoalConflictIntelligenceItemOut] = Field(
+        default_factory=list
+    )
+    most_affected_goal_id: int | None = None
+    conflict_count: int = 0
 
 
 class MajorPurchaseSimulationRequest(BaseModel):
@@ -995,6 +1034,7 @@ class MajorPurchaseSimulationOut(BaseModel):
     alternatives: list[MajorPurchaseAlternativeOut]
     safe_to_spend: SafeToSpendOut
     goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
+    goal_conflict_intelligence: GoalConflictIntelligenceOut
 
 
 class BuyNowVsWaitRequest(BaseModel):
@@ -1221,6 +1261,7 @@ class FinancialStressTestOut(BaseModel):
     data_disclaimer: str
     safe_to_spend: SafeToSpendOut
     goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
+    goal_conflict_intelligence: GoalConflictIntelligenceOut
     # Days of stressed liquid runway; null when the stressed monthly
     # cash flow is non-negative (unbounded/not applicable).
     runway_days: int | None = None
@@ -1375,6 +1416,7 @@ class WhatIfSimulationOut(BaseModel):
     impact: WhatIfImpactOut
     explanation: list[SafeToSpendExplanationOut]
     goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
+    goal_conflict_intelligence: GoalConflictIntelligenceOut
     safe_to_spend: SafeToSpendOut
 
 
@@ -1729,6 +1771,27 @@ DecisionType = Literal[
     "what_if_comparison",
 ]
 
+CalibrationMetricUnit = Literal[
+    "currency",
+    "score",
+    "percentage",
+    "days",
+    "numeric",
+]
+
+CalibrationMetricDirection = Literal[
+    "higher_is_better",
+    "lower_is_better",
+    "unknown",
+]
+
+CalibrationLabel = Literal[
+    "insufficient_data",
+    "mostly_conservative",
+    "mostly_optimistic",
+    "balanced",
+]
+
 
 class SaveDecisionRequest(BaseModel):
     decision_type: DecisionType
@@ -1769,11 +1832,29 @@ class SavedDecisionOut(BaseModel):
     latest_outcome_at: datetime | None = None
 
 
+class DecisionChangeExplanationMetricOut(BaseModel):
+    path: str
+    label: str
+    before: int | float | bool | str
+    current: int | float | bool | str
+    delta: int | float | None
+    change_type: Literal["numeric", "boolean", "text", "date"]
+    unit: CalibrationMetricUnit | None = None
+    direction: CalibrationMetricDirection | None = None
+
+
+class DecisionChangeExplanationOut(BaseModel):
+    changed_metrics: list[DecisionChangeExplanationMetricOut]
+    total_changed_metric_count: int
+    unchanged_metric_count: int
+
+
 class DecisionRerunOut(BaseModel):
     decision_id: int
     decision_type: DecisionType
     evaluated_at: date
     result_snapshot: dict
+    change_explanation: DecisionChangeExplanationOut | None = None
 
 
 class UpdateDecisionLifecycleRequest(BaseModel):
@@ -1811,27 +1892,6 @@ class DecisionOutcomeOut(BaseModel):
 
 
 # --- Decision calibration ----------------------------------------------
-
-CalibrationMetricUnit = Literal[
-    "currency",
-    "score",
-    "percentage",
-    "days",
-    "numeric",
-]
-
-CalibrationMetricDirection = Literal[
-    "higher_is_better",
-    "lower_is_better",
-    "unknown",
-]
-
-CalibrationLabel = Literal[
-    "insufficient_data",
-    "mostly_conservative",
-    "mostly_optimistic",
-    "balanced",
-]
 
 
 class DecisionCalibrationMetricGroupOut(BaseModel):
@@ -1873,6 +1933,135 @@ class DecisionCalibrationOut(BaseModel):
     calibration_label: CalibrationLabel
     metric_groups: list[DecisionCalibrationMetricGroupOut]
     decision_types: list[DecisionCalibrationTypeBreakdownOut]
+
+
+# --- Adaptive decision intelligence --------------------------------------
+#
+# A pure, deterministic adapter over the already-computed Decision
+# Calibration output -- CONTEXTUAL intelligence only. It never alters
+# any deterministic financial calculation and never calls an LLM. See
+# app/services/decision_adaptive_intelligence_service.py.
+
+AdaptiveIntelligenceStatus = Literal["insufficient_data", "available"]
+
+
+class AdaptiveIntelligenceMetricPatternOut(BaseModel):
+    path: str
+    unit: CalibrationMetricUnit
+    direction: CalibrationMetricDirection
+    observations: int
+    mean_signed_delta: float
+
+
+class DecisionAdaptiveIntelligenceOut(BaseModel):
+    status: AdaptiveIntelligenceStatus
+    calibration_label: CalibrationLabel
+    tracked_decisions: int
+    outcome_checks: int
+    directional_observations: int
+    favorable_rate: float | None
+    unfavorable_rate: float | None
+    narrative: str
+    metric_patterns: list[AdaptiveIntelligenceMetricPatternOut]
+
+
+# --- Decision review queue -----------------------------------------------
+#
+# A deterministic read-model over already-persisted SavedDecision/
+# DecisionOutcome state -- never a background job, notification, or
+
+DecisionReviewReason = Literal[
+    "acted_on_never_checked",
+    "acted_on_recheck_due",
+    "saved_unresolved",
+]
+
+DecisionReviewAction = Literal[
+    "mark_acted_or_dismiss",
+    "check_outcome",
+    "recheck_outcome",
+]
+
+
+class DecisionReviewQueueItemOut(BaseModel):
+    decision_id: int
+    decision_type: DecisionType
+    title: str
+    status: DecisionLifecycleStatus
+    created_at: datetime
+    acted_on_at: datetime | None
+    outcome_count: int
+    latest_outcome_at: datetime | None
+    review_reason: DecisionReviewReason
+    review_reason_text: str
+    age_days: int
+    recommended_action: DecisionReviewAction
+
+
+class DecisionReviewQueueOut(BaseModel):
+    items: list[DecisionReviewQueueItemOut]
+    total_count: int
+
+
+# --- Dashboard decision intelligence --------------------------------------
+#
+# A compact aggregate read-model composed entirely from already-existing
+# services (Review Queue, Calibration, SavedDecision listing) -- never a
+# new calculation, simulation, or rerun. See
+# app/services/decision_dashboard_intelligence_service.py.
+
+
+class DashboardReviewQueueSummaryOut(BaseModel):
+    count: int
+    highest_priority: DecisionReviewQueueItemOut | None = None
+
+
+class DashboardCalibrationSummaryOut(BaseModel):
+    label: CalibrationLabel
+    tracked_decisions: int
+    outcome_checks: int
+
+
+class DashboardRecentDecisionOut(BaseModel):
+    decision_id: int
+    decision_type: DecisionType
+    title: str
+    status: DecisionLifecycleStatus
+    created_at: datetime
+
+
+class DashboardDecisionIntelligenceOut(BaseModel):
+    review_queue: DashboardReviewQueueSummaryOut
+    calibration: DashboardCalibrationSummaryOut
+    recent_decision: DashboardRecentDecisionOut | None = None
+
+
+# --- Decision timeline ---------------------------------------------------
+#
+# Persisted-only chronological record for a single saved decision --
+# never a fabricated lifecycle timestamp. See
+# app/services/decision_timeline_service.py.
+
+DecisionTimelineEventType = Literal[
+    "decision_saved",
+    "decision_acted_on",
+    "outcome_checked",
+]
+
+
+class DecisionTimelineEventOut(BaseModel):
+    event_type: DecisionTimelineEventType
+    occurred_at: datetime
+    outcome_id: int | None = None
+    changed: bool | None = None
+
+
+class DecisionTimelineOut(BaseModel):
+    decision_id: int
+    decision_type: DecisionType
+    title: str
+    current_status: DecisionLifecycleStatus
+    events: list[DecisionTimelineEventOut]
 
 
 # --- Decision portfolio intelligence ------------------------------------
@@ -1923,6 +2112,7 @@ class DecisionPortfolioOut(BaseModel):
     portfolio_status: Literal["comfortable", "tight", "high_risk"]
     decision_impacts: list[DecisionPortfolioImpactOut]
     goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
+    goal_conflict_intelligence: GoalConflictIntelligenceOut
     conflicts: GoalConflictDetectionOut
     warnings: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)

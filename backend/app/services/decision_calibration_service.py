@@ -357,3 +357,10 @@ def get_decision_calibration(
         metric_groups=metric_group_out,
         decision_types=decision_type_out,
     )
+
+
+# Public aliases so other features (e.g. Decision Change Explanation)
+# can reuse the exact same unit/direction classification rules without
+# a second, possibly-diverging implementation.
+classify_metric_unit = _classify_unit
+classify_metric_direction = _classify_direction

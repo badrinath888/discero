@@ -1343,17 +1343,25 @@ export type DecisionAdaptiveIntelligence = {
   metric_patterns: AdaptiveIntelligenceMetricPattern[];
 };
 
-// v1 supports major_purchase and what_if only -- other decision types
-// are shown as disabled/unavailable for portfolio analysis rather
-// than silently reinterpreted.
+// Types not in PORTFOLIO_SUPPORTED_TYPES stay visible but disabled in
+// the selection UI rather than silently reinterpreted. buy_now_vs_wait
+// and what_if_comparison additionally require an explicit `variant`
+// (the branch/option to include) before they can be selected.
+export type DecisionPortfolioItem = {
+  decision_id: number;
+  variant?: string;
+};
+
 export type DecisionPortfolioRequest = {
-  decision_ids: number[];
+  items: DecisionPortfolioItem[];
 };
 
 export type DecisionPortfolioDecision = {
   decision_id: number;
   decision_type: DecisionType;
   title: string;
+  variant: string | null;
+  variant_label: string | null;
 };
 
 export type DecisionPortfolioBaseline = {
@@ -2397,12 +2405,12 @@ compareWhatIfScenarios: (
 
   evaluateDecisionPortfolio: (
     userId: number,
-    decisionIds: number[]
+    items: DecisionPortfolioItem[]
   ): Promise<DecisionPortfolioResult> =>
     fetchWithTimeout(`${API_URL}/users/${userId}/decisions/portfolio`, {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ decision_ids: decisionIds }),
+      body: JSON.stringify({ items }),
     }).then((res) => handle<DecisionPortfolioResult>(res)),
 
   createSavingsGoal: (

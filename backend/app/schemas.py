@@ -2073,14 +2073,52 @@ class DecisionTimelineOut(BaseModel):
 # revalidated server-side.
 
 
+class DecisionPortfolioItemRequest(BaseModel):
+    decision_id: int
+    # Required only for decisions that represent an alternative timing
+    # or branch (buy_now_vs_wait, what_if_comparison) -- interpreted
+    # against that specific decision's persisted input once loaded, so
+    # no static enum can validate it at the schema layer.
+    variant: str | None = Field(default=None, max_length=60)
+
+
 class DecisionPortfolioRequest(BaseModel):
-    decision_ids: list[int]
+    # `decision_ids` is the v1 shape, kept for backward compatibility.
+    # `items` additively supports per-decision branch selection. Exactly
+    # one of the two must be provided so selection semantics are never
+    # ambiguous.
+    decision_ids: list[int] | None = None
+    items: list[DecisionPortfolioItemRequest] | None = None
+
+    @model_validator(mode="after")
+    def validate_selection_shape(self) -> "DecisionPortfolioRequest":
+        if self.decision_ids is not None and self.items is not None:
+            raise ValueError(
+                "provide either decision_ids or items, not both"
+            )
+
+        if self.decision_ids is None and self.items is None:
+            raise ValueError("decision_ids or items is required")
+
+        return self
+
+    def resolved_items(self) -> list[DecisionPortfolioItemRequest]:
+        if self.items is not None:
+            return self.items
+
+        assert self.decision_ids is not None
+        return [
+            DecisionPortfolioItemRequest(decision_id=decision_id)
+            for decision_id in self.decision_ids
+        ]
 
 
 class DecisionPortfolioSelectionOut(BaseModel):
     decision_id: int
     decision_type: DecisionType
     title: str
+    variant: str | None = None
+    variant_label: str | None = None
 
 
 class DecisionPortfolioBaselineOut(BaseModel):

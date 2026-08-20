@@ -28,6 +28,7 @@ import {
   DecisionOutcome,
   DecisionOutcomeComparisonMetric,
   DecisionPortfolioContributionLevel,
+  DecisionPortfolioItem,
   DecisionPortfolioResult,
   DecisionPortfolioStatus,
   DecisionReviewQueueItem,
@@ -40,13 +41,80 @@ import {
   session,
 } from "../../lib/api";
 
-// v1 supports only decision types whose saved input reduces to a
-// single deterministic adjustment (see decision_portfolio_service) --
+// Every type here is reconstructed from persisted input into a
+// deterministic portfolio effect (see decision_portfolio_service) --
 // other types stay visible but disabled instead of being hidden or
-// silently reinterpreted.
-const PORTFOLIO_SUPPORTED_TYPES: DecisionType[] = ["major_purchase", "what_if"];
+// silently reinterpreted. scenario_comparison stays unsupported:
+// nothing persisted records which option (if either) was actually
+// chosen after saving.
+const PORTFOLIO_SUPPORTED_TYPES: DecisionType[] = [
+  "major_purchase",
+  "what_if",
+  "stress_test",
+  "buy_now_vs_wait",
+  "what_if_comparison",
+];
+// These decision types represent alternative branches, not a single
+// adjustment -- an explicit branch must be chosen before they can be
+// added to a portfolio. Never defaulted to the recommended option.
+const PORTFOLIO_VARIANT_REQUIRED_TYPES: DecisionType[] = [
+  "buy_now_vs_wait",
+  "what_if_comparison",
+];
 const MIN_PORTFOLIO_SELECTION = 2;
 const MAX_PORTFOLIO_SELECTION = 5;
+
+type PortfolioVariantOption = { value: string; label: string };
+
+// Stable, display-label-independent branch keys, matching the
+// scenario_comparison option_a/option_b convention. Position in the
+// persisted list is the branch's identity; the label is shown, never
+// matched on.
+const WHAT_IF_COMPARISON_OPTION_KEYS = ["option_a", "option_b", "option_c"];
+
+// Branch options are read from the decision's own persisted
+// input_snapshot -- never fabricated -- and simply omitted (leaving
+// no selectable options) when the shape doesn't match what's
+// expected, the same defensive convention `summaryChips` uses for
+// result_snapshot.
+function portfolioVariantOptions(
+  decision: SavedDecision
+): PortfolioVariantOption[] {
+  const input = decision.input_snapshot;
+
+  if (decision.decision_type === "buy_now_vs_wait") {
+    const buyNowDate = asNonEmptyString(input.buy_now_date);
+
+    if (!buyNowDate) return [];
+
+    // WAIT isn't offered here: the portfolio evaluates every selected
+    // decision against one shared baseline as of today, so it has no
+    // way to honor WAIT's real meaning (safe-to-spend re-evaluated as
+    // of the wait date) without silently presenting it as identical to
+    // BUY_NOW. Wait vs. buy-now can still be compared on its own,
+    // outside a portfolio.
+    return [{ value: "buy_now", label: "Buy now" }];
+  }
+
+  if (decision.decision_type === "what_if_comparison") {
+    const scenarios = input.scenarios;
+    if (!Array.isArray(scenarios)) return [];
+
+    return scenarios
+      .map((scenario) =>
+        typeof scenario === "object" && scenario !== null
+          ? asNonEmptyString((scenario as Record<string, unknown>).label)
+          : undefined
+      )
+      .filter((label): label is string => label !== undefined)
+      .map((label, index) => ({
+        value: WHAT_IF_COMPARISON_OPTION_KEYS[index],
+        label,
+      }));
+  }
+
+  return [];
+}
 
 const TYPE_LABEL: Record<DecisionType, string> = {
   major_purchase: "Major Purchase",
@@ -374,6 +442,11 @@ function PortfolioSection({
   const goalExplanationById = new Map(
     result.goal_impacts.map((goal) => [goal.goal_id, goal.explanation])
   );
+  const variantLabelById = new Map(
+    result.selected_decisions
+      .filter((decision) => decision.variant_label !== null)
+      .map((decision) => [decision.decision_id, decision.variant_label])
+  );
 
   return (
     <div
@@ -451,8 +524,17 @@ function PortfolioSection({
               key={impact.decision_id}
               className="flex flex-wrap items-center justify-between gap-2 py-2"
             >
-              <span className="text-xs font-medium text-[#181713]">
+              <span
+                data-testid="portfolio-impact-title"
+                className="text-xs font-medium text-[#181713]"
+              >
                 {impact.risk_rank}. {impact.title}
+                {variantLabelById.get(impact.decision_id) && (
+                  <span className="text-[#777168]">
+                    {" "}
+                    — {variantLabelById.get(impact.decision_id)}
+                  </span>
+                )}
               </span>
               <span
                 className={`text-xs font-semibold ${
@@ -963,6 +1045,9 @@ export default function DecisionHistoryPage() {
   const [selectedDecisionIds, setSelectedDecisionIds] = useState<number[]>(
     []
   );
+  const [selectedVariants, setSelectedVariants] = useState<
+    Record<number, string>
+  >({});
   const [portfolioResult, setPortfolioResult] =
     useState<DecisionPortfolioResult | null>(null);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
@@ -1200,6 +1285,7 @@ export default function DecisionHistoryPage() {
   function startPortfolioSelection() {
     setSelectionMode(true);
     setSelectedDecisionIds([]);
+    setSelectedVariants({});
     setPortfolioResult(null);
     setPortfolioError(null);
   }
@@ -1207,6 +1293,7 @@ export default function DecisionHistoryPage() {
   function exitPortfolioSelection() {
     setSelectionMode(false);
     setSelectedDecisionIds([]);
+    setSelectedVariants({});
     setPortfolioResult(null);
     setPortfolioError(null);
   }
@@ -1221,12 +1308,37 @@ export default function DecisionHistoryPage() {
       }
       return [...prev, decisionId];
     });
+    // A branch selection only means something for the decision it was
+    // made on -- toggling a decision's inclusion always clears any
+    // prior branch choice for it, whether it's being added (no choice
+    // has been made yet) or removed (a stale choice must never survive
+    // to a later re-selection).
+    setSelectedVariants((prev) => {
+      if (!(decisionId in prev)) return prev;
+      const next = { ...prev };
+      delete next[decisionId];
+      return next;
+    });
   }
+
+  function setPortfolioVariant(decisionId: number, variant: string) {
+    setSelectedVariants((prev) => ({ ...prev, [decisionId]: variant }));
+  }
+
+  const selectedPortfolioDecisions = (decisions ?? []).filter((decision) =>
+    selectedDecisionIds.includes(decision.id)
+  );
+  const missingPortfolioVariantCount = selectedPortfolioDecisions.filter(
+    (decision) =>
+      PORTFOLIO_VARIANT_REQUIRED_TYPES.includes(decision.decision_type) &&
+      !selectedVariants[decision.id]
+  ).length;
 
   async function handleAnalyzeTogether() {
     if (
       userId === null ||
-      selectedDecisionIds.length < MIN_PORTFOLIO_SELECTION
+      selectedDecisionIds.length < MIN_PORTFOLIO_SELECTION ||
+      missingPortfolioVariantCount > 0
     ) {
       return;
     }
@@ -1234,10 +1346,13 @@ export default function DecisionHistoryPage() {
     setPortfolioLoading(true);
     setPortfolioError(null);
     try {
-      const result = await api.evaluateDecisionPortfolio(
-        userId,
-        selectedDecisionIds
+      const items: DecisionPortfolioItem[] = selectedDecisionIds.map(
+        (decisionId) => {
+          const variant = selectedVariants[decisionId];
+          return variant ? { decision_id: decisionId, variant } : { decision_id: decisionId };
+        }
       );
+      const result = await api.evaluateDecisionPortfolio(userId, items);
       setPortfolioResult(result);
     } catch {
       setPortfolioError("Couldn't analyze these decisions together just now.");
@@ -1338,6 +1453,12 @@ export default function DecisionHistoryPage() {
                         Selected {selectedDecisionIds.length} of{" "}
                         {MAX_PORTFOLIO_SELECTION}
                       </p>
+                      {missingPortfolioVariantCount > 0 && (
+                        <p className="mt-1 text-xs font-medium text-[#a64b3d]">
+                          Choose a branch for every selected decision that
+                          needs one.
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -1354,7 +1475,9 @@ export default function DecisionHistoryPage() {
                         data-testid="analyze-together"
                         disabled={
                           selectedDecisionIds.length <
-                            MIN_PORTFOLIO_SELECTION || portfolioLoading
+                            MIN_PORTFOLIO_SELECTION ||
+                          missingPortfolioVariantCount > 0 ||
+                          portfolioLoading
                         }
                         onClick={handleAnalyzeTogether}
                         className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-[#181713] px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-[#2F2930] disabled:opacity-40"
@@ -1463,33 +1586,86 @@ export default function DecisionHistoryPage() {
                             const isSelectionFull =
                               selectedDecisionIds.length >=
                                 MAX_PORTFOLIO_SELECTION && !isSelected;
+                            const requiresVariant =
+                              PORTFOLIO_VARIANT_REQUIRED_TYPES.includes(
+                                decision.decision_type
+                              );
+                            const variantOptions = requiresVariant
+                              ? portfolioVariantOptions(decision)
+                              : [];
+                            const selectedVariant =
+                              selectedVariants[decision.id];
 
                             return (
-                              <label
-                                data-testid={`portfolio-select-${decision.id}`}
-                                className={`mb-4 flex items-center gap-2.5 border border-[#181713]/10 px-3 py-2 text-xs font-medium ${
-                                  isDisabled
-                                    ? "cursor-not-allowed bg-[#F5F1EA] text-[#8a978f]"
-                                    : "cursor-pointer bg-[#FFFCF7] text-[#181713] hover:bg-[#F0E9EE]/40"
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  disabled={isDisabled || isSelectionFull}
-                                  onChange={() =>
-                                    togglePortfolioSelection(decision.id)
-                                  }
-                                  className="h-4 w-4 accent-[#6E4B63]"
-                                />
-                                <span>
-                                  {isDismissed
-                                    ? "Dismissed decisions can't be compared."
-                                    : isUnsupported
-                                      ? "Not available for portfolio analysis yet."
-                                      : "Include in portfolio analysis"}
-                                </span>
-                              </label>
+                              <div className="mb-4">
+                                <label
+                                  data-testid={`portfolio-select-${decision.id}`}
+                                  className={`flex items-center gap-2.5 border border-[#181713]/10 px-3 py-2 text-xs font-medium ${
+                                    isDisabled
+                                      ? "cursor-not-allowed bg-[#F5F1EA] text-[#8a978f]"
+                                      : "cursor-pointer bg-[#FFFCF7] text-[#181713] hover:bg-[#F0E9EE]/40"
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    disabled={isDisabled || isSelectionFull}
+                                    onChange={() =>
+                                      togglePortfolioSelection(decision.id)
+                                    }
+                                    className="h-4 w-4 accent-[#6E4B63]"
+                                  />
+                                  <span>
+                                    {isDismissed
+                                      ? "Dismissed decisions can't be compared."
+                                      : isUnsupported
+                                        ? "Not available for portfolio analysis yet."
+                                        : "Include in portfolio analysis"}
+                                  </span>
+                                </label>
+
+                                {isSelected && requiresVariant && (
+                                  <fieldset
+                                    data-testid={`portfolio-variant-${decision.id}`}
+                                    className="mt-2 flex flex-col gap-1.5 border border-[#181713]/10 border-t-0 bg-[#FFFCF7] px-3 py-2.5"
+                                  >
+                                    <legend className="px-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#777168]">
+                                      Choose a branch to include
+                                    </legend>
+                                    {variantOptions.length === 0 ? (
+                                      <span className="text-xs text-[#8a978f]">
+                                        This decision&apos;s saved details
+                                        don&apos;t support portfolio analysis
+                                        anymore.
+                                      </span>
+                                    ) : (
+                                      variantOptions.map((option) => (
+                                        <label
+                                          key={option.value}
+                                          className="flex cursor-pointer items-center gap-2 text-xs text-[#181713]"
+                                        >
+                                          <input
+                                            type="radio"
+                                            name={`portfolio-variant-${decision.id}`}
+                                            value={option.value}
+                                            checked={
+                                              selectedVariant === option.value
+                                            }
+                                            onChange={() =>
+                                              setPortfolioVariant(
+                                                decision.id,
+                                                option.value
+                                              )
+                                            }
+                                            className="h-3.5 w-3.5 accent-[#6E4B63]"
+                                          />
+                                          {option.label}
+                                        </label>
+                                      ))
+                                    )}
+                                  </fieldset>
+                                )}
+                              </div>
                             );
                           })()}
 

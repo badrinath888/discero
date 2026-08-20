@@ -534,6 +534,24 @@ describe("decisions mobile layout", () => {
   });
 });
 
+describe("decisions multi-step plan mode", () => {
+  it("switches into the multi-step planner without disturbing other modes", async () => {
+    await renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Multi-step plan" }));
+
+    expect(
+      await screen.findByText("What happens over time?")
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/^Step \d$/)).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Single purchase" }));
+    expect(
+      await screen.findByText("Major purchase simulator")
+    ).toBeInTheDocument();
+  });
+});
+
 describe("decisions comparison mode", () => {
   it("sends the comparison payload with shared assumptions", async () => {
     await renderPage();

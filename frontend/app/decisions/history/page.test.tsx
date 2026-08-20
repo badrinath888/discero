@@ -142,6 +142,8 @@ const buyNowVsWaitDecision: SavedDecision = {
   input_snapshot: {
     purchase_name: "New Laptop",
     purchase_amount_cents: 220_000,
+    buy_now_date: "2026-08-08",
+    wait_until_date: "2026-09-15",
   },
   result_snapshot: {
     purchase_name: "New Laptop",
@@ -204,6 +206,27 @@ const stressTestDecision: SavedDecision = {
     risk_level: "strained",
     resilience_score: 62,
     confidence_score: 74,
+  },
+  status: "saved",
+  acted_on_at: null,
+  created_at: "2026-08-08T00:00:00Z",
+  outcome_count: 0,
+  latest_outcome_at: null,
+};
+
+const whatIfComparisonDecision: SavedDecision = {
+  id: 8,
+  decision_type: "what_if_comparison",
+  title: "Rent increase vs move",
+  input_snapshot: {
+    scenarios: [
+      { label: "Option A", scenario_type: "one_time_expense" },
+      { label: "Option B", scenario_type: "one_time_expense" },
+    ],
+  },
+  result_snapshot: {
+    recommended_label: "Option A",
+    recommendation_reason: "Option A keeps more safe-to-spend available.",
   },
   status: "saved",
   acted_on_at: null,
@@ -326,8 +349,20 @@ const dismissedPurchaseDecision: SavedDecision = {
 const portfolioResultFixture: DecisionPortfolioResult = {
   as_of: "2026-08-08",
   selected_decisions: [
-    { decision_id: 1, decision_type: "major_purchase", title: "New Laptop" },
-    { decision_id: 6, decision_type: "what_if", title: "Rent increase" },
+    {
+      decision_id: 1,
+      decision_type: "major_purchase",
+      title: "New Laptop",
+      variant: null,
+      variant_label: null,
+    },
+    {
+      decision_id: 6,
+      decision_type: "what_if",
+      title: "Rent increase",
+      variant: null,
+      variant_label: null,
+    },
   ],
   baseline: { safe_to_spend_cents: 10_000_000, confidence_score: 88 },
   combined: {
@@ -1313,20 +1348,41 @@ describe("Decision portfolio", () => {
   it("disables unsupported decision types with a short explanation", async () => {
     mocks.getSavedDecisions.mockResolvedValue([
       purchaseDecision,
-      stressTestDecision,
+      scenarioDecision,
     ]);
 
     render(<DecisionHistoryPage />);
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
 
     const control = screen.getByTestId(
-      `portfolio-select-${stressTestDecision.id}`
+      `portfolio-select-${scenarioDecision.id}`
     );
 
     expect(within(control).getByRole("checkbox")).toBeDisabled();
     expect(control).toHaveTextContent(
       "Not available for portfolio analysis yet."
     );
+  });
+
+  it("allows selecting a stress test without requiring a branch", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      stressTestDecision,
+    ]);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    const checkbox = within(
+      screen.getByTestId(`portfolio-select-${stressTestDecision.id}`)
+    ).getByRole("checkbox");
+
+    expect(checkbox).not.toBeDisabled();
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    expect(
+      screen.queryByTestId(`portfolio-variant-${stressTestDecision.id}`)
+    ).not.toBeInTheDocument();
   });
 
   it("disables dismissed decisions", async () => {
@@ -1344,6 +1400,248 @@ describe("Decision portfolio", () => {
 
     expect(within(control).getByRole("checkbox")).toBeDisabled();
     expect(control).toHaveTextContent("Dismissed decisions can't be compared.");
+  });
+
+  it("requires a branch to be chosen for buy_now_vs_wait before analyzing", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      buyNowVsWaitDecision,
+    ]);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
+      ).getByRole("checkbox")
+    );
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
+      ).getByRole("checkbox")
+    );
+
+    const analyzeButton = screen.getByTestId("analyze-together");
+    expect(analyzeButton).toBeDisabled();
+
+    const variantFieldset = screen.getByTestId(
+      `portfolio-variant-${buyNowVsWaitDecision.id}`
+    );
+    const radios = within(variantFieldset).getAllByRole("radio");
+    // WAIT isn't offered: the portfolio has one shared baseline as of
+    // today, so it can't honor WAIT's real (time-shifted) meaning.
+    expect(radios).toHaveLength(1);
+    // Never defaulted to the recommended branch -- the user must
+    // explicitly choose.
+    radios.forEach((radio) => expect(radio).not.toBeChecked());
+
+    fireEvent.click(within(variantFieldset).getByLabelText("Buy now"));
+    expect(analyzeButton).not.toBeDisabled();
+  });
+
+  it("shows branch options for what_if_comparison with none preselected", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfComparisonDecision,
+    ]);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${whatIfComparisonDecision.id}`)
+      ).getByRole("checkbox")
+    );
+
+    const variantFieldset = screen.getByTestId(
+      `portfolio-variant-${whatIfComparisonDecision.id}`
+    );
+    expect(
+      within(variantFieldset).getByLabelText("Option A")
+    ).toBeInTheDocument();
+    expect(
+      within(variantFieldset).getByLabelText("Option B")
+    ).toBeInTheDocument();
+    within(variantFieldset)
+      .getAllByRole("radio")
+      .forEach((radio) => expect(radio).not.toBeChecked());
+    expect(screen.getByTestId("analyze-together")).toBeDisabled();
+  });
+
+  it("shows a message when a variant-required decision's persisted data can't support portfolio analysis", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      buyNowVsWaitDecisionMissingTiming,
+    ]);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+    fireEvent.click(
+      within(
+        screen.getByTestId(
+          `portfolio-select-${buyNowVsWaitDecisionMissingTiming.id}`
+        )
+      ).getByRole("checkbox")
+    );
+
+    expect(
+      within(
+        screen.getByTestId(
+          `portfolio-variant-${buyNowVsWaitDecisionMissingTiming.id}`
+        )
+      ).getByText(/don't support portfolio analysis anymore/)
+    ).toBeInTheDocument();
+  });
+
+  it("clears the branch selection when a decision is deselected", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      buyNowVsWaitDecision,
+    ]);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    const bnwCheckbox = within(
+      screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
+    ).getByRole("checkbox");
+    fireEvent.click(bnwCheckbox);
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-variant-${buyNowVsWaitDecision.id}`)
+      ).getByLabelText("Buy now")
+    );
+
+    fireEvent.click(bnwCheckbox);
+    fireEvent.click(bnwCheckbox);
+
+    const radios = within(
+      screen.getByTestId(`portfolio-variant-${buyNowVsWaitDecision.id}`)
+    ).getAllByRole("radio");
+    radios.forEach((radio) => expect(radio).not.toBeChecked());
+  });
+
+  it("serializes the selected buy_now_vs_wait branch in the request", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      buyNowVsWaitDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue(portfolioResultFixture);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
+      ).getByRole("checkbox")
+    );
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
+      ).getByRole("checkbox")
+    );
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-variant-${buyNowVsWaitDecision.id}`)
+      ).getByLabelText("Buy now")
+    );
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    await waitFor(() => {
+      expect(mocks.evaluateDecisionPortfolio).toHaveBeenCalledWith(1, [
+        { decision_id: purchaseDecision.id },
+        { decision_id: buyNowVsWaitDecision.id, variant: "buy_now" },
+      ]);
+    });
+  });
+
+  it("serializes the selected what_if_comparison option as a stable key, not the label", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfComparisonDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue(portfolioResultFixture);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
+      ).getByRole("checkbox")
+    );
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${whatIfComparisonDecision.id}`)
+      ).getByRole("checkbox")
+    );
+    fireEvent.click(
+      within(
+        screen.getByTestId(
+          `portfolio-variant-${whatIfComparisonDecision.id}`
+        )
+      ).getByLabelText("Option B")
+    );
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    await waitFor(() => {
+      expect(mocks.evaluateDecisionPortfolio).toHaveBeenCalledWith(1, [
+        { decision_id: purchaseDecision.id },
+        { decision_id: whatIfComparisonDecision.id, variant: "option_b" },
+      ]);
+    });
+  });
+
+  it("displays the selected branch label in the portfolio result", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      buyNowVsWaitDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockResolvedValue({
+      ...portfolioResultFixture,
+      selected_decisions: [
+        ...portfolioResultFixture.selected_decisions,
+        {
+          decision_id: buyNowVsWaitDecision.id,
+          decision_type: "buy_now_vs_wait",
+          title: "Buy Now vs Wait: New Laptop",
+          variant: "buy_now",
+          variant_label: "Buy now",
+        },
+      ],
+      decision_impacts: [
+        ...portfolioResultFixture.decision_impacts,
+        {
+          decision_id: buyNowVsWaitDecision.id,
+          title: "Buy Now vs Wait: New Laptop",
+          decision_type: "buy_now_vs_wait",
+          incremental_safe_to_spend_impact_cents: -220_000,
+          risk_rank: 3,
+          contribution_level: "medium",
+        },
+      ],
+    });
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
+      ).getByRole("checkbox")
+    );
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
+      ).getByRole("checkbox")
+    );
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-variant-${buyNowVsWaitDecision.id}`)
+      ).getByLabelText("Buy now")
+    );
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    const section = await screen.findByTestId("decision-portfolio-section");
+    expect(within(section).getByText(/Buy now/)).toBeInTheDocument();
   });
 
   it("requires at least two selections before Analyze together is enabled", async () => {
@@ -1413,8 +1711,8 @@ describe("Decision portfolio", () => {
 
     await waitFor(() => {
       expect(mocks.evaluateDecisionPortfolio).toHaveBeenCalledWith(1, [
-        purchaseDecision.id,
-        whatIfDecision.id,
+        { decision_id: purchaseDecision.id },
+        { decision_id: whatIfDecision.id },
       ]);
     });
   });

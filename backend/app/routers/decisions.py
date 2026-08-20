@@ -131,9 +131,17 @@ def evaluate_decision_portfolio(
 ) -> DecisionPortfolioOut:
     _authorize_user(user_id, current_user)
 
+    items = payload.resolved_items()
+    decision_ids = [item.decision_id for item in items]
+    variants = {
+        item.decision_id: item.variant
+        for item in items
+        if item.variant is not None
+    }
+
     try:
         return decision_portfolio_service.evaluate_decision_portfolio(
-            db, user_id, payload.decision_ids
+            db, user_id, decision_ids, variants=variants
         )
     except decision_portfolio_service.DecisionPortfolioNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

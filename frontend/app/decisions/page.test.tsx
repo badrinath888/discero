@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   runFinancialStressTest: vi.fn(),
   evaluateBuyNowVsWait: vi.fn(),
   saveDecision: vi.fn(),
+  getDecisionAdaptiveIntelligence: vi.fn(),
   getUserId: vi.fn(),
   getToken: vi.fn(),
   clearSession: vi.fn(),
@@ -86,6 +87,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       runFinancialStressTest: mocks.runFinancialStressTest,
       evaluateBuyNowVsWait: mocks.evaluateBuyNowVsWait,
       saveDecision: mocks.saveDecision,
+      getDecisionAdaptiveIntelligence: mocks.getDecisionAdaptiveIntelligence,
     },
     session: {
       ...actual.session,
@@ -177,6 +179,7 @@ const comparisonResult: ScenarioComparisonResult = {
       explanation: "New laptop is within the recommended purchase range.",
       alternatives: [],
       goal_impacts: [],
+      goal_conflict_intelligence: { supported: true, goals: [], most_affected_goal_id: null, conflict_count: 0 },
       safe_to_spend: {
         as_of: "2026-08-04",
         through_date: "2026-09-03",
@@ -222,6 +225,7 @@ const comparisonResult: ScenarioComparisonResult = {
       explanation: "Used laptop is technically affordable.",
       alternatives: [],
       goal_impacts: [],
+      goal_conflict_intelligence: { supported: true, goals: [], most_affected_goal_id: null, conflict_count: 0 },
       safe_to_spend: {
         as_of: "2026-08-04",
         through_date: "2026-09-03",
@@ -336,6 +340,7 @@ const stressTestResult: FinancialStressTestResult = {
     warnings: [],
   },
   goal_impacts: [],
+  goal_conflict_intelligence: { supported: true, goals: [], most_affected_goal_id: null, conflict_count: 0 },
   runway_days: 45,
   first_shortfall_date: null,
   key_driver: "income_loss",
@@ -453,6 +458,7 @@ const emergencyStressResult: FinancialStressTestResult = {
     warnings: [],
   },
   goal_impacts: [],
+  goal_conflict_intelligence: { supported: true, goals: [], most_affected_goal_id: null, conflict_count: 0 },
   runway_days: null,
   first_shortfall_date: null,
   key_driver: "emergency_expense",
@@ -500,6 +506,19 @@ beforeEach(() => {
   });
   mocks.compareMajorPurchaseScenarios.mockResolvedValue(comparisonResult);
   mocks.runFinancialStressTest.mockResolvedValue(stressTestResult);
+  mocks.getDecisionAdaptiveIntelligence.mockReset();
+  mocks.getDecisionAdaptiveIntelligence.mockResolvedValue({
+    status: "insufficient_data",
+    calibration_label: "insufficient_data",
+    tracked_decisions: 0,
+    outcome_checks: 0,
+    directional_observations: 0,
+    favorable_rate: null,
+    unfavorable_rate: null,
+    narrative:
+      "More tracked outcomes are needed before Discero can identify a reliable historical pattern.",
+    metric_patterns: [],
+  });
   HTMLElement.prototype.scrollIntoView = vi.fn();
 });
 
@@ -1193,6 +1212,7 @@ describe("decisions buy now vs wait mode", () => {
         explanation: "Affordable now.",
         alternatives: [],
         goal_impacts: [],
+        goal_conflict_intelligence: { supported: true, goals: [], most_affected_goal_id: null, conflict_count: 0 },
         safe_to_spend: {
           as_of: "2026-08-04",
           through_date: "2026-09-03",
@@ -1238,6 +1258,7 @@ describe("decisions buy now vs wait mode", () => {
         explanation: "Affordable if you wait.",
         alternatives: [],
         goal_impacts: [],
+        goal_conflict_intelligence: { supported: true, goals: [], most_affected_goal_id: null, conflict_count: 0 },
         safe_to_spend: {
           as_of: "2026-09-13",
           through_date: "2026-10-13",
@@ -1443,6 +1464,7 @@ describe("decisions save to history", () => {
     explanation: "New laptop is within the recommended purchase range.",
     alternatives: [],
     goal_impacts: [],
+    goal_conflict_intelligence: { supported: true, goals: [], most_affected_goal_id: null, conflict_count: 0 },
     safe_to_spend: {
       as_of: "2026-08-04",
       through_date: "2026-09-03",
@@ -1620,5 +1642,125 @@ describe("decisions save to history", () => {
       screen.queryByText("Saved to your decision history.")
     ).not.toBeInTheDocument();
     expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+});
+
+describe("adaptive decision intelligence", () => {
+  const singlePurchaseResult = {
+    purchase_name: "New laptop",
+    purchase_amount_cents: 200_000,
+    purchase_date: "2026-08-11",
+    as_of: "2026-08-04",
+    through_date: "2026-09-03",
+    affordability_status: "affordable" as const,
+    safe_to_spend_before_purchase_cents: 500_000,
+    safe_to_spend_after_purchase_cents: 300_000,
+    shortfall_after_purchase_cents: 0,
+    recommended_max_purchase_cents: 375_000,
+    purchase_impact_percent: 40.0,
+    goal_monthly_savings_required_cents: 0,
+    goal_impact_months: 0,
+    confidence_score: 85,
+    explanation: "New laptop is within the recommended purchase range.",
+    alternatives: [],
+    goal_impacts: [],
+    goal_conflict_intelligence: { supported: true, goals: [], most_affected_goal_id: null, conflict_count: 0 },
+    safe_to_spend: {
+      as_of: "2026-08-04",
+      through_date: "2026-09-03",
+      horizon_days: 30,
+      safe_to_spend_cents: 500_000,
+      shortfall_cents: 0,
+      status: "safe" as const,
+      confidence_score: 85,
+      confidence_level: "high" as const,
+      confidence_drivers: [],
+      explanation: [],
+      breakdown: {
+        liquid_balance_cents: 500_000,
+        projected_income_cents: 0,
+        upcoming_obligations_cents: 0,
+        goal_reserve_cents: 0,
+        essential_spending_cents: 0,
+        safety_reserve_cents: 0,
+      },
+      obligations: [],
+      warnings: [],
+    },
+  };
+
+  it("does not show a historical context section when data is insufficient", async () => {
+    mocks.simulateMajorPurchase.mockResolvedValue(singlePurchaseResult);
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Simulate purchase" })
+    );
+
+    await waitFor(() =>
+      expect(mocks.getDecisionAdaptiveIntelligence).toHaveBeenCalledWith(1)
+    );
+    expect(
+      screen.queryByTestId("adaptive-intelligence-section")
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows restrained historical context distinct from the deterministic result", async () => {
+    mocks.simulateMajorPurchase.mockResolvedValue(singlePurchaseResult);
+    mocks.getDecisionAdaptiveIntelligence.mockResolvedValue({
+      status: "available",
+      calibration_label: "balanced",
+      tracked_decisions: 3,
+      outcome_checks: 4,
+      directional_observations: 3,
+      favorable_rate: 0.5,
+      unfavorable_rate: 0.5,
+      narrative:
+        "Your tracked outcomes have been mixed relative to the original estimates.",
+      metric_patterns: [],
+    });
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Simulate purchase" })
+    );
+
+    const section = await screen.findByTestId(
+      "adaptive-intelligence-section"
+    );
+    expect(
+      within(section).getByText(
+        "Your tracked outcomes have been mixed relative to the original estimates."
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(section).getByText(/does not change the calculation above/i)
+    ).toBeInTheDocument();
+
+    // The deterministic result itself is unaffected by this section.
+    expect(screen.getByText("Affordable")).toBeInTheDocument();
+  });
+
+  it("keeps the deterministic result visible when historical context fails to load", async () => {
+    mocks.simulateMajorPurchase.mockResolvedValue(singlePurchaseResult);
+    mocks.getDecisionAdaptiveIntelligence.mockRejectedValue(
+      new Error("network error")
+    );
+
+    await renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Simulate purchase" })
+    );
+
+    await waitFor(() =>
+      expect(mocks.getDecisionAdaptiveIntelligence).toHaveBeenCalled()
+    );
+    expect(screen.getByText("Affordable")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("adaptive-intelligence-section")
+    ).not.toBeInTheDocument();
   });
 });

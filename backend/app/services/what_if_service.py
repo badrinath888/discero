@@ -36,6 +36,9 @@ from app.schemas import (
     WhatIfSimulationOut,
     WhatIfSimulationRequest,
 )
+from app.services.decision_goal_conflict_intelligence_service import (
+    build_goal_conflict_intelligence,
+)
 from app.services.goal_impact_service import calculate_goal_impacts
 from app.services.safe_to_spend_service import (
     _DAYS_PER_MONTH,
@@ -172,6 +175,9 @@ def simulate_what_if(
             confidence_level=baseline.confidence_level,
         ),
         goal_impacts=goal_impacts,
+        goal_conflict_intelligence=build_goal_conflict_intelligence(
+            goal_impacts
+        ),
         safe_to_spend=baseline,
     )
 

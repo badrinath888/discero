@@ -11,6 +11,9 @@ from app.schemas import (
     MajorPurchaseSimulationRequest,
     SafeToSpendRequest,
 )
+from app.services.decision_goal_conflict_intelligence_service import (
+    build_goal_conflict_intelligence,
+)
 from app.services.goal_impact_service import calculate_goal_impacts
 from app.services.safe_to_spend_service import (
     calculate_safe_to_spend,
@@ -146,6 +149,9 @@ def simulate_major_purchase(
         ),
         safe_to_spend=safe_to_spend,
         goal_impacts=goal_impacts,
+        goal_conflict_intelligence=build_goal_conflict_intelligence(
+            goal_impacts
+        ),
     )
 
 

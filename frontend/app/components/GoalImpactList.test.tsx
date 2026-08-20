@@ -169,4 +169,76 @@ describe("GoalImpactList", () => {
     expect(screen.getByText("Goal one")).toBeInTheDocument();
     expect(screen.getByText("Goal two")).toBeInTheDocument();
   });
+
+  it("orders goals by conflict rank and shows severity without altering deterministic values", () => {
+    render(
+      <GoalImpactList
+        goalImpacts={[
+          makeImpact({
+            goal_id: 1,
+            goal_name: "Low severity goal",
+            status: "reduced",
+            baseline_monthly_allocation_cents: 80_000,
+            adjusted_monthly_allocation_cents: 50_000,
+            monthly_allocation_change_cents: -30_000,
+          }),
+          makeImpact({
+            goal_id: 2,
+            goal_name: "High severity goal",
+            status: "at_risk",
+            funding_shortfall_cents: 10_000,
+          }),
+        ]}
+        conflictIntelligence={{
+          supported: true,
+          most_affected_goal_id: 2,
+          conflict_count: 1,
+          goals: [
+            {
+              goal_id: 2,
+              goal_name: "High severity goal",
+              baseline_allocation_cents: 30_000,
+              adjusted_allocation_cents: 30_000,
+              allocation_change_cents: 0,
+              baseline_completion_date: null,
+              adjusted_completion_date: null,
+              delay_months: 0,
+              funding_shortfall_cents: 10_000,
+              status: "at_risk",
+              conflict: true,
+              severity: "high",
+              rank: 1,
+            },
+            {
+              goal_id: 1,
+              goal_name: "Low severity goal",
+              baseline_allocation_cents: 80_000,
+              adjusted_allocation_cents: 50_000,
+              allocation_change_cents: -30_000,
+              baseline_completion_date: null,
+              adjusted_completion_date: null,
+              delay_months: 0,
+              funding_shortfall_cents: 0,
+              status: "reduced",
+              conflict: false,
+              severity: "low",
+              rank: 2,
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.getByText("1 in conflict")).toBeInTheDocument();
+    expect(screen.getByText("High severity")).toBeInTheDocument();
+    expect(screen.getByText("Low severity")).toBeInTheDocument();
+    // Deterministic allocation values are untouched by the ranking.
+    expect(screen.getByText("$500.00/mo")).toBeInTheDocument();
+    expect(screen.getByText("-$300.00/mo")).toBeInTheDocument();
+
+    const names = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((el) => el.textContent);
+    expect(names).toEqual(["High severity goal", "Low severity goal"]);
+  });
 });

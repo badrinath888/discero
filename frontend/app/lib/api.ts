@@ -554,6 +554,7 @@ export type MajorPurchaseSimulationResult = {
   alternatives: MajorPurchaseAlternative[];
   safe_to_spend: SafeToSpendResult;
   goal_impacts: GoalImpact[];
+  goal_conflict_intelligence: GoalConflictIntelligence;
 };
 
 export type BuyNowVsWaitRequest = {
@@ -716,6 +717,7 @@ export type FinancialStressTestResult = {
   data_disclaimer: string;
   safe_to_spend: SafeToSpendResult;
   goal_impacts: GoalImpact[];
+  goal_conflict_intelligence: GoalConflictIntelligence;
   runway_days: number | null;
   first_shortfall_date: string | null;
   key_driver: StressKeyDriver;
@@ -769,6 +771,7 @@ export type WhatIfSimulationResult = {
   impact: WhatIfImpact;
   explanation: SafeToSpendExplanationItem[];
   goal_impacts: GoalImpact[];
+  goal_conflict_intelligence: GoalConflictIntelligence;
   safe_to_spend: SafeToSpendResult;
 };
 
@@ -1133,11 +1136,29 @@ export type SavedDecision = {
   latest_outcome_at: string | null;
 };
 
+export type DecisionChangeExplanationMetric = {
+  path: string;
+  label: string;
+  before: number | boolean | string;
+  current: number | boolean | string;
+  delta: number | null;
+  change_type: "numeric" | "boolean" | "text" | "date";
+  unit: CalibrationMetricUnit | null;
+  direction: CalibrationMetricDirection | null;
+};
+
+export type DecisionChangeExplanation = {
+  changed_metrics: DecisionChangeExplanationMetric[];
+  total_changed_metric_count: number;
+  unchanged_metric_count: number;
+};
+
 export type DecisionRerunResult = {
   decision_id: number;
   decision_type: DecisionType;
   evaluated_at: string;
   result_snapshot: Record<string, unknown>;
+  change_explanation: DecisionChangeExplanation | null;
 };
 
 export type DecisionOutcomeComparisonMetric = {
@@ -1225,6 +1246,103 @@ export type DecisionCalibration = {
   decision_types: DecisionCalibrationTypeBreakdown[];
 };
 
+export type DecisionReviewReason =
+  | "acted_on_never_checked"
+  | "acted_on_recheck_due"
+  | "saved_unresolved";
+
+export type DecisionReviewAction =
+  | "mark_acted_or_dismiss"
+  | "check_outcome"
+  | "recheck_outcome";
+
+export type DecisionReviewQueueItem = {
+  decision_id: number;
+  decision_type: DecisionType;
+  title: string;
+  status: DecisionLifecycleStatus;
+  created_at: string;
+  acted_on_at: string | null;
+  outcome_count: number;
+  latest_outcome_at: string | null;
+  review_reason: DecisionReviewReason;
+  review_reason_text: string;
+  age_days: number;
+  recommended_action: DecisionReviewAction;
+};
+
+export type DecisionReviewQueue = {
+  items: DecisionReviewQueueItem[];
+  total_count: number;
+};
+
+export type DashboardReviewQueueSummary = {
+  count: number;
+  highest_priority: DecisionReviewQueueItem | null;
+};
+
+export type DashboardCalibrationSummary = {
+  label: CalibrationLabel;
+  tracked_decisions: number;
+  outcome_checks: number;
+};
+
+export type DashboardRecentDecision = {
+  decision_id: number;
+  decision_type: DecisionType;
+  title: string;
+  status: DecisionLifecycleStatus;
+  created_at: string;
+};
+
+export type DashboardDecisionIntelligence = {
+  review_queue: DashboardReviewQueueSummary;
+  calibration: DashboardCalibrationSummary;
+  recent_decision: DashboardRecentDecision | null;
+};
+
+export type DecisionTimelineEventType =
+  | "decision_saved"
+  | "decision_acted_on"
+  | "outcome_checked";
+
+export type DecisionTimelineEvent = {
+  event_type: DecisionTimelineEventType;
+  occurred_at: string;
+  outcome_id: number | null;
+  changed: boolean | null;
+};
+
+export type DecisionTimeline = {
+  decision_id: number;
+  decision_type: DecisionType;
+  title: string;
+  current_status: DecisionLifecycleStatus;
+  events: DecisionTimelineEvent[];
+};
+
+export type AdaptiveIntelligenceStatus = "insufficient_data" | "available";
+
+export type AdaptiveIntelligenceMetricPattern = {
+  path: string;
+  unit: CalibrationMetricUnit;
+  direction: CalibrationMetricDirection;
+  observations: number;
+  mean_signed_delta: number;
+};
+
+export type DecisionAdaptiveIntelligence = {
+  status: AdaptiveIntelligenceStatus;
+  calibration_label: CalibrationLabel;
+  tracked_decisions: number;
+  outcome_checks: number;
+  directional_observations: number;
+  favorable_rate: number | null;
+  unfavorable_rate: number | null;
+  narrative: string;
+  metric_patterns: AdaptiveIntelligenceMetricPattern[];
+};
+
 // v1 supports major_purchase and what_if only -- other decision types
 // are shown as disabled/unavailable for portfolio analysis rather
 // than silently reinterpreted.
@@ -1263,6 +1381,31 @@ export type DecisionPortfolioImpact = {
 
 export type DecisionPortfolioStatus = "comfortable" | "tight" | "high_risk";
 
+export type GoalConflictSeverity = "none" | "low" | "medium" | "high";
+
+export type GoalConflictIntelligenceItem = {
+  goal_id: number;
+  goal_name: string;
+  baseline_allocation_cents: number;
+  adjusted_allocation_cents: number;
+  allocation_change_cents: number;
+  baseline_completion_date: string | null;
+  adjusted_completion_date: string | null;
+  delay_months: number;
+  funding_shortfall_cents: number;
+  status: GoalImpactStatus;
+  conflict: boolean;
+  severity: GoalConflictSeverity;
+  rank: number;
+};
+
+export type GoalConflictIntelligence = {
+  supported: boolean;
+  goals: GoalConflictIntelligenceItem[];
+  most_affected_goal_id: number | null;
+  conflict_count: number;
+};
+
 export type DecisionPortfolioResult = {
   as_of: string;
   selected_decisions: DecisionPortfolioDecision[];
@@ -1271,6 +1414,7 @@ export type DecisionPortfolioResult = {
   portfolio_status: DecisionPortfolioStatus;
   decision_impacts: DecisionPortfolioImpact[];
   goal_impacts: GoalImpact[];
+  goal_conflict_intelligence: GoalConflictIntelligence;
   conflicts: GoalConflictDetection;
   warnings: string[];
   assumptions: string[];
@@ -2212,12 +2356,44 @@ compareWhatIfScenarios: (
       { headers: authHeaders() }
     ).then((res) => handle<DecisionOutcome[]>(res)),
 
+  getDecisionTimeline: (
+    userId: number,
+    decisionId: number
+  ): Promise<DecisionTimeline> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/decisions/${decisionId}/timeline`,
+      { headers: authHeaders() }
+    ).then((res) => handle<DecisionTimeline>(res)),
+
+  getDecisionAdaptiveIntelligence: (
+    userId: number
+  ): Promise<DecisionAdaptiveIntelligence> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/decisions/adaptive-intelligence`,
+      { headers: authHeaders() }
+    ).then((res) => handle<DecisionAdaptiveIntelligence>(res)),
+
   getDecisionCalibration: (
     userId: number
   ): Promise<DecisionCalibration> =>
     fetchWithTimeout(`${API_URL}/users/${userId}/decisions/calibration`, {
       headers: authHeaders(),
     }).then((res) => handle<DecisionCalibration>(res)),
+
+  getDecisionReviewQueue: (
+    userId: number
+  ): Promise<DecisionReviewQueue> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/decisions/review-queue`, {
+      headers: authHeaders(),
+    }).then((res) => handle<DecisionReviewQueue>(res)),
+
+  getDashboardDecisionIntelligence: (
+    userId: number
+  ): Promise<DashboardDecisionIntelligence> =>
+    fetchWithTimeout(
+      `${API_URL}/users/${userId}/decisions/dashboard-intelligence`,
+      { headers: authHeaders() }
+    ).then((res) => handle<DashboardDecisionIntelligence>(res)),
 
   evaluateDecisionPortfolio: (
     userId: number,

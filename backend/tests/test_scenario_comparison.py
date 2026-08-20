@@ -12,6 +12,7 @@ from app.models import (
     User,
 )
 from app.schemas import (
+    GoalConflictIntelligenceOut,
     MajorPurchaseSimulationOut,
     MajorPurchaseSimulationRequest,
     SafeToSpendBreakdownOut,
@@ -92,6 +93,9 @@ def _make_simulation(
             obligations=[],
             explanation=[],
             warnings=[],
+        ),
+        goal_conflict_intelligence=GoalConflictIntelligenceOut(
+            supported=True, goals=[]
         ),
     )
 

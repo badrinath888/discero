@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import AdaptiveIntelligenceSection from "../components/AdaptiveIntelligenceSection";
 import AppSidebar from "../components/AppSidebar";
 import GoalImpactList from "../components/GoalImpactList";
 import { PageReveal, Reveal } from "../components/PremiumMotion";
@@ -979,6 +980,9 @@ export default function DecisionsPage() {
                         onSaved={scrollToTopControls}
                       />
                     )}
+                    {userId !== null && (
+                      <AdaptiveIntelligenceSection userId={userId} />
+                    )}
                   </div>
                 ) : (
                   <EmptyState
@@ -998,6 +1002,9 @@ export default function DecisionsPage() {
                         input={lastComparisonInput}
                         onSaved={scrollToTopControls}
                       />
+                    )}
+                    {userId !== null && (
+                      <AdaptiveIntelligenceSection userId={userId} />
                     )}
                   </div>
                 ) : (
@@ -1023,6 +1030,9 @@ export default function DecisionsPage() {
                         onSaved={scrollToTopControls}
                       />
                     )}
+                    {userId !== null && (
+                      <AdaptiveIntelligenceSection userId={userId} />
+                    )}
                   </div>
                 ) : (
                   <EmptyState
@@ -1045,6 +1055,9 @@ export default function DecisionsPage() {
                       input={lastStressInput}
                       onSaved={scrollToTopControls}
                     />
+                  )}
+                  {userId !== null && (
+                    <AdaptiveIntelligenceSection userId={userId} />
                   )}
                 </div>
               ) : (
@@ -1395,7 +1408,10 @@ function SinglePurchaseResult({
           </div>
         )}
 
-        <GoalImpactList goalImpacts={result.goal_impacts} />
+        <GoalImpactList
+          goalImpacts={result.goal_impacts}
+          conflictIntelligence={result.goal_conflict_intelligence}
+        />
       </div>
     </article>
   );
@@ -2129,7 +2145,10 @@ function StressTestResult({
           </div>
         )}
 
-        <GoalImpactList goalImpacts={result.goal_impacts} />
+        <GoalImpactList
+          goalImpacts={result.goal_impacts}
+          conflictIntelligence={result.goal_conflict_intelligence}
+        />
 
         <div className="mt-7 rounded-2xl border border-white/10 bg-white/[0.045] p-5">
           <div className="flex items-start gap-3">

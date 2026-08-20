@@ -1530,6 +1530,175 @@ class WhatIfComparisonOut(BaseModel):
     is_tie: bool
 
 
+# --- Multi-Step Scenario Planning 1.0 --------------------------------------
+#
+# Evaluates several dated financial events in chronological order
+# against ONE shared baseline, reusing the same linear cost-delta
+# representation `what_if_service`/`decision_portfolio_service` already
+# use -- never a second time-series/forecast engine. Ephemeral only:
+# no plan, step, or checkpoint is ever persisted.
+
+MultiStepScenarioStepType = Literal[
+    "one_time_expense",
+    "monthly_expense_increase",
+    "monthly_expense_decrease",
+    "monthly_income_increase",
+    "monthly_income_decrease",
+    "temporary_income_loss",
+    "temporary_expense_shock",
+]
+
+_MIN_MULTI_STEP_STEPS = 2
+_MAX_MULTI_STEP_STEPS = 5
+
+_MULTI_STEP_AMOUNT_TYPES: frozenset[str] = frozenset(
+    {
+        "one_time_expense",
+        "monthly_expense_increase",
+        "monthly_expense_decrease",
+        "monthly_income_increase",
+        "monthly_income_decrease",
+        "temporary_expense_shock",
+    }
+)
+
+
+def _validate_multi_step_scenario_step_fields(
+    *,
+    step_type: str,
+    amount_cents: int | None,
+    monthly_income_loss_cents: int | None,
+    duration_months: int | None,
+) -> None:
+    if step_type in _MULTI_STEP_AMOUNT_TYPES:
+        if amount_cents is None:
+            raise ValueError(
+                f"amount_cents is required for a {step_type} step"
+            )
+        if monthly_income_loss_cents is not None or duration_months is not None:
+            raise ValueError(
+                "monthly_income_loss_cents/duration_months are not "
+                f"valid for a {step_type} step"
+            )
+        return
+
+    assert step_type == "temporary_income_loss"
+
+    if monthly_income_loss_cents is None:
+        raise ValueError(
+            "monthly_income_loss_cents is required for a "
+            "temporary_income_loss step"
+        )
+    if duration_months is None:
+        raise ValueError(
+            "duration_months is required for a temporary_income_loss "
+            "step"
+        )
+    if amount_cents is not None:
+        raise ValueError(
+            "amount_cents is not valid for a temporary_income_loss step"
+        )
+
+
+class MultiStepScenarioStepRequest(BaseModel):
+    step_type: MultiStepScenarioStepType
+    label: str = Field(min_length=1, max_length=120)
+    effective_date: date
+
+    # one_time_expense / monthly_expense_increase /
+    # monthly_expense_decrease / monthly_income_increase /
+    # monthly_income_decrease / temporary_expense_shock -- always a
+    # positive magnitude; direction comes from step_type, never a sign.
+    amount_cents: int | None = Field(default=None, gt=0)
+
+    # temporary_income_loss
+    monthly_income_loss_cents: int | None = Field(default=None, gt=0)
+    duration_months: int | None = Field(default=None, ge=1, le=24)
+
+    @field_validator("label")
+    @classmethod
+    def validate_label(cls, value: str) -> str:
+        label = value.strip()
+
+        if not label:
+            raise ValueError("label cannot be blank")
+
+        return label
+
+    @model_validator(mode="after")
+    def validate_step_fields(self) -> "MultiStepScenarioStepRequest":
+        _validate_multi_step_scenario_step_fields(
+            step_type=self.step_type,
+            amount_cents=self.amount_cents,
+            monthly_income_loss_cents=self.monthly_income_loss_cents,
+            duration_months=self.duration_months,
+        )
+        return self
+
+
+class MultiStepScenarioPlanRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    # Same 90-day ceiling `SafeToSpendRequest`/`WhatIfSimulationRequest`
+    # already enforce -- Multi-Step 1.0 reuses their supported horizon
+    # rather than inventing multi-year planning.
+    horizon_days: int = Field(default=90, ge=1, le=90)
+    safety_reserve_cents: int = Field(default=0, ge=0)
+    essential_spending_cents: int = Field(default=0, ge=0)
+    steps: list[MultiStepScenarioStepRequest] = Field(
+        min_length=_MIN_MULTI_STEP_STEPS,
+        max_length=_MAX_MULTI_STEP_STEPS,
+    )
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        name = value.strip()
+        return name or None
+
+
+MultiStepScenarioCheckpointStatus = Literal["comfortable", "tight", "shortfall"]
+
+
+class MultiStepScenarioCheckpointOut(BaseModel):
+    sequence: int
+    step_type: MultiStepScenarioStepType
+    label: str
+    effective_date: date
+    is_recurring: bool
+    is_temporary: bool
+    expires_on: date | None
+    safe_to_spend_before_cents: int
+    safe_to_spend_after_cents: int
+    impact_cents: int
+    cumulative_impact_cents: int
+    status: MultiStepScenarioCheckpointStatus
+
+
+class MultiStepScenarioPlanOut(BaseModel):
+    name: str | None
+    as_of: date
+    horizon_days: int
+    through_date: date
+    starting_safe_to_spend_cents: int
+    final_safe_to_spend_cents: int
+    final_shortfall_cents: int
+    total_impact_cents: int
+    minimum_safe_to_spend_cents: int
+    worst_checkpoint_sequence: int | None
+    worst_checkpoint_label: str | None
+    worst_checkpoint_date: date | None
+    overall_status: MultiStepScenarioCheckpointStatus
+    checkpoints: list[MultiStepScenarioCheckpointOut]
+    goal_impacts: list[GoalImpactOut] = Field(default_factory=list)
+    goal_conflict_intelligence: GoalConflictIntelligenceOut
+    confidence_score: float
+    confidence_level: Literal["high", "medium", "low"]
+    warnings: list[str] = Field(default_factory=list)
+
+
 class GoalConflictDetectionRequest(BaseModel):
     monthly_savings_capacity_cents: int | None = Field(
         default=None,

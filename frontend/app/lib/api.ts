@@ -820,6 +820,74 @@ export type WhatIfComparisonResult = {
   is_tie: boolean;
 };
 
+export type MultiStepScenarioStepType =
+  | "one_time_expense"
+  | "monthly_expense_increase"
+  | "monthly_expense_decrease"
+  | "monthly_income_increase"
+  | "monthly_income_decrease"
+  | "temporary_income_loss"
+  | "temporary_expense_shock";
+
+export type MultiStepScenarioStep = {
+  step_type: MultiStepScenarioStepType;
+  label: string;
+  effective_date: string;
+  amount_cents?: number | null;
+  monthly_income_loss_cents?: number | null;
+  duration_months?: number | null;
+};
+
+export type MultiStepScenarioPlanRequest = {
+  name?: string | null;
+  horizon_days: number;
+  safety_reserve_cents: number;
+  essential_spending_cents: number;
+  steps: MultiStepScenarioStep[];
+};
+
+export type MultiStepScenarioCheckpointStatus =
+  | "comfortable"
+  | "tight"
+  | "shortfall";
+
+export type MultiStepScenarioCheckpoint = {
+  sequence: number;
+  step_type: MultiStepScenarioStepType;
+  label: string;
+  effective_date: string;
+  is_recurring: boolean;
+  is_temporary: boolean;
+  expires_on: string | null;
+  safe_to_spend_before_cents: number;
+  safe_to_spend_after_cents: number;
+  impact_cents: number;
+  cumulative_impact_cents: number;
+  status: MultiStepScenarioCheckpointStatus;
+};
+
+export type MultiStepScenarioPlanResult = {
+  name: string | null;
+  as_of: string;
+  horizon_days: number;
+  through_date: string;
+  starting_safe_to_spend_cents: number;
+  final_safe_to_spend_cents: number;
+  final_shortfall_cents: number;
+  total_impact_cents: number;
+  minimum_safe_to_spend_cents: number;
+  worst_checkpoint_sequence: number | null;
+  worst_checkpoint_label: string | null;
+  worst_checkpoint_date: string | null;
+  overall_status: MultiStepScenarioCheckpointStatus;
+  checkpoints: MultiStepScenarioCheckpoint[];
+  goal_impacts: GoalImpact[];
+  goal_conflict_intelligence: GoalConflictIntelligence;
+  confidence_score: number;
+  confidence_level: "high" | "medium" | "low";
+  warnings: string[];
+};
+
 export type UploadSummary = {
   imported: number;
   rejected: number;
@@ -2412,6 +2480,16 @@ compareWhatIfScenarios: (
       headers: jsonHeaders(),
       body: JSON.stringify({ items }),
     }).then((res) => handle<DecisionPortfolioResult>(res)),
+
+  runMultiStepScenarioPlan: (
+    userId: number,
+    payload: MultiStepScenarioPlanRequest
+  ): Promise<MultiStepScenarioPlanResult> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/decisions/multi-step`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    }).then((res) => handle<MultiStepScenarioPlanResult>(res)),
 
   createSavingsGoal: (
     userId: number,

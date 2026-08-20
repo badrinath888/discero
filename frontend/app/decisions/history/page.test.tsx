@@ -1294,14 +1294,10 @@ describe("Decision portfolio", () => {
   async function selectTwoCompatibleDecisions() {
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
     );
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${whatIfDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${whatIfDecision.id}`)
     );
   }
 
@@ -1332,9 +1328,7 @@ describe("Decision portfolio", () => {
     render(<DecisionHistoryPage />);
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
 
-    const checkbox = within(
-      screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
-    ).getByRole("checkbox");
+    const checkbox = screen.getByTestId(`portfolio-select-${purchaseDecision.id}`);
 
     expect(checkbox).not.toBeDisabled();
     fireEvent.click(checkbox);
@@ -1354,14 +1348,14 @@ describe("Decision portfolio", () => {
     render(<DecisionHistoryPage />);
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
 
-    const control = screen.getByTestId(
+    const checkbox = screen.getByTestId(
       `portfolio-select-${scenarioDecision.id}`
     );
 
-    expect(within(control).getByRole("checkbox")).toBeDisabled();
-    expect(control).toHaveTextContent(
-      "Not available for portfolio analysis yet."
-    );
+    expect(checkbox).toBeDisabled();
+    expect(
+      screen.getByTestId(`portfolio-unsupported-${scenarioDecision.id}`)
+    ).toHaveTextContent("Not available for portfolio analysis yet.");
   });
 
   it("allows selecting a stress test without requiring a branch", async () => {
@@ -1373,9 +1367,7 @@ describe("Decision portfolio", () => {
     render(<DecisionHistoryPage />);
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
 
-    const checkbox = within(
-      screen.getByTestId(`portfolio-select-${stressTestDecision.id}`)
-    ).getByRole("checkbox");
+    const checkbox = screen.getByTestId(`portfolio-select-${stressTestDecision.id}`);
 
     expect(checkbox).not.toBeDisabled();
     fireEvent.click(checkbox);
@@ -1394,12 +1386,16 @@ describe("Decision portfolio", () => {
     render(<DecisionHistoryPage />);
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
 
-    const control = screen.getByTestId(
+    const checkbox = screen.getByTestId(
       `portfolio-select-${dismissedPurchaseDecision.id}`
     );
 
-    expect(within(control).getByRole("checkbox")).toBeDisabled();
-    expect(control).toHaveTextContent("Dismissed decisions can't be compared.");
+    expect(checkbox).toBeDisabled();
+    expect(
+      screen.getByTestId(
+        `portfolio-unsupported-${dismissedPurchaseDecision.id}`
+      )
+    ).toHaveTextContent("Dismissed decisions can't be compared.");
   });
 
   it("requires a branch to be chosen for buy_now_vs_wait before analyzing", async () => {
@@ -1411,14 +1407,10 @@ describe("Decision portfolio", () => {
     render(<DecisionHistoryPage />);
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
     );
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
     );
 
     const analyzeButton = screen.getByTestId("analyze-together");
@@ -1448,9 +1440,7 @@ describe("Decision portfolio", () => {
     render(<DecisionHistoryPage />);
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${whatIfComparisonDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${whatIfComparisonDecision.id}`)
     );
 
     const variantFieldset = screen.getByTestId(
@@ -1477,11 +1467,9 @@ describe("Decision portfolio", () => {
     render(<DecisionHistoryPage />);
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
     fireEvent.click(
-      within(
-        screen.getByTestId(
-          `portfolio-select-${buyNowVsWaitDecisionMissingTiming.id}`
-        )
-      ).getByRole("checkbox")
+      screen.getByTestId(
+        `portfolio-select-${buyNowVsWaitDecisionMissingTiming.id}`
+      )
     );
 
     expect(
@@ -1502,9 +1490,7 @@ describe("Decision portfolio", () => {
     render(<DecisionHistoryPage />);
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
 
-    const bnwCheckbox = within(
-      screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
-    ).getByRole("checkbox");
+    const bnwCheckbox = screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`);
     fireEvent.click(bnwCheckbox);
     fireEvent.click(
       within(
@@ -1531,14 +1517,10 @@ describe("Decision portfolio", () => {
     render(<DecisionHistoryPage />);
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
     );
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
     );
     fireEvent.click(
       within(
@@ -1565,14 +1547,10 @@ describe("Decision portfolio", () => {
     render(<DecisionHistoryPage />);
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
     );
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${whatIfComparisonDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${whatIfComparisonDecision.id}`)
     );
     fireEvent.click(
       within(
@@ -1624,14 +1602,10 @@ describe("Decision portfolio", () => {
     render(<DecisionHistoryPage />);
     fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
     );
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
     );
     fireEvent.click(
       within(
@@ -1657,16 +1631,12 @@ describe("Decision portfolio", () => {
     expect(analyzeButton).toBeDisabled();
 
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
     );
     expect(analyzeButton).toBeDisabled();
 
     fireEvent.click(
-      within(
-        screen.getByTestId(`portfolio-select-${whatIfDecision.id}`)
-      ).getByRole("checkbox")
+      screen.getByTestId(`portfolio-select-${whatIfDecision.id}`)
     );
     expect(analyzeButton).not.toBeDisabled();
   });
@@ -1682,9 +1652,7 @@ describe("Decision portfolio", () => {
 
     for (const decision of decisions.slice(0, 5)) {
       fireEvent.click(
-        within(
-          screen.getByTestId(`portfolio-select-${decision.id}`)
-        ).getByRole("checkbox")
+        screen.getByTestId(`portfolio-select-${decision.id}`)
       );
     }
 
@@ -1692,9 +1660,7 @@ describe("Decision portfolio", () => {
       "Selected 5 of 5"
     );
 
-    const sixthCheckbox = within(
-      screen.getByTestId(`portfolio-select-${decisions[5].id}`)
-    ).getByRole("checkbox");
+    const sixthCheckbox = screen.getByTestId(`portfolio-select-${decisions[5].id}`);
     expect(sixthCheckbox).toBeDisabled();
   });
 
@@ -1927,9 +1893,7 @@ describe("Decision portfolio", () => {
       "Selected 2 of 5"
     );
 
-    const checkbox = within(
-      screen.getByTestId(`portfolio-select-${purchaseDecision.id}`)
-    ).getByRole("checkbox");
+    const checkbox = screen.getByTestId(`portfolio-select-${purchaseDecision.id}`);
     expect(checkbox).toBeChecked();
   });
 
@@ -1971,6 +1935,58 @@ describe("Decision portfolio", () => {
       screen.queryByTestId(`portfolio-select-${purchaseDecision.id}`)
     ).not.toBeInTheDocument();
     expect(screen.getByText("I made this decision")).toBeInTheDocument();
+  });
+
+  it("exposes an accessible checkbox label naming the decision", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    expect(
+      screen.getByRole("checkbox", {
+        name: `Include ${purchaseDecision.title} in portfolio analysis`,
+      })
+    ).toBeInTheDocument();
+  });
+
+  it("applies a selected treatment to the card and removes it on deselect", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    const card = (
+      await screen.findByTestId(`portfolio-select-${purchaseDecision.id}`)
+    ).closest('[data-testid="decision-history-card"]') as HTMLElement;
+    const checkbox = screen.getByTestId(
+      `portfolio-select-${purchaseDecision.id}`
+    );
+
+    expect(card.className).not.toContain("border-[#6E4B63]/55");
+    fireEvent.click(checkbox);
+    expect(card.className).toContain("border-[#6E4B63]/55");
+    fireEvent.click(checkbox);
+    expect(card.className).not.toContain("border-[#6E4B63]/55");
+  });
+
+  it("hides normal per-decision actions during selection mode and restores them on cancel", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+
+    render(<DecisionHistoryPage />);
+    await screen.findByText("Laptop Purchase");
+    expect(screen.getByText("I made this decision")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("start-portfolio-selection"));
+    expect(
+      screen.queryByText("I made this decision")
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Run again")).not.toBeInTheDocument();
+    expect(screen.queryByText("View timeline")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("cancel-portfolio-selection"));
+    expect(screen.getByText("I made this decision")).toBeInTheDocument();
+    expect(screen.getByText("Run again")).toBeInTheDocument();
   });
 
   it("still renders the calibration section alongside the portfolio feature", async () => {

@@ -25,6 +25,7 @@ import { useRouter } from "next/navigation";
 import AdaptiveIntelligenceSection from "../components/AdaptiveIntelligenceSection";
 import AppSidebar from "../components/AppSidebar";
 import GoalImpactList from "../components/GoalImpactList";
+import MultiStepScenarioPlanner from "../components/MultiStepScenarioPlanner";
 import { PageReveal, Reveal } from "../components/PremiumMotion";
 import WhatIfSimulator from "../components/WhatIfSimulator";
 import {
@@ -49,7 +50,8 @@ type DecisionMode =
   | "compare"
   | "stress"
   | "buy_now_wait"
-  | "what_if";
+  | "what_if"
+  | "multi_step";
 
 const SCENARIO_OPTIONS: {
   value: FinancialStressScenarioType;
@@ -577,7 +579,9 @@ export default function DecisionsPage() {
                     ? "Buy now vs wait"
                     : mode === "what_if"
                       ? "What-if simulator"
-                      : "Major purchase simulator"}
+                      : mode === "multi_step"
+                        ? "Multi-step plan"
+                        : "Major purchase simulator"}
               </h1>
 
               <p className="mt-3 max-w-3xl text-sm leading-6 text-[#706961]">
@@ -587,7 +591,9 @@ export default function DecisionsPage() {
                     ? "Compare buying a purchase today against waiting until a later date, and see which timing leaves you better off."
                     : mode === "what_if"
                       ? "Model a hypothetical change -- a purchase, a bill increase, a change in income -- and see the effect on your safe-to-spend position before it happens."
-                      : "Test a purchase before making it. Discero compares the cost with your liquid balance, active obligations, safety reserve, and essential spending."}
+                      : mode === "multi_step"
+                        ? "Sequence several dated financial events and see how they add up chronologically against your real safe-to-spend baseline."
+                        : "Test a purchase before making it. Discero compares the cost with your liquid balance, active obligations, safety reserve, and essential spending."}
               </p>
 
               <div
@@ -620,6 +626,11 @@ export default function DecisionsPage() {
                     onClick={() => handleModeChange("what_if")}
                     label="What-if simulator"
                   />
+                  <ModeButton
+                    active={mode === "multi_step"}
+                    onClick={() => handleModeChange("multi_step")}
+                    label="Multi-step plan"
+                  />
                 </div>
 
                 <Link
@@ -635,6 +646,8 @@ export default function DecisionsPage() {
 
           {mode === "what_if" ? (
             <WhatIfSimulator userId={userId} />
+          ) : mode === "multi_step" ? (
+            <MultiStepScenarioPlanner userId={userId} />
           ) : (
           <section className="mt-8 grid gap-8 xl:grid-cols-[0.76fr_1.24fr]">
             <Reveal>

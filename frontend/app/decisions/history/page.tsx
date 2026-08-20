@@ -1446,9 +1446,14 @@ export default function DecisionHistoryPage() {
                       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
                         Compare decisions together
                       </p>
+                      <p className="mt-1 text-sm text-[#706961]">
+                        Select {MIN_PORTFOLIO_SELECTION}–
+                        {MAX_PORTFOLIO_SELECTION} decisions to analyze
+                        together.
+                      </p>
                       <p
                         data-testid="portfolio-selected-count"
-                        className="mt-1 text-sm text-[#706961]"
+                        className="mt-1 text-xs font-semibold text-[#8a978f]"
                       >
                         Selected {selectedDecisionIds.length} of{" "}
                         {MAX_PORTFOLIO_SELECTION}
@@ -1548,7 +1553,7 @@ export default function DecisionHistoryPage() {
             )}
 
             {decisions !== null && decisions.length > 0 && (
-              <Stagger className="divide-y divide-[#181713]/10 border-y border-[#181713]/10">
+              <Stagger className="space-y-4">
                 {decisions.map((decision) => {
                   const status = statusLabel(decision);
                   const rerun = rerunResults[decision.id];
@@ -1561,115 +1566,56 @@ export default function DecisionHistoryPage() {
                   const isOutcomeHistoryLoading =
                     outcomesLoadingId === decision.id;
 
+                  const isDismissed = decision.status === "dismissed";
+                  const isUnsupportedForPortfolio =
+                    !PORTFOLIO_SUPPORTED_TYPES.includes(
+                      decision.decision_type
+                    );
+                  const isPortfolioIneligible =
+                    isDismissed || isUnsupportedForPortfolio;
+                  const isCardSelected =
+                    selectionMode && selectedDecisionIds.includes(decision.id);
+                  const isSelectionFull =
+                    selectedDecisionIds.length >= MAX_PORTFOLIO_SELECTION &&
+                    !isCardSelected;
+                  const requiresVariant =
+                    PORTFOLIO_VARIANT_REQUIRED_TYPES.includes(
+                      decision.decision_type
+                    );
+                  const variantOptions = requiresVariant
+                    ? portfolioVariantOptions(decision)
+                    : [];
+                  const selectedVariant = selectedVariants[decision.id];
+
                   return (
                     <Reveal key={decision.id}>
                       <article
                         data-testid="decision-history-card"
-                        className={`py-6 sm:py-7 ${
-                          decision.status === "dismissed"
-                            ? "opacity-60"
-                            : ""
+                        className={`border px-5 py-6 transition-colors sm:px-7 ${
+                          isCardSelected
+                            ? "border-[#6E4B63]/55 bg-[#F7F1F4]"
+                            : "border-[#181713]/10 bg-[#FFFCF7]"
+                        } ${
+                          isDismissed && !selectionMode ? "opacity-60" : ""
                         }`}
                       >
-                        {selectionMode &&
-                          (() => {
-                            const isDismissed =
-                              decision.status === "dismissed";
-                            const isUnsupported =
-                              !PORTFOLIO_SUPPORTED_TYPES.includes(
-                                decision.decision_type
-                              );
-                            const isSelected = selectedDecisionIds.includes(
-                              decision.id
-                            );
-                            const isDisabled = isDismissed || isUnsupported;
-                            const isSelectionFull =
-                              selectedDecisionIds.length >=
-                                MAX_PORTFOLIO_SELECTION && !isSelected;
-                            const requiresVariant =
-                              PORTFOLIO_VARIANT_REQUIRED_TYPES.includes(
-                                decision.decision_type
-                              );
-                            const variantOptions = requiresVariant
-                              ? portfolioVariantOptions(decision)
-                              : [];
-                            const selectedVariant =
-                              selectedVariants[decision.id];
-
-                            return (
-                              <div className="mb-4">
-                                <label
-                                  data-testid={`portfolio-select-${decision.id}`}
-                                  className={`flex items-center gap-2.5 border border-[#181713]/10 px-3 py-2 text-xs font-medium ${
-                                    isDisabled
-                                      ? "cursor-not-allowed bg-[#F5F1EA] text-[#8a978f]"
-                                      : "cursor-pointer bg-[#FFFCF7] text-[#181713] hover:bg-[#F0E9EE]/40"
-                                  }`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    disabled={isDisabled || isSelectionFull}
-                                    onChange={() =>
-                                      togglePortfolioSelection(decision.id)
-                                    }
-                                    className="h-4 w-4 accent-[#6E4B63]"
-                                  />
-                                  <span>
-                                    {isDismissed
-                                      ? "Dismissed decisions can't be compared."
-                                      : isUnsupported
-                                        ? "Not available for portfolio analysis yet."
-                                        : "Include in portfolio analysis"}
-                                  </span>
-                                </label>
-
-                                {isSelected && requiresVariant && (
-                                  <fieldset
-                                    data-testid={`portfolio-variant-${decision.id}`}
-                                    className="mt-2 flex flex-col gap-1.5 border border-[#181713]/10 border-t-0 bg-[#FFFCF7] px-3 py-2.5"
-                                  >
-                                    <legend className="px-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#777168]">
-                                      Choose a branch to include
-                                    </legend>
-                                    {variantOptions.length === 0 ? (
-                                      <span className="text-xs text-[#8a978f]">
-                                        This decision&apos;s saved details
-                                        don&apos;t support portfolio analysis
-                                        anymore.
-                                      </span>
-                                    ) : (
-                                      variantOptions.map((option) => (
-                                        <label
-                                          key={option.value}
-                                          className="flex cursor-pointer items-center gap-2 text-xs text-[#181713]"
-                                        >
-                                          <input
-                                            type="radio"
-                                            name={`portfolio-variant-${decision.id}`}
-                                            value={option.value}
-                                            checked={
-                                              selectedVariant === option.value
-                                            }
-                                            onChange={() =>
-                                              setPortfolioVariant(
-                                                decision.id,
-                                                option.value
-                                              )
-                                            }
-                                            className="h-3.5 w-3.5 accent-[#6E4B63]"
-                                          />
-                                          {option.label}
-                                        </label>
-                                      ))
-                                    )}
-                                  </fieldset>
-                                )}
-                              </div>
-                            );
-                          })()}
-
                         <div className="flex flex-wrap items-center gap-2">
+                          {selectionMode && (
+                            <input
+                              type="checkbox"
+                              data-testid={`portfolio-select-${decision.id}`}
+                              checked={isCardSelected}
+                              disabled={
+                                isPortfolioIneligible || isSelectionFull
+                              }
+                              onChange={() =>
+                                togglePortfolioSelection(decision.id)
+                              }
+                              aria-label={`Include ${decision.title} in portfolio analysis`}
+                              className="focus-ring h-4 w-4 shrink-0 accent-[#6E4B63] disabled:cursor-not-allowed"
+                            />
+                          )}
+
                           <span className="inline-flex items-center rounded-full bg-[#eef1ec] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#5F5751]">
                             {TYPE_LABEL[decision.decision_type]}
                           </span>
@@ -1693,6 +1639,61 @@ export default function DecisionHistoryPage() {
                         <h2 className="mt-3 text-lg font-semibold tracking-[-0.02em] text-[#2F2930]">
                           {decision.title}
                         </h2>
+
+                        {selectionMode && isPortfolioIneligible && (
+                          <p
+                            data-testid={`portfolio-unsupported-${decision.id}`}
+                            className="mt-2 text-xs font-medium text-[#8a978f]"
+                          >
+                            {isDismissed
+                              ? "Dismissed decisions can't be compared."
+                              : "Not available for portfolio analysis yet."}
+                          </p>
+                        )}
+
+                        {selectionMode &&
+                          isCardSelected &&
+                          requiresVariant && (
+                            <fieldset
+                              data-testid={`portfolio-variant-${decision.id}`}
+                              className="mt-3 flex flex-col gap-1.5 border border-[#181713]/10 bg-[#FFFCF7] px-3 py-2.5"
+                            >
+                              <legend className="px-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#777168]">
+                                Choose a branch to include
+                              </legend>
+                              {variantOptions.length === 0 ? (
+                                <span className="text-xs text-[#8a978f]">
+                                  This decision&apos;s saved details
+                                  don&apos;t support portfolio analysis
+                                  anymore.
+                                </span>
+                              ) : (
+                                variantOptions.map((option) => (
+                                  <label
+                                    key={option.value}
+                                    className="flex cursor-pointer items-center gap-2 text-xs text-[#181713]"
+                                  >
+                                    <input
+                                      type="radio"
+                                      name={`portfolio-variant-${decision.id}`}
+                                      value={option.value}
+                                      checked={
+                                        selectedVariant === option.value
+                                      }
+                                      onChange={() =>
+                                        setPortfolioVariant(
+                                          decision.id,
+                                          option.value
+                                        )
+                                      }
+                                      className="focus-ring h-3.5 w-3.5 accent-[#6E4B63]"
+                                    />
+                                    {option.label}
+                                  </label>
+                                ))
+                              )}
+                            </fieldset>
+                          )}
 
                         <div className="mt-5 grid gap-px overflow-hidden bg-[#181713]/10 sm:grid-cols-3">
                           {summaryChips(decision).map((chip) => (
@@ -1817,6 +1818,8 @@ export default function DecisionHistoryPage() {
                           </div>
                         )}
 
+                        {!selectionMode && (
+                        <>
                         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#181713]/8 pt-4">
                           {decision.status === "saved" && (
                             <>
@@ -2045,6 +2048,8 @@ export default function DecisionHistoryPage() {
                               </p>
                             )}
                           </div>
+                        )}
+                        </>
                         )}
                       </article>
                     </Reveal>

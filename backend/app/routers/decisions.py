@@ -14,6 +14,8 @@ from app.schemas import (
     DecisionRerunOut,
     DecisionReviewQueueOut,
     DecisionTimelineOut,
+    MultiStepScenarioPlanOut,
+    MultiStepScenarioPlanRequest,
     SaveDecisionRequest,
     SavedDecisionOut,
     UpdateDecisionLifecycleRequest,
@@ -28,6 +30,7 @@ from app.services import (
     decision_portfolio_service,
     decision_review_service,
     decision_timeline_service,
+    multi_step_scenario_service,
 )
 
 router = APIRouter(
@@ -146,6 +149,29 @@ def evaluate_decision_portfolio(
     except decision_portfolio_service.DecisionPortfolioNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except decision_portfolio_service.DecisionPortfolioValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": str(exc), **exc.details},
+        ) from exc
+
+
+@router.post(
+    "/multi-step",
+    response_model=MultiStepScenarioPlanOut,
+)
+def evaluate_multi_step_scenario_plan(
+    user_id: int,
+    payload: MultiStepScenarioPlanRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MultiStepScenarioPlanOut:
+    _authorize_user(user_id, current_user)
+
+    try:
+        return multi_step_scenario_service.evaluate_multi_step_scenario_plan(
+            db, user_id, payload
+        )
+    except multi_step_scenario_service.MultiStepScenarioValidationError as exc:
         raise HTTPException(
             status_code=422,
             detail={"message": str(exc), **exc.details},

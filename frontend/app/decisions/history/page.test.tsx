@@ -8,6 +8,7 @@ import {
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "../../lib/api";
 import type {
   DecisionCalibration,
   DecisionPortfolioResult,
@@ -1530,10 +1531,14 @@ describe("Decision portfolio", () => {
     fireEvent.click(screen.getByTestId("analyze-together"));
 
     await waitFor(() => {
-      expect(mocks.evaluateDecisionPortfolio).toHaveBeenCalledWith(1, [
-        { decision_id: purchaseDecision.id },
-        { decision_id: buyNowVsWaitDecision.id, variant: "buy_now" },
-      ]);
+      expect(mocks.evaluateDecisionPortfolio).toHaveBeenCalledWith(
+        1,
+        [
+          { decision_id: purchaseDecision.id },
+          { decision_id: buyNowVsWaitDecision.id, variant: "buy_now" },
+        ],
+        expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
+      );
     });
   });
 
@@ -1562,10 +1567,14 @@ describe("Decision portfolio", () => {
     fireEvent.click(screen.getByTestId("analyze-together"));
 
     await waitFor(() => {
-      expect(mocks.evaluateDecisionPortfolio).toHaveBeenCalledWith(1, [
-        { decision_id: purchaseDecision.id },
-        { decision_id: whatIfComparisonDecision.id, variant: "option_b" },
-      ]);
+      expect(mocks.evaluateDecisionPortfolio).toHaveBeenCalledWith(
+        1,
+        [
+          { decision_id: purchaseDecision.id },
+          { decision_id: whatIfComparisonDecision.id, variant: "option_b" },
+        ],
+        expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
+      );
     });
   });
 
@@ -1676,10 +1685,14 @@ describe("Decision portfolio", () => {
     fireEvent.click(screen.getByTestId("analyze-together"));
 
     await waitFor(() => {
-      expect(mocks.evaluateDecisionPortfolio).toHaveBeenCalledWith(1, [
-        { decision_id: purchaseDecision.id },
-        { decision_id: whatIfDecision.id },
-      ]);
+      expect(mocks.evaluateDecisionPortfolio).toHaveBeenCalledWith(
+        1,
+        [
+          { decision_id: purchaseDecision.id },
+          { decision_id: whatIfDecision.id },
+        ],
+        expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
+      );
     });
   });
 
@@ -1838,6 +1851,94 @@ describe("Decision portfolio", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Couldn't analyze these decisions together just now."
     );
+  });
+
+  it("shows an actionable message when a decision is outside the current analysis horizon", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockRejectedValue(
+      new ApiError(
+        "one or more selected decisions no longer fit the combined " +
+          "evaluation horizon (422)",
+        "event_date_out_of_horizon"
+      )
+    );
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "One selected decision is outside the current analysis horizon. " +
+        "Run that decision again with a current date, then compare it."
+    );
+    // Never surface the raw backend message or an internal decision id.
+    expect(alert).not.toHaveTextContent("evaluation horizon (422)");
+  });
+
+  it("keeps the generic fallback for an ApiError with an unrecognized reason", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+    mocks.evaluateDecisionPortfolio.mockRejectedValue(
+      new ApiError("stress amount unresolvable (422)", "stress_amount_unresolvable")
+    );
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Couldn't analyze these decisions together just now."
+    );
+  });
+
+  it("sends the browser's local calendar date, not the UTC date, as as_of_date", async () => {
+    const originalTZ = process.env.TZ;
+    // UTC-5 in August (CDT) -- picked so a late-evening local clock and
+    // an already-rolled-over UTC clock land on different calendar dates.
+    process.env.TZ = "America/Chicago";
+    // Only fake Date -- setTimeout/etc. stay real so RTL's async
+    // waitFor/findBy helpers (which rely on real timers) don't hang.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // 04:30 UTC on the 21st is still 23:30 local on the 20th.
+    vi.setSystemTime(new Date("2026-08-21T04:30:00Z"));
+
+    try {
+      mocks.getSavedDecisions.mockResolvedValue([
+        purchaseDecision,
+        whatIfDecision,
+      ]);
+      mocks.evaluateDecisionPortfolio.mockResolvedValue(
+        portfolioResultFixture
+      );
+
+      // Sanity check: the UTC date really has already rolled over, so
+      // this test would catch a regression to toISOString().slice(0, 10).
+      expect(new Date().toISOString().slice(0, 10)).toBe("2026-08-21");
+
+      render(<DecisionHistoryPage />);
+      await selectTwoCompatibleDecisions();
+      fireEvent.click(screen.getByTestId("analyze-together"));
+
+      await waitFor(() => {
+        expect(mocks.evaluateDecisionPortfolio).toHaveBeenCalledWith(
+          1,
+          [
+            { decision_id: purchaseDecision.id },
+            { decision_id: whatIfDecision.id },
+          ],
+          "2026-08-20"
+        );
+      });
+    } finally {
+      vi.useRealTimers();
+      process.env.TZ = originalTZ;
+    }
   });
 
   it("renders the successful combined result with baseline, combined, and total change", async () => {

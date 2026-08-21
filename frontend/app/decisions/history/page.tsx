@@ -21,6 +21,7 @@ import Toast from "../../components/Toast";
 import { PageReveal, Reveal, Stagger } from "../../components/PremiumMotion";
 import {
   api,
+  ApiError,
   CalibrationLabel,
   DecisionCalibration,
   DecisionCalibrationMetricGroup,
@@ -1360,15 +1361,34 @@ export default function DecisionHistoryPage() {
           return variant ? { decision_id: decisionId, variant } : { decision_id: decisionId };
         }
       );
-      const result = await api.evaluateDecisionPortfolio(userId, items);
+      // The user's LOCAL calendar date, not UTC -- toISOString() would
+      // report tomorrow's date for anyone west of UTC in the evening,
+      // recreating the exact server/client rollover mismatch this
+      // guards against.
+      const now = new Date();
+      const asOfDate = `${now.getFullYear()}-${String(
+        now.getMonth() + 1
+      ).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const result = await api.evaluateDecisionPortfolio(
+        userId,
+        items,
+        asOfDate
+      );
       // Ignore responses for a session the user has since left (cancelled
       // or re-entered) -- applying them would leak a prior session's
       // result/error into a fresh one.
       if (portfolioSessionRef.current !== requestSession) return;
       setPortfolioResult(result);
-    } catch {
+    } catch (error) {
       if (portfolioSessionRef.current !== requestSession) return;
-      setPortfolioError("Couldn't analyze these decisions together just now.");
+      const reason = error instanceof ApiError ? error.reason : undefined;
+      setPortfolioError(
+        reason === "event_date_out_of_horizon"
+          ? "One selected decision is outside the current analysis " +
+              "horizon. Run that decision again with a current date, " +
+              "then compare it."
+          : "Couldn't analyze these decisions together just now."
+      );
     } finally {
       if (portfolioSessionRef.current === requestSession) {
         setPortfolioLoading(false);

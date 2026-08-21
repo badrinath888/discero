@@ -161,14 +161,30 @@ function handleUnauthorized(res: Response, message: string): void {
   }
 }
 
-async function getErrorMessage(res: Response): Promise<string> {
+// Carries the backend's structured `detail.reason` (when present)
+// alongside the existing human-readable message, so a caller that
+// cares -- e.g. Decision portfolio's event_date_out_of_horizon -- can
+// show an actionable message without every other caller changing.
+export class ApiError extends Error {
+  reason?: string;
+
+  constructor(message: string, reason?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.reason = reason;
+  }
+}
+
+async function getErrorDetail(
+  res: Response
+): Promise<{ message: string; reason?: string }> {
   const body = await res.json().catch(() => ({}));
   const status = `${res.status}${
     res.statusText ? ` ${res.statusText}` : ""
   }`;
 
   if (typeof body.detail === "string") {
-    return `${body.detail} (${status})`;
+    return { message: `${body.detail} (${status})` };
   }
 
   if (Array.isArray(body.detail)) {
@@ -178,19 +194,27 @@ async function getErrorMessage(res: Response): Promise<string> {
       .join(", ");
 
     if (detail) {
-      return `${detail} (${status})`;
+      return { message: `${detail} (${status})` };
     }
   }
 
-  return `Request failed (${status})`;
+  const reason =
+    body?.detail &&
+    typeof body.detail === "object" &&
+    !Array.isArray(body.detail) &&
+    typeof body.detail.reason === "string"
+      ? (body.detail.reason as string)
+      : undefined;
+
+  return { message: `Request failed (${status})`, reason };
 }
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const message = await getErrorMessage(res);
+    const { message, reason } = await getErrorDetail(res);
 
     handleUnauthorized(res, message);
-    throw new Error(message);
+    throw new ApiError(message, reason);
   }
 
   return res.json();
@@ -198,10 +222,10 @@ async function handle<T>(res: Response): Promise<T> {
 
 async function handleEmpty(res: Response): Promise<void> {
   if (!res.ok) {
-    const message = await getErrorMessage(res);
+    const { message } = await getErrorDetail(res);
 
     handleUnauthorized(res, message);
-    throw new Error(message);
+    throw new ApiError(message);
   }
 }
 
@@ -1422,6 +1446,11 @@ export type DecisionPortfolioItem = {
 
 export type DecisionPortfolioRequest = {
   items: DecisionPortfolioItem[];
+  // Client's local calendar date (YYYY-MM-DD), so a decision dated the
+  // user's local "today" isn't rejected as out-of-horizon merely
+  // because the server has already rolled to the next UTC date.
+  // Optional -- omitted falls back to the server's own date.
+  as_of_date?: string;
 };
 
 export type DecisionPortfolioDecision = {
@@ -2473,12 +2502,15 @@ compareWhatIfScenarios: (
 
   evaluateDecisionPortfolio: (
     userId: number,
-    items: DecisionPortfolioItem[]
+    items: DecisionPortfolioItem[],
+    asOfDate?: string
   ): Promise<DecisionPortfolioResult> =>
     fetchWithTimeout(`${API_URL}/users/${userId}/decisions/portfolio`, {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ items }),
+      body: JSON.stringify(
+        asOfDate ? { items, as_of_date: asOfDate } : { items }
+      ),
     }).then((res) => handle<DecisionPortfolioResult>(res)),
 
   runMultiStepScenarioPlan: (

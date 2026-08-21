@@ -144,7 +144,11 @@ def evaluate_decision_portfolio(
 
     try:
         return decision_portfolio_service.evaluate_decision_portfolio(
-            db, user_id, decision_ids, variants=variants
+            db,
+            user_id,
+            decision_ids,
+            variants=variants,
+            as_of=payload.as_of_date,
         )
     except decision_portfolio_service.DecisionPortfolioNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

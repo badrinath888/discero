@@ -2251,6 +2251,13 @@ class DecisionPortfolioItemRequest(BaseModel):
     variant: str | None = Field(default=None, max_length=60)
 
 
+# A client's local calendar date can legitimately be one day ahead of
+# or behind the server's, purely from timezone offset around a UTC
+# rollover -- never further, since that would let a client replay an
+# arbitrary historical/future analysis date.
+_AS_OF_DATE_MAX_DRIFT_DAYS = 1
+
+
 class DecisionPortfolioRequest(BaseModel):
     # `decision_ids` is the v1 shape, kept for backward compatibility.
     # `items` additively supports per-decision branch selection. Exactly
@@ -2258,6 +2265,28 @@ class DecisionPortfolioRequest(BaseModel):
     # ambiguous.
     decision_ids: list[int] | None = None
     items: list[DecisionPortfolioItemRequest] | None = None
+    # Optional client-local "today" so a persisted decision dated the
+    # user's local today isn't rejected as out-of-horizon merely
+    # because the server has already rolled to the next UTC date.
+    # Omitted -> unchanged server-date behavior (evaluate_decision_
+    # portfolio defaults to date.today() itself).
+    as_of_date: date | None = Field(default=None)
+
+    @field_validator("as_of_date")
+    @classmethod
+    def validate_as_of_date(cls, value: date | None) -> date | None:
+        if value is None:
+            return value
+
+        drift_days = abs((value - date.today()).days)
+        if drift_days > _AS_OF_DATE_MAX_DRIFT_DAYS:
+            raise ValueError(
+                "as_of_date must be within "
+                f"{_AS_OF_DATE_MAX_DRIFT_DAYS} day of the server's "
+                "current date"
+            )
+
+        return value
 
     @model_validator(mode="after")
     def validate_selection_shape(self) -> "DecisionPortfolioRequest":

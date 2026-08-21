@@ -11,6 +11,7 @@ import MultiStepScenarioPlanner from "./MultiStepScenarioPlanner";
 
 const mocks = vi.hoisted(() => ({
   runMultiStepScenarioPlan: vi.fn(),
+  saveDecision: vi.fn(),
 }));
 
 vi.mock("../lib/api", async (importOriginal) => {
@@ -20,6 +21,7 @@ vi.mock("../lib/api", async (importOriginal) => {
     api: {
       ...actual.api,
       runMultiStepScenarioPlan: mocks.runMultiStepScenarioPlan,
+      saveDecision: mocks.saveDecision,
     },
   };
 });
@@ -87,6 +89,8 @@ const baseResult: MultiStepScenarioPlanResult = {
 beforeEach(() => {
   mocks.runMultiStepScenarioPlan.mockReset();
   mocks.runMultiStepScenarioPlan.mockResolvedValue(baseResult);
+  mocks.saveDecision.mockReset();
+  mocks.saveDecision.mockResolvedValue({ id: 1 });
 });
 
 describe("MultiStepScenarioPlanner", () => {
@@ -268,6 +272,45 @@ describe("MultiStepScenarioPlanner", () => {
     fireEvent.click(screen.getByRole("button", { name: "Run analysis" }));
 
     expect(await screen.findByText("Emergency fund")).toBeInTheDocument();
+  });
+
+  it("saves the plan via the generic decision-save endpoint", async () => {
+    render(<MultiStepScenarioPlanner userId={7} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run analysis" }));
+
+    const saveButton = await screen.findByRole("button", {
+      name: "Save plan",
+    });
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.saveDecision).toHaveBeenCalledTimes(1));
+
+    const [userId, payload] = mocks.saveDecision.mock.calls[0];
+    expect(userId).toBe(7);
+    expect(payload.decision_type).toBe("multi_step_plan");
+    expect(payload.title).toBe("Laptop + rent increase");
+    expect(payload.input.steps).toHaveLength(2);
+
+    expect(
+      await screen.findByText(/Saved to your decision history/)
+    ).toBeInTheDocument();
+  });
+
+  it("shows an error message when saving the plan fails, without losing the result", async () => {
+    mocks.saveDecision.mockRejectedValue(new Error("save failed"));
+
+    render(<MultiStepScenarioPlanner userId={7} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run analysis" }));
+
+    const saveButton = await screen.findByRole("button", {
+      name: "Save plan",
+    });
+    fireEvent.click(saveButton);
+
+    expect(
+      await screen.findByText("Couldn't save just now.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Starting position")).toBeInTheDocument();
   });
 
   it("shows an error message without crashing when the API call fails", async () => {

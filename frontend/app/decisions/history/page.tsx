@@ -125,6 +125,7 @@ const TYPE_LABEL: Record<DecisionType, string> = {
   buy_now_vs_wait: "Buy Now vs Wait",
   what_if: "What-If",
   what_if_comparison: "Scenario Comparison",
+  multi_step_plan: "Multi-Step Plan",
 };
 
 const STATUS_TONE: Record<string, string> = {
@@ -329,6 +330,28 @@ function summaryChips(
     const keyDriver = asNonEmptyString(r.key_driver);
     if (keyDriver !== undefined) {
       chips.push({ label: "Key driver", value: humanize(keyDriver) });
+    }
+
+    return chips;
+  }
+
+  if (decision.decision_type === "multi_step_plan") {
+    const finalCents = asNumber(r.final_safe_to_spend_cents);
+    if (finalCents !== undefined) {
+      chips.push({ label: "Final position", value: formatCents(finalCents) });
+    }
+
+    const worstCents = asNumber(r.minimum_safe_to_spend_cents);
+    if (worstCents !== undefined) {
+      chips.push({ label: "Worst point", value: formatCents(worstCents) });
+    }
+
+    const totalImpact = asNumber(r.total_impact_cents);
+    if (totalImpact !== undefined) {
+      chips.push({
+        label: "Total impact",
+        value: `${totalImpact >= 0 ? "+" : ""}${formatCents(totalImpact)}`,
+      });
     }
 
     return chips;

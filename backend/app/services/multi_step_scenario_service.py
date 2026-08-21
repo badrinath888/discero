@@ -1,10 +1,12 @@
-"""Multi-Step Scenario Planning 1.0.
+"""Multi-Step Scenario Planning 2.0.
 
 Evaluates 2-5 dated financial events in chronological order against ONE
 shared baseline, reusing `calculate_safe_to_spend`'s raw (pre-clamp)
-total and the same linear cost-delta representation
-`what_if_service`/`decision_portfolio_service` already use for every
-step type -- never a second time-series/forecast engine.
+total and the shared `time_aware_financial_simulation_service` engine's
+`walk_step_timeline` for the chronological walk -- the exact same
+ordering, proration, and worst/final-state logic Buy Now vs Wait's
+known-cashflow advance is built from, so there is only ONE deterministic
+temporal walker in the codebase, not a duplicate per feature.
 
 The engine has no notion of a projected future account balance: calling
 `calculate_safe_to_spend` with a future `as_of` still reads TODAY's
@@ -27,7 +29,6 @@ recover in a later checkpoint instead of being silently pinned at $0.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
@@ -48,8 +49,12 @@ from app.services.safe_to_spend_service import (
     _DAYS_PER_MONTH,
     _determine_status,
     _get_projected_income_cents,
-    _prorate_monthly_to_horizon,
     calculate_safe_to_spend,
+)
+from app.services.time_aware_financial_simulation_service import (
+    StepTimelineEffect,
+    chronological_order,
+    walk_step_timeline,
 )
 from app.services.what_if_service import _validate_effective_date
 
@@ -57,13 +62,6 @@ from app.services.what_if_service import _validate_effective_date
 # remaining window for its prorated effect to be meaningfully
 # reflected -- flagged rather than silently shown as near-zero impact.
 _NEAR_HORIZON_END_DAYS = 7
-
-_RECURRING_INCREASE_TYPES: frozenset[str] = frozenset(
-    {"monthly_expense_increase", "monthly_income_decrease"}
-)
-_RECURRING_DECREASE_TYPES: frozenset[str] = frozenset(
-    {"monthly_expense_decrease", "monthly_income_increase"}
-)
 
 _STATUS_MAP: dict[str, MultiStepScenarioCheckpointStatus] = {
     "safe": "comfortable",
@@ -83,15 +81,6 @@ class MultiStepScenarioValidationError(Exception):
         self.details = details or {}
 
 
-@dataclass(frozen=True)
-class _StepEffect:
-    cost_delta_cents: int
-    monthly_capacity_delta_cents: int
-    is_recurring: bool
-    is_temporary: bool
-    expires_on: date | None
-
-
 def evaluate_multi_step_scenario_plan(
     db: Session,
     user_id: int,
@@ -102,7 +91,7 @@ def evaluate_multi_step_scenario_plan(
     calculation_date = as_of or date.today()
     horizon_end = calculation_date + timedelta(days=payload.horizon_days)
 
-    ordered_steps = _chronological_order(payload.steps)
+    ordered_steps = chronological_order(payload.steps)
     _validate_step_dates(ordered_steps, calculation_date, horizon_end)
 
     baseline = calculate_safe_to_spend(
@@ -122,25 +111,37 @@ def evaluate_multi_step_scenario_plan(
         baseline.safe_to_spend_cents - baseline.shortfall_cents
     )
 
-    (
-        checkpoints,
-        effects,
-        final_raw_cents,
-        total_monthly_capacity_delta_cents,
-        worst_sequence,
-        worst_label,
-        worst_date,
-        minimum_safe_cents,
-        compounding_labels,
-    ) = _walk_steps(
+    timeline = walk_step_timeline(
         ordered_steps,
         baseline_raw_cents=baseline_raw_cents,
-        liquid_balance_cents=baseline.breakdown.liquid_balance_cents,
         horizon_end=horizon_end,
     )
 
-    final_safe_cents = max(final_raw_cents, 0)
-    final_shortfall_cents = max(-final_raw_cents, 0)
+    liquid_balance_cents = baseline.breakdown.liquid_balance_cents
+    checkpoints = [
+        MultiStepScenarioCheckpointOut(
+            sequence=checkpoint.sequence,
+            step_type=checkpoint.step.step_type,
+            label=checkpoint.step.label,
+            effective_date=checkpoint.step.effective_date,
+            is_recurring=checkpoint.effect.is_recurring,
+            is_temporary=checkpoint.effect.is_temporary,
+            expires_on=checkpoint.effect.expires_on,
+            safe_to_spend_before_cents=max(checkpoint.before_raw_cents, 0),
+            safe_to_spend_after_cents=max(checkpoint.after_raw_cents, 0),
+            impact_cents=checkpoint.effect.cost_delta_cents,
+            cumulative_impact_cents=checkpoint.cumulative_impact_cents,
+            status=_STATUS_MAP[
+                _determine_status(
+                    checkpoint.after_raw_cents, liquid_balance_cents
+                )
+            ],
+        )
+        for checkpoint in timeline.checkpoints
+    ]
+
+    final_safe_cents = max(timeline.final_raw_cents, 0)
+    final_shortfall_cents = max(-timeline.final_raw_cents, 0)
 
     average_monthly_income_cents = _get_projected_income_cents(
         db, user_id, calculation_date, _DAYS_PER_MONTH
@@ -155,7 +156,7 @@ def evaluate_multi_step_scenario_plan(
     # `decision_portfolio_service` folds its own combined shortfall in.
     adjusted_monthly_capacity_cents = max(
         baseline_monthly_capacity_cents
-        - total_monthly_capacity_delta_cents
+        - timeline.total_monthly_capacity_delta_cents
         - final_shortfall_cents,
         0,
     )
@@ -172,9 +173,9 @@ def evaluate_multi_step_scenario_plan(
         *baseline.warnings,
         *_build_warnings(
             ordered_steps,
-            effects,
+            [checkpoint.effect for checkpoint in timeline.checkpoints],
             horizon_end=horizon_end,
-            compounding_labels=compounding_labels,
+            compounding_labels=timeline.compounding_labels,
         ),
     ]
 
@@ -187,14 +188,12 @@ def evaluate_multi_step_scenario_plan(
         final_safe_to_spend_cents=final_safe_cents,
         final_shortfall_cents=final_shortfall_cents,
         total_impact_cents=final_safe_cents - baseline.safe_to_spend_cents,
-        minimum_safe_to_spend_cents=minimum_safe_cents,
-        worst_checkpoint_sequence=worst_sequence,
-        worst_checkpoint_label=worst_label,
-        worst_checkpoint_date=worst_date,
+        minimum_safe_to_spend_cents=timeline.minimum_safe_cents,
+        worst_checkpoint_sequence=timeline.worst_sequence,
+        worst_checkpoint_label=timeline.worst_label,
+        worst_checkpoint_date=timeline.worst_date,
         overall_status=_STATUS_MAP[
-            _determine_status(
-                final_raw_cents, baseline.breakdown.liquid_balance_cents
-            )
+            _determine_status(timeline.final_raw_cents, liquid_balance_cents)
         ],
         checkpoints=checkpoints,
         goal_impacts=goal_impacts,
@@ -210,21 +209,6 @@ def evaluate_multi_step_scenario_plan(
         confidence_level=baseline.confidence_level,
         warnings=warnings,
     )
-
-
-def _chronological_order(
-    steps: list[MultiStepScenarioStepRequest],
-) -> list[MultiStepScenarioStepRequest]:
-    # Same-date steps keep their original request order: `sorted` is
-    # itself stable, and indexing on `pair[0]` as the tie-breaker makes
-    # that explicit rather than incidental.
-    return [
-        step
-        for _, step in sorted(
-            enumerate(steps),
-            key=lambda pair: (pair[1].effective_date, pair[0]),
-        )
-    ]
 
 
 def _validate_step_dates(
@@ -247,143 +231,9 @@ def _validate_step_dates(
             ) from exc
 
 
-def _walk_steps(
-    ordered_steps: list[MultiStepScenarioStepRequest],
-    *,
-    baseline_raw_cents: int,
-    liquid_balance_cents: int,
-    horizon_end: date,
-) -> tuple[
-    list[MultiStepScenarioCheckpointOut],
-    list[_StepEffect],
-    int,
-    int,
-    int | None,
-    str | None,
-    date | None,
-    int,
-    list[str],
-]:
-    checkpoints: list[MultiStepScenarioCheckpointOut] = []
-    effects: list[_StepEffect] = []
-    running_raw_cents = baseline_raw_cents
-    cumulative_impact_cents = 0
-    total_monthly_capacity_delta_cents = 0
-    minimum_safe_cents = max(baseline_raw_cents, 0)
-    worst_sequence: int | None = None
-    worst_label: str | None = None
-    worst_date: date | None = None
-    compounding_labels: list[str] = []
-
-    for sequence, step in enumerate(ordered_steps, start=1):
-        effect = _resolve_step_effect(step, horizon_end)
-        effects.append(effect)
-
-        before_raw_cents = running_raw_cents
-        running_raw_cents -= effect.cost_delta_cents
-        after_raw_cents = running_raw_cents
-        cumulative_impact_cents += effect.cost_delta_cents
-        total_monthly_capacity_delta_cents += (
-            effect.monthly_capacity_delta_cents
-        )
-
-        if effect.cost_delta_cents > 0 and before_raw_cents < 0:
-            compounding_labels.append(step.label)
-
-        after_safe_cents = max(after_raw_cents, 0)
-
-        if after_safe_cents < minimum_safe_cents:
-            minimum_safe_cents = after_safe_cents
-            worst_sequence = sequence
-            worst_label = step.label
-            worst_date = step.effective_date
-
-        checkpoints.append(
-            MultiStepScenarioCheckpointOut(
-                sequence=sequence,
-                step_type=step.step_type,
-                label=step.label,
-                effective_date=step.effective_date,
-                is_recurring=effect.is_recurring,
-                is_temporary=effect.is_temporary,
-                expires_on=effect.expires_on,
-                safe_to_spend_before_cents=max(before_raw_cents, 0),
-                safe_to_spend_after_cents=after_safe_cents,
-                impact_cents=effect.cost_delta_cents,
-                cumulative_impact_cents=cumulative_impact_cents,
-                status=_STATUS_MAP[
-                    _determine_status(after_raw_cents, liquid_balance_cents)
-                ],
-            )
-        )
-
-    return (
-        checkpoints,
-        effects,
-        running_raw_cents,
-        total_monthly_capacity_delta_cents,
-        worst_sequence,
-        worst_label,
-        worst_date,
-        minimum_safe_cents,
-        compounding_labels,
-    )
-
-
-def _resolve_step_effect(
-    step: MultiStepScenarioStepRequest, horizon_end: date
-) -> _StepEffect:
-    remaining_days = (horizon_end - step.effective_date).days
-
-    if step.step_type in ("one_time_expense", "temporary_expense_shock"):
-        assert step.amount_cents is not None
-        return _StepEffect(step.amount_cents, 0, False, False, None)
-
-    if step.step_type in _RECURRING_INCREASE_TYPES:
-        assert step.amount_cents is not None
-        return _StepEffect(
-            _prorate_monthly_to_horizon(step.amount_cents, remaining_days),
-            step.amount_cents,
-            True,
-            False,
-            None,
-        )
-
-    if step.step_type in _RECURRING_DECREASE_TYPES:
-        assert step.amount_cents is not None
-        return _StepEffect(
-            -_prorate_monthly_to_horizon(step.amount_cents, remaining_days),
-            0,
-            True,
-            False,
-            None,
-        )
-
-    assert step.step_type == "temporary_income_loss"
-    assert step.monthly_income_loss_cents is not None
-    assert step.duration_months is not None
-
-    months_remaining = remaining_days / _DAYS_PER_MONTH
-    effective_months = min(step.duration_months, months_remaining)
-    cost_delta_cents = round(
-        step.monthly_income_loss_cents * effective_months
-    )
-    expires_on = step.effective_date + timedelta(
-        days=round(_DAYS_PER_MONTH * step.duration_months)
-    )
-
-    return _StepEffect(
-        cost_delta_cents,
-        step.monthly_income_loss_cents,
-        False,
-        True,
-        expires_on,
-    )
-
-
 def _build_warnings(
     ordered_steps: list[MultiStepScenarioStepRequest],
-    effects: list[_StepEffect],
+    effects: list[StepTimelineEffect],
     *,
     horizon_end: date,
     compounding_labels: list[str],

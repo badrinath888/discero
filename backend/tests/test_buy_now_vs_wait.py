@@ -271,21 +271,30 @@ def test_now_unaffordable_wait_affordable() -> None:
 
 
 def test_recurring_monthly_bill_recurs_in_both_now_and_wait() -> None:
-    """Regression test for the recurrence-counting fix.
+    """Regression test for the recurrence-counting fix, updated for the
+    Time-Aware Engine 2.0 known-cashflow advance.
 
-    Before the fix, a recurring bill due before WAIT's evaluation
-    date was silently dropped from WAIT's obligations entirely
-    (single stored `next_payment`, not projected forward), making
-    WAIT look artificially better than it really is. A real monthly
-    bill can't be dodged by waiting a few weeks -- it recurs at its
-    next due date instead -- so both NOW and WAIT must now see it.
+    A recurring bill due before WAIT's evaluation date is no longer
+    dropped from WAIT's obligations entirely (single stored
+    `next_payment`, not projected forward) -- its next monthly
+    occurrence correctly lands inside WAIT's own horizon window too.
+    But a real monthly bill due BEFORE the wait date (Aug 14, inside
+    the [today, wait date) gap) will genuinely already have been paid
+    by the time the wait date arrives -- WAIT 2.0 now advances the
+    known balance across that gap, so WAIT correctly ends up paying
+    for BOTH the Aug 14 occurrence (via the advance) and the Sep 14
+    occurrence (inside its own horizon), while NOW's own horizon only
+    ever reaches the single Aug 14 occurrence. Waiting is genuinely
+    worse here, by exactly one bill -- it is no longer misrepresented
+    as equivalent.
     """
     with TestingSessionLocal() as db:
         user = create_user(db, "recurs-both")
         create_account(db, user, available_balance_cents=500_000)
-        # Due Aug 14 -- inside NOW's [Aug9, Sep8] window. Its next
-        # monthly occurrence, Sep 14, falls inside WAIT's
-        # [Aug29, Sep28] window too.
+        # Due Aug 14 -- inside NOW's [Aug9, Sep8] window AND inside the
+        # gap WAIT 2.0 advances across ([Aug9, Aug29)). Its next
+        # monthly occurrence, Sep 14, falls inside WAIT's own
+        # [Aug29, Sep28] horizon window too.
         create_recurring_item(
             db, user, next_payment=date(2026, 8, 14), amount_cents=100_000
         )
@@ -317,10 +326,13 @@ def test_recurring_monthly_bill_recurs_in_both_now_and_wait() -> None:
         assert wait_obligation.expected_date == date(2026, 9, 14)
         assert now_obligation.amount_cents == wait_obligation.amount_cents
 
-        # Same recurring cost hits both timings -- neither is
-        # artificially favored by a dropped obligation.
-        assert result.recommended_timing == "either"
-        assert result.key_driver == "equivalent"
+        # WAIT is worse by exactly one bill: the Aug 14 occurrence
+        # already paid via the gap advance, on top of the Sep 14
+        # occurrence still inside its own horizon.
+        assert result.buffer_difference_cents == -100_000
+        assert result.recommended_timing == "buy_now"
+        assert result.key_driver == "buffer"
+        assert "$1,000.00" in result.reason
 
 
 def test_both_unaffordable() -> None:
@@ -486,8 +498,10 @@ def test_goal_impact_differs_between_now_and_wait() -> None:
         create_goal(
             db, user, target_cents=600_000, target_date=date(2027, 8, 9)
         )
-        # Only inside NOW's window -- buying now means this bill and
-        # the purchase both draw against this month's capacity.
+        # Inside NOW's window AND inside the gap WAIT 2.0 advances
+        # across -- this bill genuinely reduces the balance available
+        # by the wait date too, just not as sharply as it reduces
+        # NOW's own tighter capacity window.
         create_recurring_item(
             db, user, next_payment=date(2026, 8, 14), amount_cents=100_000
         )
@@ -508,9 +522,14 @@ def test_goal_impact_differs_between_now_and_wait() -> None:
         now_delay = result.now.simulation.goal_impacts[0].delay_months
         wait_delay = result.wait.simulation.goal_impacts[0].delay_months
 
+        # Waiting is still less disruptive to the goal than buying now
+        # (the bill and the purchase compete less tightly for capacity
+        # from the advanced-forward vantage point), but it is no
+        # longer misrepresented as having zero impact -- the known
+        # bill is visible to WAIT too now.
         assert now_delay > 0
-        assert wait_delay == 0
-        assert now_delay != wait_delay
+        assert wait_delay > 0
+        assert now_delay > wait_delay
         assert result.goal_impact_note is not None
         assert "Buying now delays your goals" in result.goal_impact_note
 
@@ -543,6 +562,82 @@ def test_no_fabricated_caveat_when_nothing_warrants_one() -> None:
         )
         assert "directional rather than a precise forecast" not in (
             result.assumption
+        )
+
+
+def test_wait_advances_liquid_balance_before_purchase() -> None:
+    """The core Time-Aware Engine 2.0 fix: WAIT's starting balance for
+    its own safe-to-spend window must already reflect a known
+    obligation due before the wait date, not the unmodified current
+    balance re-labeled with a future date.
+    """
+    with TestingSessionLocal() as db:
+        user = create_user(db, "wait-advances")
+        create_account(db, user, available_balance_cents=500_000)
+        create_recurring_item(
+            db, user, next_payment=date(2026, 8, 14), amount_cents=75_000
+        )
+
+        result = evaluate_buy_now_vs_wait(
+            db,
+            user.id,
+            BuyNowVsWaitRequest(
+                purchase_name="Gadget",
+                purchase_amount_cents=1_000,
+                buy_now_date=date(2026, 8, 11),
+                wait_until_date=date(2026, 8, 29),
+                horizon_days=30,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        assert (
+            result.wait.simulation.safe_to_spend.breakdown.liquid_balance_cents
+            == 425_000
+        )
+        assert (
+            "known recurring obligations and projected income"
+            in result.assumption
+        )
+
+
+def test_wait_horizon_obligations_still_counted_after_advance() -> None:
+    """A bill inside the gap AND a separate bill inside WAIT's own
+    post-wait horizon must both be reflected -- the advance must never
+    replace or shadow WAIT's own safe-to-spend obligations window.
+    """
+    with TestingSessionLocal() as db:
+        user = create_user(db, "wait-both-windows")
+        create_account(db, user, available_balance_cents=500_000)
+        # Inside the gap [Aug9, Aug29).
+        create_recurring_item(
+            db, user, next_payment=date(2026, 8, 14), amount_cents=50_000
+        )
+        # Inside WAIT's own [Aug29, Sep28] horizon, outside the gap.
+        create_recurring_item(
+            db, user, next_payment=date(2026, 9, 5), amount_cents=30_000
+        )
+
+        result = evaluate_buy_now_vs_wait(
+            db,
+            user.id,
+            BuyNowVsWaitRequest(
+                purchase_name="Gadget",
+                purchase_amount_cents=1_000,
+                buy_now_date=date(2026, 8, 11),
+                wait_until_date=date(2026, 8, 29),
+                horizon_days=30,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        # 500_000 - 50_000 (Aug 14 occurrence, via the gap advance)
+        # - 50_000 (its next Sep 14 occurrence, inside WAIT's own
+        # horizon) - 30_000 (the Sep 5 bill, also inside WAIT's own
+        # horizon) - 1_000 (purchase) = 369_000.
+        assert (
+            result.wait.simulation.safe_to_spend_after_purchase_cents
+            == 369_000
         )
 
 

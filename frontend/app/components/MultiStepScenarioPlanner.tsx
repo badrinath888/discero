@@ -174,6 +174,8 @@ export default function MultiStepScenarioPlanner({
   const [result, setResult] = useState<MultiStepScenarioPlanResult | null>(
     null
   );
+  const [lastPayload, setLastPayload] =
+    useState<MultiStepScenarioPlanRequest | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -240,8 +242,10 @@ export default function MultiStepScenarioPlanner({
     try {
       const data = await api.runMultiStepScenarioPlan(userId, payload);
       setResult(data);
+      setLastPayload(payload);
     } catch (err) {
       setResult(null);
+      setLastPayload(null);
       setError(
         err instanceof Error
           ? err.message
@@ -519,8 +523,15 @@ export default function MultiStepScenarioPlanner({
         </button>
       </form>
 
-      {result ? (
-        <MultiStepResultPanel result={result} />
+      {result && userId !== null && lastPayload ? (
+        <div className="space-y-4">
+          <MultiStepResultPanel result={result} />
+          <SavePlanButton
+            userId={userId}
+            planName={result.name}
+            payload={lastPayload}
+          />
+        </div>
       ) : (
         <article className="flex min-h-[420px] flex-col items-center justify-center border-y border-[#181713]/10 bg-[#FFFCF7] p-8 text-center">
           <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[#EDE5DE] text-[#6E4B63]">
@@ -535,6 +546,62 @@ export default function MultiStepScenarioPlanner({
             your real safe-to-spend baseline.
           </p>
         </article>
+      )}
+    </div>
+  );
+}
+
+function SavePlanButton({
+  userId,
+  planName,
+  payload,
+}: {
+  userId: number;
+  planName: string | null;
+  payload: MultiStepScenarioPlanRequest;
+}) {
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
+    "idle"
+  );
+
+  async function handleSave() {
+    setStatus("saving");
+    try {
+      await api.saveDecision(userId, {
+        decision_type: "multi_step_plan",
+        title: planName?.trim() || "Multi-step plan",
+        input: payload,
+      });
+      setStatus("saved");
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  if (status === "saved") {
+    return (
+      <p className="text-sm font-semibold text-[#6E4B63]">
+        Saved to your decision history. Return anytime to rerun it against
+        current data.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={status === "saving"}
+        className="discero-button-secondary rounded-full border px-4 py-2 text-sm font-semibold transition disabled:opacity-50"
+      >
+        {status === "saving" ? "Saving..." : "Save plan"}
+      </button>
+
+      {status === "error" && (
+        <span className="text-xs font-medium text-[#a64b3d]">
+          Couldn&apos;t save just now.
+        </span>
       )}
     </div>
   );

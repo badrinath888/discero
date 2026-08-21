@@ -48,16 +48,30 @@ def calculate_safe_to_spend(
     payload: SafeToSpendRequest,
     *,
     as_of: date | None = None,
+    starting_liquid_balance_override_cents: int | None = None,
 ) -> SafeToSpendOut:
+    """`starting_liquid_balance_override_cents`, when provided, is used
+    in place of the actual linked-account balance -- the only caller
+    today is `major_purchase_service`, for a Buy Now vs Wait WAIT
+    evaluation whose starting balance has already been advanced by
+    `time_aware_financial_simulation_service.advance_known_state_to_date`
+    to account for known cashflow between now and the wait date. It is
+    never used to fabricate a balance; it always originates from a
+    prior deterministic calculation.
+    """
     calculation_date = as_of or date.today()
     through_date = calculation_date + timedelta(
         days=payload.horizon_days
     )
 
-    liquid_balance_cents, balance_warnings = _get_liquid_balance(
-        db,
-        user_id,
-    )
+    if starting_liquid_balance_override_cents is not None:
+        liquid_balance_cents = starting_liquid_balance_override_cents
+        balance_warnings: list[str] = []
+    else:
+        liquid_balance_cents, balance_warnings = _get_liquid_balance(
+            db,
+            user_id,
+        )
 
     recurring_obligations = _get_upcoming_obligations(
         db,

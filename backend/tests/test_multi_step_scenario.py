@@ -726,18 +726,25 @@ def test_endpoint_route_precedence_and_malformed_payload(
     )
     assert malformed_response.status_code == 422
 
+    # The endpoint (unlike the service-level tests above) has no as_of
+    # override, so it validates step dates against the real
+    # date.today() -- anchor to that instead of the fixed TEST_DATE so
+    # this stays valid across a calendar rollover between test-process
+    # and server-process timezones.
+    server_today = date.today()
+
     ok_response = client.post(
         f"/users/{user_id}/decisions/multi-step",
         headers=headers,
         json={
             "steps": [
                 _step_json(
-                    "one_time_expense", "A", TEST_DATE, amount_cents=1000
+                    "one_time_expense", "A", server_today, amount_cents=1000
                 ),
                 _step_json(
                     "one_time_expense",
                     "B",
-                    TEST_DATE + timedelta(days=1),
+                    server_today + timedelta(days=1),
                     amount_cents=1000,
                 ),
             ]

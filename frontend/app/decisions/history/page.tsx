@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -1052,6 +1052,9 @@ export default function DecisionHistoryPage() {
     useState<DecisionPortfolioResult | null>(null);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
   const [portfolioError, setPortfolioError] = useState<string | null>(null);
+  // Bumped on every fresh entry/exit so an in-flight analyze request from a
+  // prior session can recognize it's stale and skip applying its result.
+  const portfolioSessionRef = useRef(0);
 
   useEffect(() => {
     async function initialize() {
@@ -1283,19 +1286,23 @@ export default function DecisionHistoryPage() {
   }
 
   function startPortfolioSelection() {
+    portfolioSessionRef.current += 1;
     setSelectionMode(true);
     setSelectedDecisionIds([]);
     setSelectedVariants({});
     setPortfolioResult(null);
     setPortfolioError(null);
+    setPortfolioLoading(false);
   }
 
   function exitPortfolioSelection() {
+    portfolioSessionRef.current += 1;
     setSelectionMode(false);
     setSelectedDecisionIds([]);
     setSelectedVariants({});
     setPortfolioResult(null);
     setPortfolioError(null);
+    setPortfolioLoading(false);
   }
 
   function togglePortfolioSelection(decisionId: number) {
@@ -1343,6 +1350,7 @@ export default function DecisionHistoryPage() {
       return;
     }
 
+    const requestSession = portfolioSessionRef.current;
     setPortfolioLoading(true);
     setPortfolioError(null);
     try {
@@ -1353,11 +1361,18 @@ export default function DecisionHistoryPage() {
         }
       );
       const result = await api.evaluateDecisionPortfolio(userId, items);
+      // Ignore responses for a session the user has since left (cancelled
+      // or re-entered) -- applying them would leak a prior session's
+      // result/error into a fresh one.
+      if (portfolioSessionRef.current !== requestSession) return;
       setPortfolioResult(result);
     } catch {
+      if (portfolioSessionRef.current !== requestSession) return;
       setPortfolioError("Couldn't analyze these decisions together just now.");
     } finally {
-      setPortfolioLoading(false);
+      if (portfolioSessionRef.current === requestSession) {
+        setPortfolioLoading(false);
+      }
     }
   }
 

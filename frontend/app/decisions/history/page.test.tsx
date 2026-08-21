@@ -1711,6 +1711,117 @@ describe("Decision portfolio", () => {
     );
   });
 
+  it("resets selection to 0 when re-entering portfolio mode after a prior selection", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    expect(screen.getByTestId("portfolio-selected-count")).toHaveTextContent(
+      "Selected 2 of 5"
+    );
+
+    fireEvent.click(screen.getByTestId("cancel-portfolio-selection"));
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    expect(screen.getByTestId("portfolio-selected-count")).toHaveTextContent(
+      "Selected 0 of 5"
+    );
+  });
+
+  it("clears a previously chosen branch when re-entering portfolio mode", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      buyNowVsWaitDecision,
+    ]);
+
+    render(<DecisionHistoryPage />);
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+    fireEvent.click(
+      screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
+    );
+    fireEvent.click(
+      within(
+        screen.getByTestId(`portfolio-variant-${buyNowVsWaitDecision.id}`)
+      ).getByLabelText("Buy now")
+    );
+
+    fireEvent.click(screen.getByTestId("cancel-portfolio-selection"));
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+    fireEvent.click(
+      screen.getByTestId(`portfolio-select-${buyNowVsWaitDecision.id}`)
+    );
+
+    const radios = within(
+      screen.getByTestId(`portfolio-variant-${buyNowVsWaitDecision.id}`)
+    ).getAllByRole("radio");
+    radios.forEach((radio) => expect(radio).not.toBeChecked());
+  });
+
+  it("does not show a prior session's result once a stale analyze response arrives after re-entry", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+
+    let resolvePromise: (value: DecisionPortfolioResult) => void = () => {};
+    mocks.evaluateDecisionPortfolio.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePromise = resolve;
+      })
+    );
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+    expect(await screen.findByText("Analyzing\u2026")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("cancel-portfolio-selection"));
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    resolvePromise(portfolioResultFixture);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(
+      screen.queryByTestId("decision-portfolio-section")
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("portfolio-selected-count")).toHaveTextContent(
+      "Selected 0 of 5"
+    );
+  });
+
+  it("does not show a prior session's error once a stale analyze rejection arrives after re-entry", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([
+      purchaseDecision,
+      whatIfDecision,
+    ]);
+
+    let rejectPromise: (err: Error) => void = () => {};
+    mocks.evaluateDecisionPortfolio.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectPromise = reject;
+      })
+    );
+
+    render(<DecisionHistoryPage />);
+    await selectTwoCompatibleDecisions();
+    fireEvent.click(screen.getByTestId("analyze-together"));
+    expect(await screen.findByText("Analyzing\u2026")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("cancel-portfolio-selection"));
+    fireEvent.click(await screen.findByTestId("start-portfolio-selection"));
+
+    rejectPromise(new Error("validation error"));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("portfolio-selected-count")).toHaveTextContent(
+      "Selected 0 of 5"
+    );
+  });
+
   it("shows an error when the backend rejects the portfolio request", async () => {
     mocks.getSavedDecisions.mockResolvedValue([
       purchaseDecision,

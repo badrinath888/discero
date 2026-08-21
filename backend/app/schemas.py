@@ -1957,6 +1957,7 @@ DecisionType = Literal[
     "buy_now_vs_wait",
     "what_if",
     "what_if_comparison",
+    "multi_step_plan",
 ]
 
 CalibrationMetricUnit = Literal[

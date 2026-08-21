@@ -1205,7 +1205,8 @@ export type DecisionType =
   | "stress_test"
   | "buy_now_vs_wait"
   | "what_if"
-  | "what_if_comparison";
+  | "what_if_comparison"
+  | "multi_step_plan";
 
 export type SaveDecisionRequest = {
   decision_type: DecisionType;

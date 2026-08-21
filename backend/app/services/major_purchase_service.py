@@ -28,6 +28,7 @@ def simulate_major_purchase(
     payload: MajorPurchaseSimulationRequest,
     *,
     as_of: date | None = None,
+    starting_liquid_balance_override_cents: int | None = None,
 ) -> MajorPurchaseSimulationOut:
     calculation_date = as_of or date.today()
 
@@ -47,6 +48,9 @@ def simulate_major_purchase(
             horizon_days=payload.horizon_days,
         ),
         as_of=calculation_date,
+        starting_liquid_balance_override_cents=(
+            starting_liquid_balance_override_cents
+        ),
     )
 
     if payload.purchase_date > safe_to_spend.through_date:

@@ -53,6 +53,7 @@ _DECISION_TYPE_LABELS: dict[str, str] = {
     "buy_now_vs_wait": "buy now vs. wait",
     "what_if": "what-if",
     "what_if_comparison": "what-if comparison",
+    "multi_step_plan": "multi-step plan",
 }
 
 

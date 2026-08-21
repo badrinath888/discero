@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,7 +12,11 @@ from app.models import (
     Transaction,
     User,
 )
-from app.schemas import GoalImpactOut, SaveDecisionRequest
+from app.schemas import (
+    DecisionPortfolioRequest,
+    GoalImpactOut,
+    SaveDecisionRequest,
+)
 from app.services import decision_history_service, decision_portfolio_service
 from app.services.decision_goal_conflict_intelligence_service import (
     build_goal_conflict_intelligence,
@@ -2111,6 +2116,272 @@ def test_portfolio_endpoint_rejects_missing_variant(
 
     assert response.status_code == 422
     assert response.json()["detail"]["reason"] == "variant_required"
+
+
+# --- as_of_date: client-local "today" for timezone-safe horizon checks -
+
+
+def test_as_of_date_absent_is_valid() -> None:
+    request = DecisionPortfolioRequest(decision_ids=[1, 2])
+    assert request.as_of_date is None
+
+
+def test_as_of_date_equal_to_server_today_is_valid() -> None:
+    request = DecisionPortfolioRequest(
+        decision_ids=[1, 2], as_of_date=date.today()
+    )
+    assert request.as_of_date == date.today()
+
+
+def test_as_of_date_one_day_behind_server_is_valid() -> None:
+    """UTC has already rolled forward but the client is still on
+    yesterday's local calendar date -- exactly the production bug."""
+    request = DecisionPortfolioRequest(
+        decision_ids=[1, 2],
+        as_of_date=date.today() - timedelta(days=1),
+    )
+    assert request.as_of_date == date.today() - timedelta(days=1)
+
+
+def test_as_of_date_one_day_ahead_of_server_is_valid() -> None:
+    """The opposite rollover: client local date is already tomorrow
+    relative to the server's UTC date."""
+    request = DecisionPortfolioRequest(
+        decision_ids=[1, 2],
+        as_of_date=date.today() + timedelta(days=1),
+    )
+    assert request.as_of_date == date.today() + timedelta(days=1)
+
+
+def test_as_of_date_beyond_bound_is_rejected() -> None:
+    for drift in (2, -2):
+        try:
+            DecisionPortfolioRequest(
+                decision_ids=[1, 2],
+                as_of_date=date.today() + timedelta(days=drift),
+            )
+            assert False, f"expected ValidationError for drift={drift}"
+        except ValidationError:
+            pass
+
+
+def test_portfolio_as_of_override_fixes_utc_rollover_for_stress_event() -> (
+    None
+):
+    """Reproduces the production bug at the service layer: a stress-
+    test decision dated the user's local "today" is wrongly rejected
+    once the server's own date.today() has rolled to the next day --
+    and passing that local date back as as_of fixes it."""
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=5_000_000)
+
+        # A companion decision whose own date is valid under either
+        # calculation date, so only the stress decision's fate flips.
+        what_if = _save(
+            db,
+            user,
+            "what_if",
+            "Rent increase",
+            _what_if_one_time_input(
+                50_000, effective_date=TEST_DATE + timedelta(days=10)
+            ),
+        )
+        stress = _save(
+            db,
+            user,
+            "stress_test",
+            "30-Day Income Loss",
+            _stress_test_input(),
+            as_of=TEST_DATE,
+        )
+
+        server_rolled_forward = TEST_DATE + timedelta(days=1)
+
+        try:
+            decision_portfolio_service.evaluate_decision_portfolio(
+                db,
+                user.id,
+                [what_if.id, stress.id],
+                as_of=server_rolled_forward,
+            )
+            assert False, "expected DecisionPortfolioValidationError"
+        except DecisionPortfolioValidationError as exc:
+            assert exc.details["reason"] == "event_date_out_of_horizon"
+            assert exc.details["decision_id"] == stress.id
+
+        result = decision_portfolio_service.evaluate_decision_portfolio(
+            db, user.id, [what_if.id, stress.id], as_of=TEST_DATE
+        )
+        assert {d.decision_id for d in result.selected_decisions} == {
+            what_if.id,
+            stress.id,
+        }
+
+
+def test_portfolio_stress_test_stale_event_still_rejected_with_as_of() -> (
+    None
+):
+    """A genuinely stale event_date must stay rejected even though the
+    as_of override exists -- the override changes what "today" means,
+    it does not waive the >= today rule."""
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=5_000_000)
+
+        what_if = _save(
+            db,
+            user,
+            "what_if",
+            "Rent increase",
+            _what_if_one_time_input(
+                50_000, effective_date=TEST_DATE + timedelta(days=10)
+            ),
+        )
+        stress = _save(
+            db,
+            user,
+            "stress_test",
+            "Old shock",
+            _stress_test_input(),
+            as_of=TEST_DATE,
+        )
+        # Genuinely stale: 5 days before the client-local as_of below.
+        stress.input_snapshot = {
+            **stress.input_snapshot,
+            "event_date": (TEST_DATE - timedelta(days=5)).isoformat(),
+        }
+        db.commit()
+
+        try:
+            decision_portfolio_service.evaluate_decision_portfolio(
+                db, user.id, [what_if.id, stress.id], as_of=TEST_DATE
+            )
+            assert False, "expected DecisionPortfolioValidationError"
+        except DecisionPortfolioValidationError as exc:
+            assert exc.details["reason"] == "event_date_out_of_horizon"
+            assert exc.details["decision_id"] == stress.id
+
+
+def test_portfolio_endpoint_without_as_of_date_is_backward_compatible(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(client, "portfolio-as-of-legacy")
+
+    with TestingSessionLocal() as db:
+        user = db.get(User, user_id)
+        create_account(db, user, available_balance_cents=5_000_000)
+
+    today = date.today()
+
+    purchase_response = client.post(
+        f"/users/{user_id}/decisions",
+        headers=headers,
+        json={
+            "decision_type": "major_purchase",
+            "title": "Laptop",
+            "input": _major_purchase_input(200_000, purchase_date=today),
+        },
+    )
+    purchase_id = purchase_response.json()["id"]
+
+    stress_response = client.post(
+        f"/users/{user_id}/decisions",
+        headers=headers,
+        json={
+            "decision_type": "stress_test",
+            "title": "Income loss",
+            "input": {**_stress_test_input(), "event_date": today.isoformat()},
+        },
+    )
+    stress_id = stress_response.json()["id"]
+
+    response = client.post(
+        f"/users/{user_id}/decisions/portfolio",
+        headers=headers,
+        json={"decision_ids": [purchase_id, stress_id]},
+    )
+
+    assert response.status_code == 200
+
+
+def test_portfolio_endpoint_accepts_client_local_as_of_date(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(client, "portfolio-as-of-http")
+
+    with TestingSessionLocal() as db:
+        user = db.get(User, user_id)
+        create_account(db, user, available_balance_cents=5_000_000)
+
+    today = date.today()
+
+    purchase_response = client.post(
+        f"/users/{user_id}/decisions",
+        headers=headers,
+        json={
+            "decision_type": "major_purchase",
+            "title": "Laptop",
+            "input": _major_purchase_input(200_000, purchase_date=today),
+        },
+    )
+    purchase_id = purchase_response.json()["id"]
+
+    stress_response = client.post(
+        f"/users/{user_id}/decisions",
+        headers=headers,
+        json={
+            "decision_type": "stress_test",
+            "title": "Income loss",
+            "input": {**_stress_test_input(), "event_date": today.isoformat()},
+        },
+    )
+    stress_id = stress_response.json()["id"]
+
+    response = client.post(
+        f"/users/{user_id}/decisions/portfolio",
+        headers=headers,
+        json={
+            "decision_ids": [purchase_id, stress_id],
+            "as_of_date": today.isoformat(),
+        },
+    )
+
+    assert response.status_code == 200
+
+
+def test_portfolio_endpoint_rejects_as_of_date_beyond_bound(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(client, "portfolio-as-of-bound")
+
+    response = client.post(
+        f"/users/{user_id}/decisions/portfolio",
+        headers=headers,
+        json={
+            "decision_ids": [1, 2],
+            "as_of_date": (date.today() + timedelta(days=2)).isoformat(),
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_portfolio_endpoint_blocks_other_user_even_with_as_of_date(
+    client: TestClient,
+) -> None:
+    user_id, headers = register_and_login(client, "portfolio-as-of-auth")
+
+    response = client.post(
+        f"/users/{user_id + 1}/decisions/portfolio",
+        headers=headers,
+        json={
+            "decision_ids": [1, 2],
+            "as_of_date": date.today().isoformat(),
+        },
+    )
+
+    assert response.status_code == 403
 
 
 # --- Goal conflict intelligence (pure unit tests) ---------------------

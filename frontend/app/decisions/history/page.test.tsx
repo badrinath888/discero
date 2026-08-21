@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../lib/api";
 import type {
   DecisionCalibration,
+  DecisionMemory,
   DecisionPortfolioResult,
   DecisionReviewQueueItem,
   DecisionTimeline,
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   evaluateDecisionOutcome: vi.fn(),
   getDecisionOutcomes: vi.fn(),
   getDecisionTimeline: vi.fn(),
+  getDecisionMemory: vi.fn(),
   getDecisionCalibration: vi.fn(),
   getDecisionReviewQueue: vi.fn(),
   evaluateDecisionPortfolio: vi.fn(),
@@ -102,6 +104,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
       evaluateDecisionOutcome: mocks.evaluateDecisionOutcome,
       getDecisionOutcomes: mocks.getDecisionOutcomes,
       getDecisionTimeline: mocks.getDecisionTimeline,
+      getDecisionMemory: mocks.getDecisionMemory,
       getDecisionCalibration: mocks.getDecisionCalibration,
       getDecisionReviewQueue: mocks.getDecisionReviewQueue,
       evaluateDecisionPortfolio: mocks.evaluateDecisionPortfolio,
@@ -234,6 +237,85 @@ const whatIfComparisonDecision: SavedDecision = {
   created_at: "2026-08-08T00:00:00Z",
   outcome_count: 0,
   latest_outcome_at: null,
+};
+
+const emptyMemory: DecisionMemory = {
+  status: "no_history",
+  summary: {
+    total_saved_decisions: 0,
+    acted_on_count: 0,
+    dismissed_count: 0,
+    unresolved_count: 0,
+    earliest_decision_at: null,
+    latest_decision_at: null,
+    most_used_decision_types: [],
+  },
+  follow_through: {
+    eligible_decisions: 0,
+    acted_on_count: 0,
+    follow_through_rate: null,
+    outcome_eligible_decisions: 0,
+    outcome_tracked_decisions: 0,
+    outcome_tracking_rate: null,
+  },
+  outcomes: {
+    total_outcome_checks: 0,
+    directional_observations: 0,
+    favorable_count: 0,
+    unfavorable_count: 0,
+    unchanged_count: 0,
+    most_frequent_metric_paths: [],
+  },
+  decision_types: [],
+  recent_patterns: [],
+  needs_follow_up_count: 0,
+};
+
+const populatedMemory: DecisionMemory = {
+  status: "available",
+  summary: {
+    total_saved_decisions: 4,
+    acted_on_count: 2,
+    dismissed_count: 1,
+    unresolved_count: 1,
+    earliest_decision_at: "2026-07-01T00:00:00Z",
+    latest_decision_at: "2026-08-08T00:00:00Z",
+    most_used_decision_types: ["major_purchase"],
+  },
+  follow_through: {
+    eligible_decisions: 3,
+    acted_on_count: 2,
+    follow_through_rate: 0.667,
+    outcome_eligible_decisions: 2,
+    outcome_tracked_decisions: 1,
+    outcome_tracking_rate: 0.5,
+  },
+  outcomes: {
+    total_outcome_checks: 1,
+    directional_observations: 1,
+    favorable_count: 1,
+    unfavorable_count: 0,
+    unchanged_count: 0,
+    most_frequent_metric_paths: ["safe_to_spend_after_purchase_cents"],
+  },
+  decision_types: [
+    {
+      decision_type: "major_purchase",
+      saved_count: 4,
+      acted_on_count: 2,
+      outcome_check_count: 1,
+      directional_observation_count: 1,
+      calibration_label: "insufficient_data",
+    },
+  ],
+  recent_patterns: [
+    {
+      text: "Repeated major purchase analysis -- 4 saved decisions.",
+      decision_type: "major_purchase",
+      count: 4,
+    },
+  ],
+  needs_follow_up_count: 2,
 };
 
 const emptyCalibration: DecisionCalibration = {
@@ -429,10 +511,17 @@ const portfolioResultFixture: DecisionPortfolioResult = {
         conflict: true,
         severity: "high",
         rank: 1,
+        attribution: "pre_existing_conflict",
+        attribution_text:
+          "House Down Payment is already off track before this scenario. This scenario does not materially worsen the goal.",
       },
     ],
     most_affected_goal_id: 1,
     conflict_count: 1,
+    scenario_created_conflict_count: 0,
+    scenario_worsened_conflict_count: 0,
+    pre_existing_conflict_count: 1,
+    scenario_improved_count: 0,
   },
   conflicts: {
     as_of: "2026-08-08",
@@ -481,6 +570,8 @@ beforeEach(() => {
   mocks.evaluateDecisionOutcome.mockReset();
   mocks.getDecisionOutcomes.mockReset();
   mocks.getDecisionTimeline.mockReset();
+  mocks.getDecisionMemory.mockReset();
+  mocks.getDecisionMemory.mockResolvedValue(emptyMemory);
   mocks.getDecisionCalibration.mockReset();
   mocks.getDecisionCalibration.mockResolvedValue(emptyCalibration);
   mocks.getDecisionReviewQueue.mockReset();
@@ -979,6 +1070,62 @@ describe("Decision history page", () => {
 
     // The update was purely local -- no second list fetch/reload.
     expect(mocks.getSavedDecisions).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Decision memory", () => {
+  it("renders nothing when there is no decision history", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([]);
+    mocks.getDecisionMemory.mockResolvedValue(emptyMemory);
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("No saved decisions yet");
+    expect(
+      screen.queryByTestId("decision-memory-section")
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the populated summary, patterns, and follow-up count", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionMemory.mockResolvedValue(populatedMemory);
+
+    render(<DecisionHistoryPage />);
+
+    const section = await screen.findByTestId("decision-memory-section");
+    expect(section).toHaveTextContent("4");
+    expect(section).toHaveTextContent("2");
+    expect(section).toHaveTextContent("1");
+
+    expect(screen.getByTestId("decision-memory-patterns")).toHaveTextContent(
+      "Repeated major purchase analysis -- 4 saved decisions."
+    );
+    expect(
+      screen.getByTestId("decision-memory-follow-up")
+    ).toHaveTextContent("Needs follow-up: 2 decisions due for review.");
+  });
+
+  it("never renders a raw result_snapshot inside the memory section", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionMemory.mockResolvedValue(populatedMemory);
+
+    render(<DecisionHistoryPage />);
+
+    const section = await screen.findByTestId("decision-memory-section");
+    expect(section).not.toHaveTextContent("affordability_status");
+    expect(section).not.toHaveTextContent("confidence_score");
+  });
+
+  it("does not block the decision list when the memory request fails", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([purchaseDecision]);
+    mocks.getDecisionMemory.mockRejectedValue(new Error("network error"));
+
+    render(<DecisionHistoryPage />);
+
+    await screen.findByText("Laptop Purchase");
+    expect(
+      screen.queryByTestId("decision-memory-section")
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -2044,6 +2191,10 @@ describe("Decision portfolio", () => {
         goals: [],
         most_affected_goal_id: null,
         conflict_count: 0,
+        scenario_created_conflict_count: 0,
+        scenario_worsened_conflict_count: 0,
+        pre_existing_conflict_count: 0,
+        scenario_improved_count: 0,
       },
     });
 

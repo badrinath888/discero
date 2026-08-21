@@ -1393,6 +1393,77 @@ export type DashboardDecisionIntelligence = {
   recent_decision: DashboardRecentDecision | null;
 };
 
+export type DecisionMemoryStatus = "no_history" | "available";
+
+export type DecisionMemorySummary = {
+  total_saved_decisions: number;
+  acted_on_count: number;
+  dismissed_count: number;
+  unresolved_count: number;
+  earliest_decision_at: string | null;
+  latest_decision_at: string | null;
+  most_used_decision_types: DecisionType[];
+};
+
+export type DecisionMemoryFollowThrough = {
+  eligible_decisions: number;
+  acted_on_count: number;
+  follow_through_rate: number | null;
+  outcome_eligible_decisions: number;
+  outcome_tracked_decisions: number;
+  outcome_tracking_rate: number | null;
+};
+
+export type DecisionMemoryOutcomeSummary = {
+  total_outcome_checks: number;
+  directional_observations: number;
+  favorable_count: number;
+  unfavorable_count: number;
+  unchanged_count: number;
+  most_frequent_metric_paths: string[];
+};
+
+export type DecisionMemoryTypeBreakdown = {
+  decision_type: DecisionType;
+  saved_count: number;
+  acted_on_count: number;
+  outcome_check_count: number;
+  directional_observation_count: number;
+  calibration_label: CalibrationLabel;
+};
+
+export type DecisionMemoryPattern = {
+  text: string;
+  decision_type: DecisionType | null;
+  count: number;
+};
+
+export type DecisionMemory = {
+  status: DecisionMemoryStatus;
+  summary: DecisionMemorySummary;
+  follow_through: DecisionMemoryFollowThrough;
+  outcomes: DecisionMemoryOutcomeSummary;
+  decision_types: DecisionMemoryTypeBreakdown[];
+  recent_patterns: DecisionMemoryPattern[];
+  needs_follow_up_count: number;
+};
+
+export type DataFreshnessStatus =
+  | "current"
+  | "recent"
+  | "stale"
+  | "unavailable";
+
+export type DataFreshness = {
+  evaluated_at: string;
+  latest_transaction_date: string | null;
+  days_since_latest_transaction: number | null;
+  account_data_updated_at: string | null;
+  days_since_account_update: number | null;
+  freshness_status: DataFreshnessStatus;
+  notices: string[];
+};
+
 export type DecisionTimelineEventType =
   | "decision_saved"
   | "decision_acted_on"
@@ -1488,6 +1559,13 @@ export type DecisionPortfolioStatus = "comfortable" | "tight" | "high_risk";
 
 export type GoalConflictSeverity = "none" | "low" | "medium" | "high";
 
+export type GoalConflictAttribution =
+  | "scenario_created_conflict"
+  | "scenario_worsened_conflict"
+  | "pre_existing_conflict"
+  | "scenario_improved"
+  | "unaffected";
+
 export type GoalConflictIntelligenceItem = {
   goal_id: number;
   goal_name: string;
@@ -1502,6 +1580,8 @@ export type GoalConflictIntelligenceItem = {
   conflict: boolean;
   severity: GoalConflictSeverity;
   rank: number;
+  attribution: GoalConflictAttribution;
+  attribution_text: string;
 };
 
 export type GoalConflictIntelligence = {
@@ -1509,6 +1589,10 @@ export type GoalConflictIntelligence = {
   goals: GoalConflictIntelligenceItem[];
   most_affected_goal_id: number | null;
   conflict_count: number;
+  scenario_created_conflict_count: number;
+  scenario_worsened_conflict_count: number;
+  pre_existing_conflict_count: number;
+  scenario_improved_count: number;
 };
 
 export type DecisionPortfolioResult = {
@@ -2491,6 +2575,16 @@ compareWhatIfScenarios: (
     fetchWithTimeout(`${API_URL}/users/${userId}/decisions/review-queue`, {
       headers: authHeaders(),
     }).then((res) => handle<DecisionReviewQueue>(res)),
+
+  getDecisionMemory: (userId: number): Promise<DecisionMemory> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/decisions/memory`, {
+      headers: authHeaders(),
+    }).then((res) => handle<DecisionMemory>(res)),
+
+  getDataFreshness: (userId: number): Promise<DataFreshness> =>
+    fetchWithTimeout(`${API_URL}/users/${userId}/decisions/data-freshness`, {
+      headers: authHeaders(),
+    }).then((res) => handle<DataFreshness>(res)),
 
   getDashboardDecisionIntelligence: (
     userId: number

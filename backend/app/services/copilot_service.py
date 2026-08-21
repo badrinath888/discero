@@ -52,9 +52,14 @@ from app.models import PlaidItem, SavingsGoal, User
 from app.schemas import (
     BuyNowVsWaitRequest,
     CopilotConfidenceOut,
+    CopilotDecisionCalibrationOut,
+    CopilotDecisionReviewOut,
     CopilotMessageIn,
     CopilotMetricOut,
+    CopilotRecentDecisionOut,
+    CopilotRecentDecisionsOut,
     CopilotResponseOut,
+    CopilotReviewItemOut,
     FinancialStressTestRequest,
     GoalConflictDetectionRequest,
     MajorPurchaseSimulationRequest,
@@ -78,7 +83,14 @@ from app.services.major_purchase_service import (
     _average_monthly_income_cents,
     simulate_major_purchase,
 )
-from app.services import copilot_audit, copilot_free_mode
+from app.services import (
+    copilot_audit,
+    copilot_free_mode,
+    decision_calibration_service,
+    decision_history_service,
+    decision_memory_service,
+    decision_review_service,
+)
 from app.services.recommendation_service import evaluate_recommendations
 from app.services.recurring_intelligence_service import (
     evaluate_recurring_intelligence,
@@ -136,7 +148,11 @@ _NARRATE_SYSTEM_PROMPT = (
     "'headroom' are two different figures that must never be called "
     "each other. Ground any recommendation in the result's own "
     "`recommended_action`/`explanation` fields rather than inventing "
-    "advice. Keep it to a few short sentences, no filler."
+    "advice. If the result is about the user's decision history/"
+    "calibration and its status/calibration_label is insufficient or "
+    "empty, say so plainly -- never generalize from too little history "
+    "(e.g. never say 'your decisions are usually accurate' from one "
+    "tracked outcome). Keep it to a few short sentences, no filler."
 )
 
 _STATUS_TONE = {
@@ -743,6 +759,61 @@ _TOOLS = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
+        "name": "get_decision_memory",
+        "description": (
+            "Get what Discero has learned from the user's own saved "
+            "Decision Lab history: how many decisions they've saved, "
+            "acted on, tracked outcomes for, recent usage patterns, and "
+            "how many still need follow-up. Use for 'what decisions "
+            "have I analyzed', 'what does Discero know from my "
+            "decision history', or 'what have you learned from my "
+            "decisions' questions. This is a summary of PAST saved "
+            "decisions -- never invent a pattern or count not present "
+            "in the result."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_decision_calibration",
+        "description": (
+            "Get whether the user has enough tracked outcome history "
+            "for a reliable calibration pattern, and if so whether "
+            "their decisions have run mostly conservative, mostly "
+            "optimistic, or balanced relative to what actually "
+            "happened. Use for 'do I have enough outcome history for "
+            "calibration', 'how accurate have my decisions been', or "
+            "'am I calibrated' questions. If the result's "
+            "calibration_label is 'insufficient_data', say so plainly "
+            "-- never generalize from a single observation or claim "
+            "your decisions are 'usually' anything."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_decisions_needing_review",
+        "description": (
+            "Get which of the user's saved decisions are due for "
+            "review -- saved but never marked acted-on/dismissed, "
+            "acted on but never outcome-checked, or due for a "
+            "recheck. Use for 'which decisions need follow-up', "
+            "'what decisions need my attention', or 'what's overdue "
+            "for review' questions. Never invent a reason a decision "
+            "needs review beyond its own review_reason_text."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_recent_decisions",
+        "description": (
+            "Get the user's most recently saved Decision Lab "
+            "analyses (title, type, date, status). Use for 'what "
+            "decisions have I analyzed recently', 'which decisions "
+            "have I saved', or 'what have I looked at lately' "
+            "questions."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "request_clarification",
         "description": (
             "Use when a required financial parameter (amount, "
@@ -855,6 +926,10 @@ _TOOL_LABELS = {
     "get_recommendations": "Recommendations",
     "get_recurring_intelligence": "Recurring Intelligence",
     "get_spending_anomalies": "Spending Anomalies",
+    "get_decision_memory": "Decision Memory",
+    "get_decision_calibration": "Decision Calibration",
+    "get_decisions_needing_review": "Decisions Needing Review",
+    "get_recent_decisions": "Recent Decisions",
 }
 
 _RECOMMENDATION_SEVERITY_TONE = {
@@ -1830,6 +1905,158 @@ def _handle_spending_anomalies(
     return (result, chips, None, result.data_quality_note)
 
 
+# Compact copilot decision-intelligence tools -- all four call an
+# existing deterministic decision service directly (never a second
+# HTTP round-trip into Discero's own API) and return only bounded,
+# already-persisted fields. No financial calculation happens here: the
+# LLM only ever sees counts, labels, and short strings already computed
+# by decision_memory_service/decision_calibration_service/
+# decision_review_service/decision_history_service.
+
+_COPILOT_RECENT_DECISIONS_LIMIT = 5
+_COPILOT_REVIEW_ITEMS_LIMIT = 5
+
+
+def _handle_decision_memory(db, user_id, tool_input, as_of, current_user):
+    result = decision_memory_service.get_decision_memory(db, user_id)
+
+    if result.status == "no_history":
+        chips = [_chip("Decisions analyzed", "0", kind="text")]
+        return (result, chips, None, None)
+
+    chips = [
+        _chip(
+            "Decisions analyzed",
+            str(result.summary.total_saved_decisions),
+            kind="text",
+        ),
+        _chip(
+            "Acted on", str(result.summary.acted_on_count), kind="text"
+        ),
+        _chip(
+            "Outcomes tracked",
+            str(result.outcomes.total_outcome_checks),
+            kind="text",
+        ),
+    ]
+    if result.needs_follow_up_count:
+        chips.append(
+            _chip(
+                "Needs follow-up",
+                str(result.needs_follow_up_count),
+                kind="text",
+                tone="warning",
+            )
+        )
+
+    return (result, chips, None, None)
+
+
+def _handle_decision_calibration(db, user_id, tool_input, as_of, current_user):
+    calibration = decision_calibration_service.get_decision_calibration(
+        db, user_id
+    )
+    # A deliberately compact projection -- never the full metric_groups/
+    # decision_types breakdown, which is sized for the Decision History
+    # page, not a chat payload.
+    result = CopilotDecisionCalibrationOut(
+        calibration_label=calibration.calibration_label,
+        tracked_decisions=calibration.tracked_decisions,
+        outcome_checks=calibration.outcome_checks,
+        directional_observations=calibration.directional_metrics_compared,
+        favorable_count=calibration.favorable_count,
+        unfavorable_count=calibration.unfavorable_count,
+        favorable_rate=calibration.favorable_rate,
+    )
+
+    chips = [
+        _chip(
+            "Calibration",
+            result.calibration_label.replace("_", " ").title(),
+            kind="text",
+        ),
+        _chip(
+            "Tracked decisions", str(result.tracked_decisions), kind="text"
+        ),
+        _chip("Outcome checks", str(result.outcome_checks), kind="text"),
+    ]
+    if result.favorable_rate is not None:
+        chips.append(
+            _chip(
+                "Favorable rate",
+                _percent(result.favorable_rate * 100),
+                kind="percent",
+            )
+        )
+
+    return (result, chips, None, None)
+
+
+def _handle_decisions_needing_review(
+    db, user_id, tool_input, as_of, current_user
+):
+    queue = decision_review_service.build_review_queue(db, user_id)
+    bounded = queue[:_COPILOT_REVIEW_ITEMS_LIMIT]
+
+    result = CopilotDecisionReviewOut(
+        items=[
+            CopilotReviewItemOut(
+                decision_id=item.decision_id,
+                title=item.title,
+                review_reason_text=item.review_reason_text,
+                age_days=item.age_days,
+            )
+            for item in bounded
+        ],
+        total_count=len(queue),
+    )
+
+    chips = [
+        _chip("Decisions needing review", str(result.total_count), kind="text")
+    ]
+    if result.items:
+        chips.append(
+            _chip(
+                "Most urgent", result.items[0].title, kind="text",
+                tone="warning",
+            )
+        )
+
+    return (result, chips, None, None)
+
+
+def _handle_recent_decisions(db, user_id, tool_input, as_of, current_user):
+    decisions = decision_history_service.list_decisions(
+        db, user_id, limit=_COPILOT_RECENT_DECISIONS_LIMIT
+    )
+
+    result = CopilotRecentDecisionsOut(
+        decisions=[
+            CopilotRecentDecisionOut(
+                decision_id=decision.id,
+                decision_type=decision.decision_type,
+                title=decision.title,
+                created_at=decision.created_at,
+                status=decision.status,
+            )
+            for decision in decisions
+        ],
+        total_count=len(decisions),
+    )
+
+    chips = [
+        _chip("Recent decisions", str(result.total_count), kind="text")
+    ]
+    if result.decisions:
+        chips.append(
+            _chip(
+                "Most recent", result.decisions[0].title, kind="text"
+            )
+        )
+
+    return (result, chips, None, None)
+
+
 _TOOL_HANDLERS = {
     "get_safe_to_spend": _handle_safe_to_spend,
     "simulate_major_purchase": _handle_major_purchase,
@@ -1846,6 +2073,10 @@ _TOOL_HANDLERS = {
     "get_recommendations": _handle_recommendations,
     "get_recurring_intelligence": _handle_recurring_intelligence,
     "get_spending_anomalies": _handle_spending_anomalies,
+    "get_decision_memory": _handle_decision_memory,
+    "get_decision_calibration": _handle_decision_calibration,
+    "get_decisions_needing_review": _handle_decisions_needing_review,
+    "get_recent_decisions": _handle_recent_decisions,
 }
 
 

@@ -63,7 +63,7 @@ const baseResult: WhatIfSimulationResult = {
     },
   ],
   goal_impacts: [],
-  goal_conflict_intelligence: { supported: true, goals: [], most_affected_goal_id: null, conflict_count: 0 },
+  goal_conflict_intelligence: { supported: true, goals: [], most_affected_goal_id: null, conflict_count: 0, scenario_created_conflict_count: 0, scenario_worsened_conflict_count: 0, pre_existing_conflict_count: 0, scenario_improved_count: 0 },
   safe_to_spend: {
     as_of: "2026-08-11",
     through_date: "2026-09-10",

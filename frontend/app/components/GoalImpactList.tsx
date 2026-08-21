@@ -90,6 +90,19 @@ export default function GoalImpactList({
       )
     : goalImpacts;
 
+  // A goal already off track BEFORE this scenario is never counted as
+  // something the scenario "caused" -- only scenario_created_conflict/
+  // scenario_worsened_conflict goals count as new, so a baseline
+  // conflict the scenario merely leaves alone is never folded into a
+  // single misleading "N in conflict" figure.
+  const newConflictCount = conflictIntelligence
+    ? conflictIntelligence.scenario_created_conflict_count +
+      conflictIntelligence.scenario_worsened_conflict_count
+    : 0;
+  const preExistingCount = conflictIntelligence
+    ? conflictIntelligence.pre_existing_conflict_count
+    : 0;
+
   return (
     <section
       aria-label="Impact on your goals"
@@ -99,14 +112,28 @@ export default function GoalImpactList({
         <p className="text-xs font-semibold uppercase tracking-[0.15em] text-white/40">
           Impact on your goals
         </p>
-        {conflictIntelligence && conflictIntelligence.conflict_count > 0 && (
-          <span
-            data-testid="goal-impact-conflict-count"
-            className="text-[11px] font-semibold text-[#f4a594]"
-          >
-            {conflictIntelligence.conflict_count} in conflict
-          </span>
-        )}
+        {conflictIntelligence &&
+          (newConflictCount > 0 || preExistingCount > 0) && (
+            <div className="flex flex-col items-end gap-0.5">
+              {newConflictCount > 0 && (
+                <span
+                  data-testid="goal-impact-new-conflict-count"
+                  className="text-[11px] font-semibold text-[#f4a594]"
+                >
+                  {newConflictCount} new conflict
+                  {newConflictCount === 1 ? "" : "s"}
+                </span>
+              )}
+              {preExistingCount > 0 && (
+                <span
+                  data-testid="goal-impact-pre-existing-count"
+                  className="text-[11px] font-semibold text-white/40"
+                >
+                  {preExistingCount} already off track
+                </span>
+              )}
+            </div>
+          )}
       </div>
 
       {goalImpacts.length === 0 ? (
@@ -120,7 +147,8 @@ export default function GoalImpactList({
           {orderedGoalImpacts.map((impact) => {
             const statusContent = GOAL_STATUS_CONTENT[impact.status];
             const StatusIcon = statusContent.icon;
-            const severity = severityByGoalId.get(impact.goal_id)?.severity;
+            const conflictItem = severityByGoalId.get(impact.goal_id);
+            const severity = conflictItem?.severity;
 
             return (
               <li
@@ -210,7 +238,7 @@ export default function GoalImpactList({
                 )}
 
                 <p className="mt-3 text-xs leading-5 text-white/55">
-                  {impact.explanation}
+                  {conflictItem?.attribution_text ?? impact.explanation}
                 </p>
               </li>
             );

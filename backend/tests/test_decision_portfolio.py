@@ -2395,11 +2395,14 @@ def _goal_impact(
     delay_months: int = 0,
     baseline_allocation_cents: int = 10_000,
     adjusted_allocation_cents: int = 10_000,
+    target_date: date | None = None,
+    baseline_completion_date: date | None = None,
+    adjusted_completion_date: date | None = None,
 ) -> GoalImpactOut:
     return GoalImpactOut(
         goal_id=goal_id,
         goal_name=f"Goal {goal_id}",
-        target_date=None,
+        target_date=target_date,
         target_amount_cents=100_000,
         saved_amount_cents=0,
         remaining_amount_cents=100_000,
@@ -2409,8 +2412,8 @@ def _goal_impact(
         monthly_allocation_change_cents=(
             adjusted_allocation_cents - baseline_allocation_cents
         ),
-        baseline_estimated_completion_date=None,
-        adjusted_estimated_completion_date=None,
+        baseline_estimated_completion_date=baseline_completion_date,
+        adjusted_estimated_completion_date=adjusted_completion_date,
         delay_months=delay_months,
         funding_shortfall_cents=funding_shortfall_cents,
         status=status,
@@ -2517,3 +2520,207 @@ def test_goal_conflict_intelligence_empty_goal_impacts_is_supported_empty() -> (
     assert result.goals == []
     assert result.most_affected_goal_id is None
     assert result.conflict_count == 0
+
+
+# --- Goal Conflict Attribution 2.1 (pure unit tests) -------------------
+
+
+def test_attribution_baseline_healthy_adjusted_conflict_is_scenario_created() -> (
+    None
+):
+    # Baseline fully funded ($100/mo, no target date so nothing to miss);
+    # the scenario alone drives it to impossible.
+    result = build_goal_conflict_intelligence(
+        [
+            _goal_impact(
+                1,
+                "impossible",
+                funding_shortfall_cents=100_000,
+                baseline_allocation_cents=10_000,
+                adjusted_allocation_cents=0,
+            )
+        ]
+    )
+
+    item = result.goals[0]
+    assert item.attribution == "scenario_created_conflict"
+    assert "causes" in item.attribution_text
+    assert result.scenario_created_conflict_count == 1
+
+
+def test_attribution_baseline_conflict_worse_adjusted_is_scenario_worsened() -> (
+    None
+):
+    # Baseline already $0/mo (already impossible); the scenario removes
+    # what little funding there was, so it's not merely unchanged.
+    result = build_goal_conflict_intelligence(
+        [
+            _goal_impact(
+                1,
+                "impossible",
+                funding_shortfall_cents=100_000,
+                baseline_allocation_cents=0,
+                adjusted_allocation_cents=0,
+            )
+        ]
+    )
+    # Baseline already impossible AND adjusted allocation drops further
+    # relative to baseline -- use a case with positive baseline that the
+    # scenario reduces while remaining a conflict.
+    worsened = build_goal_conflict_intelligence(
+        [
+            _goal_impact(
+                2,
+                "at_risk",
+                funding_shortfall_cents=5_000,
+                target_date=date(2026, 12, 31),
+                baseline_allocation_cents=8_000,
+                adjusted_allocation_cents=3_000,
+                baseline_completion_date=date(2027, 1, 15),
+                adjusted_completion_date=date(2027, 6, 1),
+            )
+        ]
+    )
+
+    assert result.goals[0].attribution == "pre_existing_conflict"
+
+    item = worsened.goals[0]
+    assert item.attribution == "scenario_worsened_conflict"
+    assert "already off track" in item.attribution_text
+    assert "reduces its funding by $50.00" in item.attribution_text
+    assert worsened.scenario_worsened_conflict_count == 1
+
+
+def test_attribution_baseline_conflict_unchanged_is_pre_existing() -> None:
+    # Baseline already off track (past target date) and the scenario
+    # doesn't measurably change allocation or completion.
+    result = build_goal_conflict_intelligence(
+        [
+            _goal_impact(
+                1,
+                "at_risk",
+                funding_shortfall_cents=1_000,
+                target_date=date(2026, 1, 1),
+                baseline_allocation_cents=5_000,
+                adjusted_allocation_cents=5_000,
+                baseline_completion_date=date(2026, 6, 1),
+                adjusted_completion_date=date(2026, 6, 1),
+            )
+        ]
+    )
+
+    item = result.goals[0]
+    assert item.attribution == "pre_existing_conflict"
+    assert "does not materially worsen" in item.attribution_text
+    assert result.pre_existing_conflict_count == 1
+    # No misleading "scenario caused" wording for a pre-existing conflict.
+    assert "causes" not in item.attribution_text
+
+
+def test_attribution_conflict_improves_is_scenario_improved() -> None:
+    # Baseline was impossible ($0/mo); the scenario funds it enough that
+    # it's no longer a conflict status.
+    result = build_goal_conflict_intelligence(
+        [
+            _goal_impact(
+                1,
+                "reduced",
+                baseline_allocation_cents=0,
+                adjusted_allocation_cents=5_000,
+            )
+        ]
+    )
+
+    item = result.goals[0]
+    assert item.attribution == "scenario_improved"
+    assert "improves" in item.attribution_text
+    assert result.scenario_improved_count == 1
+
+
+def test_attribution_unaffected_when_no_baseline_or_adjusted_conflict() -> None:
+    result = build_goal_conflict_intelligence(
+        [_goal_impact(1, "unaffected")]
+    )
+
+    item = result.goals[0]
+    assert item.attribution == "unaffected"
+    assert result.scenario_created_conflict_count == 0
+    assert result.scenario_worsened_conflict_count == 0
+    assert result.pre_existing_conflict_count == 0
+    assert result.scenario_improved_count == 0
+
+
+def test_attribution_summary_counts_across_mixed_goals() -> None:
+    result = build_goal_conflict_intelligence(
+        [
+            _goal_impact(1, "unaffected"),
+            _goal_impact(
+                2,
+                "impossible",
+                funding_shortfall_cents=100_000,
+                baseline_allocation_cents=10_000,
+                adjusted_allocation_cents=0,
+            ),
+            _goal_impact(
+                3,
+                "at_risk",
+                funding_shortfall_cents=1_000,
+                target_date=date(2026, 1, 1),
+                baseline_allocation_cents=5_000,
+                adjusted_allocation_cents=5_000,
+                baseline_completion_date=date(2026, 6, 1),
+                adjusted_completion_date=date(2026, 6, 1),
+            ),
+        ]
+    )
+
+    assert result.conflict_count == 2
+    assert result.scenario_created_conflict_count == 1
+    assert result.pre_existing_conflict_count == 1
+    assert result.scenario_worsened_conflict_count == 0
+    assert result.scenario_improved_count == 0
+
+
+def test_attribution_dollar_worsening_only_stated_when_numerically_supported() -> (
+    None
+):
+    # Newly defunded entirely, with a baseline that was ALREADY off
+    # track (its own projected completion already misses the target
+    # date) -- no specific dollar figure is claimed since "removes
+    # funding entirely" is the only deterministic claim the numbers
+    # support without picking an arbitrary partial figure.
+    result = build_goal_conflict_intelligence(
+        [
+            _goal_impact(
+                1,
+                "impossible",
+                funding_shortfall_cents=50_000,
+                baseline_allocation_cents=4_000,
+                adjusted_allocation_cents=0,
+                target_date=date(2026, 12, 31),
+                baseline_completion_date=date(2027, 3, 1),
+            )
+        ]
+    )
+
+    item = result.goals[0]
+    assert item.attribution == "scenario_worsened_conflict"
+    assert "removes its funding entirely" in item.attribution_text
+    assert "$" not in item.attribution_text
+
+
+def test_attribution_does_not_change_underlying_goal_numbers() -> None:
+    impact = _goal_impact(
+        1,
+        "at_risk",
+        funding_shortfall_cents=5_000,
+        baseline_allocation_cents=8_000,
+        adjusted_allocation_cents=3_000,
+    )
+    result = build_goal_conflict_intelligence([impact])
+
+    item = result.goals[0]
+    assert item.baseline_allocation_cents == impact.baseline_monthly_allocation_cents
+    assert item.adjusted_allocation_cents == impact.adjusted_monthly_allocation_cents
+    assert item.funding_shortfall_cents == impact.funding_shortfall_cents
+    assert item.status == impact.status

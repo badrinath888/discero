@@ -317,6 +317,53 @@ def extract_monthly_capacity_cents(text: str) -> tuple[bool, int | None]:
 # --- Intent classification --------------------------------------------
 
 _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    # Decision-history intents are checked first: they always require
+    # an explicit "decision(s)" mention, so they can never shadow a
+    # more general pattern below (e.g. "what needs my attention" for
+    # get_recommendations) for a query that doesn't say "decision".
+    (
+        "get_decision_memory",
+        re.compile(
+            r"\bdecision memory\b|"
+            r"\bwhat (does discero|have you) (know|learned)\b"
+            r"[^.?!]{0,30}\bdecisions?\b|"
+            r"\bwhat decisions? (have i|did i) (analyz\w*|made|saved|"
+            r"run)\b(?!.{0,20}\brecent)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "get_decision_calibration",
+        re.compile(
+            r"\bdecision calibration\b|"
+            r"\benough outcome history\b|"
+            r"\bam i (well[- ])?calibrated\b|"
+            r"\bhow (accurate|calibrated)\b[^.?!]{0,30}\b(my )?decisions?"
+            r"\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "get_decisions_needing_review",
+        re.compile(
+            r"\b(which|what) (saved )?decisions?\b[^.?!]{0,40}\b(need|"
+            r"needs)\b[^.?!]{0,20}\b(follow.?up|review|attention)\b|"
+            r"\bdecisions?\b[^.?!]{0,20}\bneed(s)? follow.?up\b|"
+            r"\bdecisions? (still )?(waiting|pending|overdue) (for )?"
+            r"review\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "get_recent_decisions",
+        re.compile(
+            r"\bwhich decisions? have i saved\b|"
+            r"\brecent(ly)? saved decisions?\b|"
+            r"\bwhat decisions? (have i|did i) (analyz\w*|made|saved|"
+            r"run)\b[^.?!]{0,20}\brecent\w*\b",
+            re.IGNORECASE,
+        ),
+    ),
     (
         "get_recurring_intelligence",
         re.compile(
@@ -774,6 +821,10 @@ def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
         "get_recommendations",
         "get_recurring_intelligence",
         "get_spending_anomalies",
+        "get_decision_memory",
+        "get_decision_calibration",
+        "get_decisions_needing_review",
+        "get_recent_decisions",
     ):
         return {}
 
@@ -1813,6 +1864,85 @@ def _render_spending_anomalies(result, emphasize):
     return (answer, why, None, [])
 
 
+def _render_decision_memory(result, emphasize):
+    if result.status == "no_history":
+        return (
+            "You don't have any saved decisions yet -- save a Decision "
+            "Lab analysis to start building decision memory.",
+            None,
+            None,
+            [],
+        )
+
+    summary = result.summary
+    answer = (
+        f"Discero has {summary.total_saved_decisions} saved decision(s), "
+        f"{summary.acted_on_count} acted on, and "
+        f"{result.outcomes.total_outcome_checks} outcome check(s) "
+        "tracked."
+    )
+    why = result.recent_patterns[0].text if result.recent_patterns else None
+    actions = (
+        ["Which decisions need follow-up?"]
+        if result.needs_follow_up_count
+        else []
+    )
+
+    return answer, why, None, actions
+
+
+def _render_decision_calibration(result, emphasize):
+    if result.calibration_label == "insufficient_data":
+        return (
+            "There isn't enough tracked outcome history yet for a "
+            "reliable calibration pattern.",
+            None,
+            None,
+            [],
+        )
+
+    label_text = result.calibration_label.replace("_", " ")
+    answer = (
+        f"Your tracked decisions have run {label_text} "
+        f"({result.tracked_decisions} tracked, {result.outcome_checks} "
+        "outcome check(s))."
+    )
+    why = (
+        f"{_percent(result.favorable_rate * 100)} of directional "
+        "observations were favorable."
+        if result.favorable_rate is not None
+        else None
+    )
+
+    return answer, why, None, []
+
+
+def _render_decisions_needing_review(result, emphasize):
+    if not result.items:
+        return ("No saved decisions currently need review.", None, None, [])
+
+    top = result.items[0]
+    answer = (
+        f"{result.total_count} decision(s) need review -- the most "
+        f'urgent is "{top.title}".'
+    )
+
+    return answer, top.review_reason_text, None, []
+
+
+def _render_recent_decisions(result, emphasize):
+    if not result.decisions:
+        return ("You haven't saved any decisions yet.", None, None, [])
+
+    lines = [
+        f"{d.title} ({d.decision_type.replace('_', ' ')})"
+        for d in result.decisions[:3]
+    ]
+    answer = "Your most recent saved decisions -- " + "; ".join(lines)
+
+    return answer, None, None, []
+
+
 _RENDERERS = {
     "get_safe_to_spend": _render_safe_to_spend,
     "simulate_major_purchase": _render_major_purchase,
@@ -1829,6 +1959,10 @@ _RENDERERS = {
     "get_financial_resilience": _render_financial_resilience,
     "get_recurring_intelligence": _render_recurring_intelligence,
     "get_spending_anomalies": _render_spending_anomalies,
+    "get_decision_memory": _render_decision_memory,
+    "get_decision_calibration": _render_decision_calibration,
+    "get_decisions_needing_review": _render_decisions_needing_review,
+    "get_recent_decisions": _render_recent_decisions,
 }
 
 

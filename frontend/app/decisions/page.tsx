@@ -23,6 +23,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AdaptiveIntelligenceSection from "../components/AdaptiveIntelligenceSection";
+import DataFreshnessNote from "../components/DataFreshnessNote";
 import AppSidebar from "../components/AppSidebar";
 import GoalImpactList from "../components/GoalImpactList";
 import MultiStepScenarioPlanner from "../components/MultiStepScenarioPlanner";
@@ -994,7 +995,10 @@ export default function DecisionsPage() {
                       />
                     )}
                     {userId !== null && (
-                      <AdaptiveIntelligenceSection userId={userId} />
+                      <>
+                        <AdaptiveIntelligenceSection userId={userId} />
+                        <DataFreshnessNote userId={userId} />
+                      </>
                     )}
                   </div>
                 ) : (
@@ -1017,7 +1021,10 @@ export default function DecisionsPage() {
                       />
                     )}
                     {userId !== null && (
-                      <AdaptiveIntelligenceSection userId={userId} />
+                      <>
+                        <AdaptiveIntelligenceSection userId={userId} />
+                        <DataFreshnessNote userId={userId} />
+                      </>
                     )}
                   </div>
                 ) : (
@@ -1044,7 +1051,10 @@ export default function DecisionsPage() {
                       />
                     )}
                     {userId !== null && (
-                      <AdaptiveIntelligenceSection userId={userId} />
+                      <>
+                        <AdaptiveIntelligenceSection userId={userId} />
+                        <DataFreshnessNote userId={userId} />
+                      </>
                     )}
                   </div>
                 ) : (
@@ -1070,7 +1080,10 @@ export default function DecisionsPage() {
                     />
                   )}
                   {userId !== null && (
-                    <AdaptiveIntelligenceSection userId={userId} />
+                    <>
+                      <AdaptiveIntelligenceSection userId={userId} />
+                      <DataFreshnessNote userId={userId} />
+                    </>
                   )}
                 </div>
               ) : (

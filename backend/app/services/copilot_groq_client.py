@@ -199,4 +199,10 @@ def _from_groq_response(response) -> SimpleNamespace:
             )
         )
 
-    return SimpleNamespace(content=blocks)
+    # `usage` is passed through as-is (an OpenAI-compatible object with
+    # .prompt_tokens/.completion_tokens/.total_tokens, or None) -- never
+    # reshaped here. copilot_observability.extract_token_usage is the one
+    # place that knows how to read both Anthropic's and Groq's shapes.
+    return SimpleNamespace(
+        content=blocks, usage=getattr(response, "usage", None)
+    )

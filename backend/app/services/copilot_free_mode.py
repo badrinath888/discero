@@ -365,6 +365,16 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        "get_data_freshness",
+        re.compile(
+            r"\bdata freshness\b|"
+            r"\bhow (current|fresh) is my[^.?!]{0,20}\bdata\b|"
+            r"\bis my (financial )?data (current|up.?to.?date|stale)\b|"
+            r"\bhow up.?to.?date is my data\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "get_recurring_intelligence",
         re.compile(
             r"\bduplicate subscriptions?\b|"
@@ -583,8 +593,26 @@ def is_multi_option_comparison_signal(text: str) -> bool:
     return _looks_like_multi_option_comparison(text)
 
 
+# A question ABOUT a Discero term/capability ("what does safe-to-spend
+# mean?", "explain confidence", "what is a recurring expense?") reads as
+# a definitional question, not a request to run the tool that term
+# names -- distinct from "what is MY safe-to-spend?", which keeps its
+# possessive and still routes normally. Deliberately narrow (indefinite
+# article, not "the"/"my") to avoid intercepting real personal-data
+# questions phrased with "what is the ...".
+_DEFINITIONAL_QUESTION_RE = re.compile(
+    r"^\s*(?:explain|define)\b|"
+    r"\bwhat does\b[^.?!]{0,40}\bmean\b|"
+    r"\bwhat('?s| is) (?:a|an)\b|"
+    r"\bhow does discero\b",
+    re.IGNORECASE,
+)
+
+
 def classify_intent(text: str) -> str | None:
     if _looks_like_multi_option_comparison(text):
+        return None
+    if _DEFINITIONAL_QUESTION_RE.search(text[:_MAX_REGEX_INSPECT_CHARS]):
         return None
     for name, pattern in _INTENT_PATTERNS:
         if pattern.search(text):
@@ -825,6 +853,7 @@ def build_tool_input(name: str, text: str, as_of: date) -> dict | Clarify:
         "get_decision_calibration",
         "get_decisions_needing_review",
         "get_recent_decisions",
+        "get_data_freshness",
     ):
         return {}
 
@@ -1943,6 +1972,28 @@ def _render_recent_decisions(result, emphasize):
     return answer, None, None, []
 
 
+def _render_data_freshness(result, emphasize):
+    if result.freshness_status == "unavailable":
+        return (
+            "Discero doesn't have enough synced transaction or account "
+            "data yet to judge freshness.",
+            None,
+            None,
+            [],
+        )
+
+    status_label = {
+        "current": "current",
+        "recent": "recent, but not up to the minute",
+        "stale": "stale",
+    }[result.freshness_status]
+
+    answer = f"Your financial data is {status_label}."
+    why = " ".join(result.notices) if result.notices else None
+
+    return answer, why, None, []
+
+
 _RENDERERS = {
     "get_safe_to_spend": _render_safe_to_spend,
     "simulate_major_purchase": _render_major_purchase,
@@ -1963,6 +2014,7 @@ _RENDERERS = {
     "get_decision_calibration": _render_decision_calibration,
     "get_decisions_needing_review": _render_decisions_needing_review,
     "get_recent_decisions": _render_recent_decisions,
+    "get_data_freshness": _render_data_freshness,
 }
 
 

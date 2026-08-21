@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     groq_api_key: str | None = None
     copilot_groq_model: str = "llama-3.3-70b-versatile"
 
+    # Estimated-cost observability (see app/services/copilot_observability.py).
+    # Both unset by default -- an unconfigured deployment must never see a
+    # fabricated cost figure; estimated_cost stays null until an operator
+    # sets both rates for whichever provider/model they're running.
+    copilot_input_cost_per_million_tokens: float | None = None
+    copilot_output_cost_per_million_tokens: float | None = None
+
     plaid_client_id: str | None = None
     plaid_secret: str | None = None
     plaid_env: Literal["sandbox", "production"] = "sandbox"

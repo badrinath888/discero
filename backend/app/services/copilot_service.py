@@ -48,6 +48,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models import PlaidItem, SavingsGoal, User
 from app.schemas import (
     BuyNowVsWaitRequest,
@@ -86,7 +87,9 @@ from app.services.major_purchase_service import (
 from app.services import (
     copilot_audit,
     copilot_free_mode,
+    copilot_observability,
     decision_calibration_service,
+    decision_data_freshness_service,
     decision_history_service,
     decision_memory_service,
     decision_review_service,
@@ -152,7 +155,10 @@ _NARRATE_SYSTEM_PROMPT = (
     "calibration and its status/calibration_label is insufficient or "
     "empty, say so plainly -- never generalize from too little history "
     "(e.g. never say 'your decisions are usually accurate' from one "
-    "tracked outcome). Keep it to a few short sentences, no filler."
+    "tracked outcome). If the result has a `freshness_status`, never "
+    "call the data current/up to date unless that field is literally "
+    "'current' -- for 'stale' or 'unavailable', say so plainly. Keep "
+    "it to a few short sentences, no filler."
 )
 
 _STATUS_TONE = {
@@ -189,6 +195,10 @@ _STATUS_TONE = {
     "fair": "warning",
     "strong": "positive",
     "very_strong": "positive",
+    "current": "positive",
+    "recent": "positive",
+    "stale": "warning",
+    "unavailable": "neutral",
 }
 
 
@@ -306,17 +316,32 @@ def _narration_payload(
 
 
 _MONEY_IN_TEXT_RE = re.compile(r"\$-?\d[\d,]*(?:\.\d{1,2})?")
+# Matched by numeric value, not verbatim substring (unlike
+# _MONEY_IN_TEXT_RE) -- the payload always formats a percent with one
+# decimal place (_percent() -> "94.0%"), but real, ungrounded narration
+# rounding it to "94%" is not a hallucination and must not be treated
+# as one. The sign is captured (and fed through float(), which parses
+# a leading +/- itself) so "-2.3%" in the payload can never ground a
+# narration that flips it to "+2.3%" -- comparing by magnitude alone
+# would treat those as the same number. `(?<!\d)` keeps a hyphen
+# inside a range like "3-5%" from being misread as a minus sign: it
+# only allows a leading sign when the character before it isn't itself
+# a digit.
+_PERCENT_IN_TEXT_RE = re.compile(r"(?<!\d)([+-]?\d{1,3}(?:\.\d+)?)\s*%")
 
 
 def _narration_is_grounded(payload: dict, narration: dict) -> bool:
     """Financial Authority Rule, enforced in code rather than trusted to
-    prompt wording alone: every dollar figure the provider states must
-    appear verbatim in the real deterministic payload it was shown.
-    Production symptom this catches: a cash-flow narration stating a
-    "surplus" figure that matched no field in the tool result -- the
-    provider had done its own arithmetic on the real numbers it saw.
-    A smaller/faster model (this project also runs on Groq) is more
-    likely to do this than a larger one, so this cannot be prompt-only.
+    prompt wording alone: every dollar figure and percentage the
+    provider states must be traceable to the real deterministic payload
+    it was shown -- never a number it computed, rounded to a different
+    scale, or invented itself (e.g. a hallucinated "100% confidence"
+    when the real figure is lower). Production symptom this catches: a
+    cash-flow narration stating a "surplus" figure that matched no
+    field in the tool result -- the provider had done its own
+    arithmetic on the real numbers it saw. A smaller/faster model (this
+    project also runs on Groq) is more likely to do this than a larger
+    one, so this cannot be prompt-only.
     """
     payload_text = json.dumps(payload)
     narration_text = " ".join(
@@ -327,10 +352,20 @@ def _narration_is_grounded(payload: dict, narration: dict) -> bool:
         str(a) for a in (narration.get("suggested_actions") or [])
     )
 
-    return all(
+    amounts_grounded = all(
         amount in payload_text
         for amount in _MONEY_IN_TEXT_RE.findall(narration_text)
     )
+
+    payload_percents = {
+        float(value) for value in _PERCENT_IN_TEXT_RE.findall(payload_text)
+    }
+    percents_grounded = all(
+        float(value) in payload_percents
+        for value in _PERCENT_IN_TEXT_RE.findall(narration_text)
+    )
+
+    return amounts_grounded and percents_grounded
 
 
 def _chip(
@@ -814,6 +849,21 @@ _TOOLS = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
+        "name": "get_data_freshness",
+        "description": (
+            "Get how current the user's underlying transaction/account "
+            "data is -- freshness status (current/recent/stale/"
+            "unavailable), days since the latest transaction, and days "
+            "since the last account sync. Use for 'how current is my "
+            "data', 'how fresh is my data', or 'is my data up to date' "
+            "questions. Never state or imply the data is current unless "
+            "freshness_status is 'current' -- if it is 'stale' or "
+            "'unavailable', say so plainly using the result's own "
+            "notices."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "request_clarification",
         "description": (
             "Use when a required financial parameter (amount, "
@@ -930,6 +980,7 @@ _TOOL_LABELS = {
     "get_decision_calibration": "Decision Calibration",
     "get_decisions_needing_review": "Decisions Needing Review",
     "get_recent_decisions": "Recent Decisions",
+    "get_data_freshness": "Data Freshness",
 }
 
 _RECOMMENDATION_SEVERITY_TONE = {
@@ -2057,6 +2108,39 @@ def _handle_recent_decisions(db, user_id, tool_input, as_of, current_user):
     return (result, chips, None, None)
 
 
+def _handle_data_freshness(db, user_id, tool_input, as_of, current_user):
+    result = decision_data_freshness_service.get_data_freshness(
+        db, user_id, as_of=as_of
+    )
+
+    chips = [
+        _chip(
+            "Data freshness",
+            result.freshness_status.title(),
+            kind="text",
+            tone=_tone(result.freshness_status),
+        ),
+    ]
+    if result.days_since_latest_transaction is not None:
+        chips.append(
+            _chip(
+                "Last transaction",
+                f"{result.days_since_latest_transaction} day(s) ago",
+                kind="text",
+            )
+        )
+    if result.days_since_account_update is not None:
+        chips.append(
+            _chip(
+                "Last account sync",
+                f"{result.days_since_account_update} day(s) ago",
+                kind="text",
+            )
+        )
+
+    return (result, chips, None, None)
+
+
 _TOOL_HANDLERS = {
     "get_safe_to_spend": _handle_safe_to_spend,
     "simulate_major_purchase": _handle_major_purchase,
@@ -2077,6 +2161,7 @@ _TOOL_HANDLERS = {
     "get_decision_calibration": _handle_decision_calibration,
     "get_decisions_needing_review": _handle_decisions_needing_review,
     "get_recent_decisions": _handle_recent_decisions,
+    "get_data_freshness": _handle_data_freshness,
 }
 
 
@@ -2167,10 +2252,13 @@ def _extract_intent(tool_input: dict) -> str | None:
 def _timed_model_call(client: CopilotModelProvider, **kwargs):
     """Runs a DECIDE/NARRATE call, timing it and classifying failure.
 
-    Returns (response_or_None, latency_ms, error_code_or_None). Never
-    raises -- any provider/network/timeout exception is caught and
-    classified into a stable error code so callers can audit it
-    without ever surfacing a stack trace to the user.
+    Returns (response_or_None, latency_ms, error_code_or_None,
+    usage_or_None). Never raises -- any provider/network/timeout
+    exception is caught and classified into a stable error code so
+    callers can audit it without ever surfacing a stack trace to the
+    user. `usage` is real provider-reported token counts (see
+    copilot_observability.extract_token_usage) whenever the call
+    succeeded and the provider supplied them -- never estimated.
     """
     start = time.monotonic()
 
@@ -2178,10 +2266,42 @@ def _timed_model_call(client: CopilotModelProvider, **kwargs):
         response = client.call(**kwargs)
     except Exception as exc:
         latency_ms = int((time.monotonic() - start) * 1000)
-        return None, latency_ms, copilot_audit.classify_provider_error(exc)
+        return (
+            None,
+            latency_ms,
+            copilot_audit.classify_provider_error(exc),
+            None,
+        )
 
     latency_ms = int((time.monotonic() - start) * 1000)
-    return response, latency_ms, None
+    usage = copilot_observability.extract_token_usage(response)
+    return response, latency_ms, None, usage
+
+
+def _usage_metadata(usage: copilot_observability.TokenUsage | None) -> dict:
+    """Bounded metadata fields for a provider call's real token usage
+    and, only when both cost rates are configured, its estimated
+    dollar cost -- omitted entirely (never a fabricated 0/None-typed
+    entry) when usage itself is unavailable.
+    """
+    if usage is None:
+        return {}
+
+    fields: dict = {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "total_tokens": usage.total_tokens,
+    }
+
+    cost = copilot_observability.estimate_cost(
+        usage,
+        settings.copilot_input_cost_per_million_tokens,
+        settings.copilot_output_cost_per_million_tokens,
+    )
+    if cost is not None:
+        fields["estimated_cost"] = cost
+
+    return fields
 
 
 def _log_provider_failure(
@@ -2220,7 +2340,7 @@ def _narrate(
     db: Session,
     user_id: int,
     request_id: str,
-) -> tuple[dict, int]:
+) -> tuple[dict, int, copilot_observability.TokenUsage | None]:
     """The turn's one optional NARRATE call (Path A only -- see
     run_copilot_turn). Never a real follow-up on a live provider
     decision: the assistant/tool_use turn below is synthesized by us,
@@ -2230,9 +2350,13 @@ def _narrate(
     GroqCopilotClient (dict-aware, see copilot_groq_client.py) accept
     this construction.
 
-    Returns (narration_dict_or_empty, latency_ms). An empty dict means
-    the caller must fall back to deterministic_narration -- the turn's
-    successful tool result is never discarded because of this call.
+    Returns (narration_dict_or_empty, latency_ms, usage_or_None). An
+    empty dict means the caller must fall back to
+    deterministic_narration -- the turn's successful tool result is
+    never discarded because of this call. `usage` reflects the call
+    that actually happened, so it can still be real even when the
+    narration itself was discarded (e.g. an ungrounded amount) -- the
+    provider was still called and still cost tokens.
     """
     tool_use_id = "toolu_deterministic_route"
     payload = _narration_payload(tool_name, result, target_goal_name)
@@ -2262,7 +2386,7 @@ def _narrate(
         },
     ]
 
-    response, latency_ms, error_code = _timed_model_call(
+    response, latency_ms, error_code, usage = _timed_model_call(
         client,
         system=_NARRATE_SYSTEM_PROMPT,
         messages=followup_messages,
@@ -2295,7 +2419,7 @@ def _narrate(
             tool_name=tool_name,
             latency_ms=latency_ms,
         )
-        return {}, latency_ms
+        return {}, latency_ms, usage
 
     narrate_use = _first_tool_use(response)
 
@@ -2315,7 +2439,7 @@ def _narrate(
             latency_ms=latency_ms,
             model=client.model,
             tool_name=tool_name,
-            metadata={"stage": "narrate"},
+            metadata={"stage": "narrate", **_usage_metadata(usage)},
         )
         _log_provider_failure(
             request_id=request_id,
@@ -2325,7 +2449,7 @@ def _narrate(
             tool_name=tool_name,
             latency_ms=latency_ms,
         )
-        return {}, latency_ms
+        return {}, latency_ms, usage
 
     narration = narrate_use.input or {}
 
@@ -2345,7 +2469,11 @@ def _narrate(
             latency_ms=latency_ms,
             model=client.model,
             tool_name=tool_name,
-            metadata={"stage": "narrate", "reason": "ungrounded_amount"},
+            metadata={
+                "stage": "narrate",
+                "reason": "ungrounded_amount",
+                **_usage_metadata(usage),
+            },
         )
         _log_provider_failure(
             request_id=request_id,
@@ -2355,9 +2483,9 @@ def _narrate(
             tool_name=tool_name,
             latency_ms=latency_ms,
         )
-        return {}, latency_ms
+        return {}, latency_ms, usage
 
-    return narration, latency_ms
+    return narration, latency_ms, usage
 
 
 def _load_goal_names(db: Session, user_id: int) -> list[str]:
@@ -2565,9 +2693,10 @@ def _resolve_deterministic(
 
     narration: dict = {}
     narrate_latency_ms: int | None = None
+    narrate_usage: copilot_observability.TokenUsage | None = None
 
     if client.enabled:
-        narration, narrate_latency_ms = _narrate(
+        narration, narrate_latency_ms, narrate_usage = _narrate(
             client,
             resolution.tool_name,
             messages[-1].content,
@@ -2602,6 +2731,8 @@ def _resolve_deterministic(
         actions = actions[:2]
         provenance = "deterministic"
 
+    total_latency_ms = _turn_latency_ms(turn_start)
+
     copilot_audit.record_event(
         db,
         user_id=user_id,
@@ -2622,8 +2753,31 @@ def _resolve_deterministic(
             "provider_call_count": 1 if client.enabled else 0,
             "provider_phase": "narrate" if client.enabled else "none",
             "fallback_used": client.enabled and not narration,
-            "total_latency_ms": _turn_latency_ms(turn_start),
+            "total_latency_ms": total_latency_ms,
+            **_usage_metadata(narrate_usage),
         },
+    )
+
+    copilot_observability.log_turn_completed(
+        copilot_observability.CopilotTrace(
+            request_id=request_id,
+            tool=resolution.tool_name,
+            tool_calls=1,
+            tool_duration_ms=tool_latency_ms,
+            provider_duration_ms=narrate_latency_ms,
+            total_duration_ms=total_latency_ms,
+            input_tokens=narrate_usage.input_tokens if narrate_usage else None,
+            output_tokens=(
+                narrate_usage.output_tokens if narrate_usage else None
+            ),
+            total_tokens=narrate_usage.total_tokens if narrate_usage else None,
+            estimated_cost=copilot_observability.estimate_cost(
+                narrate_usage,
+                settings.copilot_input_cost_per_million_tokens,
+                settings.copilot_output_cost_per_million_tokens,
+            ),
+            success=True,
+        )
     )
 
     return CopilotResponseOut(
@@ -2779,12 +2933,14 @@ def run_copilot_turn(
     # provider still fully expresses "ambiguous" (clarification) and
     # "out of scope" (decline) outcomes; it just can never skip picking
     # any tool at all.
-    decision, decide_latency_ms, decide_error_code = _timed_model_call(
-        client,
-        system=system,
-        messages=history,
-        tools=_TOOLS,
-        tool_choice={"type": "any"},
+    decision, decide_latency_ms, decide_error_code, decide_usage = (
+        _timed_model_call(
+            client,
+            system=system,
+            messages=history,
+            tools=_TOOLS,
+            tool_choice={"type": "any"},
+        )
     )
 
     if decision is None:
@@ -2930,6 +3086,7 @@ def run_copilot_turn(
                 "provider_call_count": 1,
                 "provider_phase": "decide",
                 "total_latency_ms": _turn_latency_ms(turn_start),
+                **_usage_metadata(decide_usage),
             },
         )
         return CopilotResponseOut(
@@ -2962,6 +3119,7 @@ def run_copilot_turn(
                 "provider_call_count": 1,
                 "provider_phase": "decide",
                 "total_latency_ms": _turn_latency_ms(turn_start),
+                **_usage_metadata(decide_usage),
             },
         )
         return CopilotResponseOut(
@@ -3056,6 +3214,7 @@ def run_copilot_turn(
         copilot_free_mode.deterministic_narration(name, result)
     )
     provenance = "deterministic"
+    total_latency_ms = _turn_latency_ms(turn_start)
 
     copilot_audit.record_event(
         db,
@@ -3076,8 +3235,31 @@ def run_copilot_turn(
             "route_source": client.provider_name,
             "provider_call_count": 1,
             "provider_phase": "decide",
-            "total_latency_ms": _turn_latency_ms(turn_start),
+            "total_latency_ms": total_latency_ms,
+            **_usage_metadata(decide_usage),
         },
+    )
+
+    copilot_observability.log_turn_completed(
+        copilot_observability.CopilotTrace(
+            request_id=request_id,
+            tool=name,
+            tool_calls=1,
+            tool_duration_ms=tool_latency_ms,
+            provider_duration_ms=decide_latency_ms,
+            total_duration_ms=total_latency_ms,
+            input_tokens=decide_usage.input_tokens if decide_usage else None,
+            output_tokens=(
+                decide_usage.output_tokens if decide_usage else None
+            ),
+            total_tokens=decide_usage.total_tokens if decide_usage else None,
+            estimated_cost=copilot_observability.estimate_cost(
+                decide_usage,
+                settings.copilot_input_cost_per_million_tokens,
+                settings.copilot_output_cost_per_million_tokens,
+            ),
+            success=True,
+        )
     )
 
     return CopilotResponseOut(

@@ -6,8 +6,10 @@ from app.database import get_db
 from app.models import User
 from app.schemas import (
     DashboardDecisionIntelligenceOut,
+    DataFreshnessOut,
     DecisionAdaptiveIntelligenceOut,
     DecisionCalibrationOut,
+    DecisionMemoryOut,
     DecisionOutcomeOut,
     DecisionPortfolioOut,
     DecisionPortfolioRequest,
@@ -25,7 +27,9 @@ from app.services import (
     decision_calibration_service,
     decision_change_explanation_service,
     decision_dashboard_intelligence_service,
+    decision_data_freshness_service,
     decision_history_service,
+    decision_memory_service,
     decision_outcome_service,
     decision_portfolio_service,
     decision_review_service,
@@ -196,6 +200,34 @@ def get_decision_review_queue(
     items = decision_review_service.build_review_queue(db, user_id)
 
     return DecisionReviewQueueOut(items=items, total_count=len(items))
+
+
+@router.get(
+    "/memory",
+    response_model=DecisionMemoryOut,
+)
+def get_decision_memory(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DecisionMemoryOut:
+    _authorize_user(user_id, current_user)
+
+    return decision_memory_service.get_decision_memory(db, user_id)
+
+
+@router.get(
+    "/data-freshness",
+    response_model=DataFreshnessOut,
+)
+def get_data_freshness(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DataFreshnessOut:
+    _authorize_user(user_id, current_user)
+
+    return decision_data_freshness_service.get_data_freshness(db, user_id)
 
 
 @router.get(

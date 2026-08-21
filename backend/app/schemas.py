@@ -954,6 +954,19 @@ class GoalImpactOut(BaseModel):
 
 GoalConflictSeverity = Literal["none", "low", "medium", "high"]
 
+# Goal Conflict Attribution 2.1 -- classifies a goal's conflict state by
+# comparing baseline (pre-scenario) against adjusted (post-scenario)
+# state, using only fields goal_impact_service already computed. Fixes
+# the misleading "N in conflict" wording that didn't distinguish a
+# conflict the scenario CREATED from one that already existed before it.
+GoalConflictAttribution = Literal[
+    "scenario_created_conflict",
+    "scenario_worsened_conflict",
+    "pre_existing_conflict",
+    "scenario_improved",
+    "unaffected",
+]
+
 
 class GoalConflictIntelligenceItemOut(BaseModel):
     goal_id: int
@@ -969,6 +982,8 @@ class GoalConflictIntelligenceItemOut(BaseModel):
     conflict: bool
     severity: GoalConflictSeverity
     rank: int
+    attribution: GoalConflictAttribution
+    attribution_text: str
 
 
 class GoalConflictIntelligenceOut(BaseModel):
@@ -978,6 +993,10 @@ class GoalConflictIntelligenceOut(BaseModel):
     )
     most_affected_goal_id: int | None = None
     conflict_count: int = 0
+    scenario_created_conflict_count: int = 0
+    scenario_worsened_conflict_count: int = 0
+    pre_existing_conflict_count: int = 0
+    scenario_improved_count: int = 0
 
 
 class MajorPurchaseSimulationRequest(BaseModel):
@@ -2231,6 +2250,135 @@ class DecisionTimelineOut(BaseModel):
     title: str
     current_status: DecisionLifecycleStatus
     events: list[DecisionTimelineEventOut]
+
+
+# --- Financial Decision Memory 2.0 ---------------------------------------
+#
+# A deterministic, user-scoped READ MODEL composed entirely from already-
+# persisted SavedDecision/DecisionOutcome rows and the existing Decision
+# Calibration / Decision Review Queue services -- never a new calculation
+# engine, never fuzzy/semantic clustering, never an invented behavioral
+# label. See app/services/decision_memory_service.py.
+
+DecisionMemoryStatus = Literal["no_history", "available"]
+
+
+class DecisionMemorySummaryOut(BaseModel):
+    total_saved_decisions: int
+    acted_on_count: int
+    dismissed_count: int
+    unresolved_count: int
+    earliest_decision_at: datetime | None
+    latest_decision_at: datetime | None
+    most_used_decision_types: list[DecisionType]
+
+
+class DecisionMemoryFollowThroughOut(BaseModel):
+    # "Eligible" decisions are ones the user has already resolved one
+    # way or another (acted on or dismissed) -- a still-open "saved"
+    # decision isn't yet a follow-through data point either way.
+    eligible_decisions: int
+    acted_on_count: int
+    follow_through_rate: float | None
+    outcome_eligible_decisions: int
+    outcome_tracked_decisions: int
+    outcome_tracking_rate: float | None
+
+
+class DecisionMemoryOutcomeSummaryOut(BaseModel):
+    total_outcome_checks: int
+    directional_observations: int
+    favorable_count: int
+    unfavorable_count: int
+    unchanged_count: int
+    most_frequent_metric_paths: list[str]
+
+
+class DecisionMemoryTypeBreakdownOut(BaseModel):
+    decision_type: DecisionType
+    saved_count: int
+    acted_on_count: int
+    outcome_check_count: int
+    directional_observation_count: int
+    calibration_label: CalibrationLabel
+
+
+class DecisionMemoryPatternOut(BaseModel):
+    text: str
+    decision_type: DecisionType | None = None
+    count: int
+
+
+class DecisionMemoryOut(BaseModel):
+    status: DecisionMemoryStatus
+    summary: DecisionMemorySummaryOut
+    follow_through: DecisionMemoryFollowThroughOut
+    outcomes: DecisionMemoryOutcomeSummaryOut
+    decision_types: list[DecisionMemoryTypeBreakdownOut]
+    recent_patterns: list[DecisionMemoryPatternOut]
+    needs_follow_up_count: int
+
+
+# --- Confidence & Data Freshness Intelligence 1.0 ------------------------
+#
+# A deterministic factual-age read model over already-persisted
+# account/transaction timestamps -- distinct from, and never blended
+# into, any engine's own calculation-confidence score. See
+# app/services/decision_data_freshness_service.py.
+
+DataFreshnessStatus = Literal["current", "recent", "stale", "unavailable"]
+
+
+class DataFreshnessOut(BaseModel):
+    evaluated_at: date
+    latest_transaction_date: date | None
+    days_since_latest_transaction: int | None
+    account_data_updated_at: datetime | None
+    days_since_account_update: int | None
+    freshness_status: DataFreshnessStatus
+    notices: list[str]
+
+
+# --- Copilot decision intelligence tools ----------------------------------
+#
+# Compact, bounded projections shown to the Copilot LLM -- never the raw
+# result_snapshot/outcome payloads those tools' underlying services also
+# expose over HTTP. See app/services/copilot_service.py.
+
+
+class CopilotRecentDecisionOut(BaseModel):
+    decision_id: int
+    decision_type: DecisionType
+    title: str
+    created_at: datetime
+    status: DecisionLifecycleStatus
+
+
+class CopilotRecentDecisionsOut(BaseModel):
+    decisions: list[CopilotRecentDecisionOut]
+    total_count: int
+
+
+class CopilotReviewItemOut(BaseModel):
+    decision_id: int
+    title: str
+    review_reason_text: str
+    age_days: int
+
+
+class CopilotDecisionReviewOut(BaseModel):
+    items: list[CopilotReviewItemOut]
+    total_count: int
+
+
+class CopilotDecisionCalibrationOut(BaseModel):
+    calibration_label: CalibrationLabel
+    tracked_decisions: int
+    outcome_checks: int
+    directional_observations: int
+    favorable_count: int
+    unfavorable_count: int
+    favorable_rate: float | None
 
 
 # --- Decision portfolio intelligence ------------------------------------

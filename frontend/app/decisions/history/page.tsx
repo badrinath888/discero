@@ -26,6 +26,7 @@ import {
   DecisionCalibration,
   DecisionCalibrationMetricGroup,
   DecisionChangeExplanation,
+  DecisionMemory,
   DecisionOutcome,
   DecisionOutcomeComparisonMetric,
   DecisionPortfolioContributionLevel,
@@ -839,6 +840,95 @@ function formatSignedCalibrationValue(
   return `${sign}${formatCalibrationMagnitude(Math.abs(value), unit)}`;
 }
 
+function MemorySection({ memory }: { memory: DecisionMemory }) {
+  if (memory.status === "no_history") return null;
+
+  const { summary, follow_through: followThrough, outcomes } = memory;
+
+  return (
+    <div
+      data-testid="decision-memory-section"
+      className="border border-[#181713]/10 bg-[#FFFCF7] px-6 py-6"
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
+        Decision memory
+      </p>
+      <p className="mt-1 max-w-lg text-sm leading-6 text-[#777168]">
+        What Discero has learned from your saved decision history.
+      </p>
+
+      <div className="mt-4 grid gap-px overflow-hidden bg-[#181713]/10 sm:grid-cols-3">
+        <div className="bg-[#FFFCF7] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
+            Decisions analyzed
+          </p>
+          <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#181713]">
+            {summary.total_saved_decisions}
+          </p>
+        </div>
+        <div className="bg-[#FFFCF7] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
+            Acted on
+          </p>
+          <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#181713]">
+            {summary.acted_on_count}
+          </p>
+        </div>
+        <div className="bg-[#FFFCF7] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
+            Outcomes tracked
+          </p>
+          <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#181713]">
+            {outcomes.total_outcome_checks}
+          </p>
+        </div>
+      </div>
+
+      {followThrough.eligible_decisions > 0 && (
+        <p className="mt-4 text-xs leading-5 text-[#777168]">
+          Follow-through:{" "}
+          {followThrough.follow_through_rate !== null
+            ? `${Math.round(followThrough.follow_through_rate * 100)}%`
+            : "not enough data"}{" "}
+          ({followThrough.acted_on_count} of {followThrough.eligible_decisions}{" "}
+          resolved decisions acted on).
+        </p>
+      )}
+
+      {memory.recent_patterns.length > 0 && (
+        <div
+          data-testid="decision-memory-patterns"
+          className="mt-5 border-t border-[#181713]/8 pt-4"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#777168]">
+            Recent patterns
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {memory.recent_patterns.map((pattern, index) => (
+              <li
+                key={index}
+                className="text-xs leading-5 text-[#181713]"
+              >
+                {pattern.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {memory.needs_follow_up_count > 0 && (
+        <p
+          data-testid="decision-memory-follow-up"
+          className="mt-4 border-t border-[#181713]/8 pt-4 text-xs font-medium leading-5 text-[#B86D4B]"
+        >
+          Needs follow-up: {memory.needs_follow_up_count} decision
+          {memory.needs_follow_up_count === 1 ? "" : "s"} due for review.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function CalibrationSection({
   calibration,
 }: {
@@ -1006,6 +1096,7 @@ export default function DecisionHistoryPage() {
   const [initializing, setInitializing] = useState(true);
   const [userId, setUserId] = useState<number | null>(null);
   const [decisions, setDecisions] = useState<SavedDecision[] | null>(null);
+  const [memory, setMemory] = useState<DecisionMemory | null>(null);
   const [calibration, setCalibration] = useState<DecisionCalibration | null>(
     null
   );
@@ -1079,17 +1170,28 @@ export default function DecisionHistoryPage() {
 
         setUserId(id);
 
-        const [decisionsResult, calibrationResult, reviewQueueResult] =
-          await Promise.allSettled([
-            api.getSavedDecisions(id),
-            api.getDecisionCalibration(id),
-            api.getDecisionReviewQueue(id),
-          ]);
+        const [
+          decisionsResult,
+          memoryResult,
+          calibrationResult,
+          reviewQueueResult,
+        ] = await Promise.allSettled([
+          api.getSavedDecisions(id),
+          api.getDecisionMemory(id),
+          api.getDecisionCalibration(id),
+          api.getDecisionReviewQueue(id),
+        ]);
 
         if (decisionsResult.status === "fulfilled") {
           setDecisions(decisionsResult.value);
         } else {
           setError("Couldn't load your saved decisions just now.");
+        }
+
+        // Memory is a secondary, restrained section -- a failure here
+        // must never affect the primary decision list above.
+        if (memoryResult.status === "fulfilled") {
+          setMemory(memoryResult.value);
         }
 
         if (calibrationResult.status === "fulfilled") {
@@ -1548,6 +1650,14 @@ export default function DecisionHistoryPage() {
                   onChangeSelection={handleChangeSelection}
                   onClearAnalysis={exitPortfolioSelection}
                 />
+              </div>
+            </Reveal>
+          )}
+
+          {memory && memory.status === "available" && (
+            <Reveal>
+              <div className="mt-8">
+                <MemorySection memory={memory} />
               </div>
             </Reveal>
           )}

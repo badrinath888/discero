@@ -193,6 +193,10 @@ describe("GoalImpactList", () => {
           supported: true,
           most_affected_goal_id: 2,
           conflict_count: 1,
+          scenario_created_conflict_count: 1,
+          scenario_worsened_conflict_count: 0,
+          pre_existing_conflict_count: 0,
+          scenario_improved_count: 0,
           goals: [
             {
               goal_id: 2,
@@ -208,6 +212,9 @@ describe("GoalImpactList", () => {
               conflict: true,
               severity: "high",
               rank: 1,
+              attribution: "scenario_created_conflict",
+              attribution_text:
+                "This scenario causes High severity goal to fall off track.",
             },
             {
               goal_id: 1,
@@ -223,13 +230,16 @@ describe("GoalImpactList", () => {
               conflict: false,
               severity: "low",
               rank: 2,
+              attribution: "unaffected",
+              attribution_text:
+                "Low severity goal is not meaningfully affected by this scenario.",
             },
           ],
         }}
       />
     );
 
-    expect(screen.getByText("1 in conflict")).toBeInTheDocument();
+    expect(screen.getByText("1 new conflict")).toBeInTheDocument();
     expect(screen.getByText("High severity")).toBeInTheDocument();
     expect(screen.getByText("Low severity")).toBeInTheDocument();
     // Deterministic allocation values are untouched by the ranking.
@@ -240,5 +250,59 @@ describe("GoalImpactList", () => {
       .getAllByRole("heading", { level: 3 })
       .map((el) => el.textContent);
     expect(names).toEqual(["High severity goal", "Low severity goal"]);
+  });
+
+  it("shows pre-existing conflicts separately, never as a scenario-caused count", () => {
+    render(
+      <GoalImpactList
+        goalImpacts={[
+          makeImpact({
+            goal_id: 1,
+            goal_name: "Already off track",
+            status: "at_risk",
+            funding_shortfall_cents: 5_000,
+          }),
+        ]}
+        conflictIntelligence={{
+          supported: true,
+          most_affected_goal_id: 1,
+          conflict_count: 1,
+          scenario_created_conflict_count: 0,
+          scenario_worsened_conflict_count: 0,
+          pre_existing_conflict_count: 1,
+          scenario_improved_count: 0,
+          goals: [
+            {
+              goal_id: 1,
+              goal_name: "Already off track",
+              baseline_allocation_cents: 5_000,
+              adjusted_allocation_cents: 5_000,
+              allocation_change_cents: 0,
+              baseline_completion_date: null,
+              adjusted_completion_date: null,
+              delay_months: 0,
+              funding_shortfall_cents: 5_000,
+              status: "at_risk",
+              conflict: true,
+              severity: "high",
+              rank: 1,
+              attribution: "pre_existing_conflict",
+              attribution_text:
+                "Already off track is already off track before this scenario. This scenario does not materially worsen the goal.",
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(
+      screen.queryByTestId("goal-impact-new-conflict-count")
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("1 already off track")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Already off track is already off track before this scenario. This scenario does not materially worsen the goal."
+      )
+    ).toBeInTheDocument();
   });
 });

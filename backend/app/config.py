@@ -63,6 +63,35 @@ class Settings(BaseSettings):
     copilot_input_cost_per_million_tokens: float | None = None
     copilot_output_cost_per_million_tokens: float | None = None
 
+    # Shared rate-limit store (see app/rate_limit.py). Unset (default)
+    # keeps the original single-process in-memory limiter, which is
+    # fine for local dev/test/CI but does NOT coordinate across
+    # multiple Render instances -- REQUIRED for a horizontally-scaled
+    # production deployment, since otherwise each instance enforces its
+    # own separate limit, multiplying the effective allowance an
+    # attacker gets by the instance count.
+    redis_url: str | None = None
+
+    # Above the CSV upload endpoint's own 5 MB cap (see
+    # app/routers/transactions.py) -- this is a blunt global ceiling
+    # against a giant body reaching any endpoint at all, not a
+    # per-endpoint size policy.
+    max_request_body_bytes: int = 6 * 1024 * 1024
+
+    # SQLAlchemy connection pool (see app/database.py). Defaults match
+    # SQLAlchemy's own QueuePool defaults (5 + 10 overflow = 15 max
+    # connections per process) -- exposed as settings so pool sizing
+    # can be tuned per Render instance count / managed-Postgres
+    # connection ceiling without a code change.
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout: float = 30.0
+    # Recycles a connection before a hosted Postgres provider's own
+    # idle-connection timeout can silently drop it out from under the
+    # pool -- pool_pre_ping already catches a dead connection reactively,
+    # this avoids relying on that alone.
+    db_pool_recycle_seconds: int = 1800
+
     plaid_client_id: str | None = None
     plaid_secret: str | None = None
     plaid_env: Literal["sandbox", "production"] = "sandbox"
@@ -99,6 +128,58 @@ class Settings(BaseSettings):
                 "JWT_SECRET must be set to a real secret when "
                 "APP_ENV=production; the default development value "
                 "is not safe to use in production"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_production_cors(self) -> Self:
+        if self.app_env != "production":
+            return self
+
+        origins = self.cors_origin_list
+
+        if not origins:
+            raise ValueError(
+                "CORS_ORIGINS must be set to the deployed frontend "
+                "origin(s) when APP_ENV=production"
+            )
+
+        if "*" in self.cors_origins:
+            raise ValueError(
+                'CORS_ORIGINS must not be "*" when APP_ENV=production '
+                "-- list the exact deployed frontend origin(s) instead"
+            )
+
+        localhost_origins = [
+            origin
+            for origin in origins
+            if "localhost" in origin or "127.0.0.1" in origin
+        ]
+        if localhost_origins:
+            raise ValueError(
+                "CORS_ORIGINS must not include a localhost/127.0.0.1 "
+                "origin when APP_ENV=production"
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_production_encryption_key(self) -> Self:
+        # Only enforced when Plaid is actually configured for this
+        # deployment -- an encrypted-at-rest column with no key to
+        # decrypt it would fail at first use anyway, but failing at
+        # startup surfaces a misconfiguration immediately rather than
+        # on a real user's first bank connection attempt.
+        if (
+            self.app_env == "production"
+            and self.plaid_client_id
+            and self.plaid_secret
+            and not self.token_encryption_key
+        ):
+            raise ValueError(
+                "TOKEN_ENCRYPTION_KEY is required when APP_ENV=production "
+                "and Plaid is configured -- Plaid access tokens are "
+                "encrypted at rest and cannot be stored without it"
             )
         return self
 

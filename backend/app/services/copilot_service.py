@@ -215,7 +215,29 @@ def _percent(value: float) -> str:
     return f"{value:.1f}%"
 
 
-def _normalize_for_narration(value):
+class _TrustedFigures:
+    """Accumulates the currency/percent strings _normalize_for_narration
+    itself produced from real numeric fields during one payload build.
+
+    This is the fix for a real gap: checking a narrated figure against
+    `json.dumps(payload)` as one flat string cannot distinguish a
+    number *_normalize_for_narration formatted from a real field* from
+    the same-looking substring sitting inside an arbitrary, attacker-
+    influenced text field the payload also carries (a goal name, a
+    decision title) -- e.g. a goal named "Save 100% for retirement"
+    would make a hallucinated "confidence is 100%" pass a naive
+    substring/value check even though no real field says 100%. Tracked
+    at formatting time, not by scanning the serialized payload
+    afterward, so only genuinely real figures ever count as grounding
+    evidence.
+    """
+
+    def __init__(self) -> None:
+        self.amounts: set[str] = set()
+        self.percents: set[float] = set()
+
+
+def _normalize_for_narration(value, trusted: _TrustedFigures):
     """Recursively rewrites a deterministic tool result into a
     narration-safe payload, so the provider never has to convert a
     raw unit itself -- the exact class of bug that produced malformed
@@ -228,42 +250,47 @@ def _normalize_for_narration(value):
       *_days    -> "N day(s)" string, key unchanged
       *_months  -> "N month(s)" string, key unchanged
     Anything else (dates, which are already ISO strings from
-    model_dump(mode="json"), enums, ids, booleans, plain scores) is
-    passed through unchanged -- never invented, never guessed.
+    model_dump(mode="json"), enums, ids, booleans, plain scores, and
+    free text like names/titles) is passed through unchanged -- never
+    invented, never guessed, and never treated as grounding evidence.
     """
     if isinstance(value, dict):
         normalized = {}
         for key, val in value.items():
             if key.endswith("_cents") and isinstance(val, (int, type(None))):
-                normalized[key[: -len("_cents")]] = (
-                    _currency(val) if val is not None else None
-                )
+                formatted = _currency(val) if val is not None else None
+                normalized[key[: -len("_cents")]] = formatted
+                if formatted is not None:
+                    trusted.amounts.add(formatted)
             elif key.endswith("_percent") and isinstance(val, (int, float)):
-                normalized[key] = _percent(val)
+                formatted = _percent(val)
+                normalized[key] = formatted
+                trusted.percents.add(float(val))
             elif (
                 key.endswith("_days") or key.endswith("_months")
             ) and isinstance(val, int):
                 unit = "day" if key.endswith("_days") else "month"
                 normalized[key] = f"{val} {unit}{'s' if val != 1 else ''}"
             else:
-                normalized[key] = _normalize_for_narration(val)
+                normalized[key] = _normalize_for_narration(val, trusted)
         return normalized
     if isinstance(value, list):
-        return [_normalize_for_narration(item) for item in value]
+        return [_normalize_for_narration(item, trusted) for item in value]
     return value
 
 
 def _goal_intelligence_narration_payload(
     result: BaseModel, target_goal_name: str | None
-) -> dict:
+) -> tuple[dict, _TrustedFigures]:
     """Scopes goal-intelligence narration so a portfolio-wide figure can
     never be mistaken for the specifically-named goal the user asked
     about (production symptom: goal-scoped "$900" vs. portfolio-scoped
     "$1,225" both narrated under one ambiguous "required monthly").
     """
+    trusted = _TrustedFigures()
     dumped = result.model_dump(mode="json")
     goals = dumped.pop("goals", [])
-    payload = {"portfolio": _normalize_for_narration(dumped)}
+    payload = {"portfolio": _normalize_for_narration(dumped, trusted)}
 
     selected = None
     if target_goal_name:
@@ -272,14 +299,20 @@ def _goal_intelligence_narration_payload(
         )
 
     if selected is not None:
-        payload["selected_goal"] = _normalize_for_narration(selected)
+        payload["selected_goal"] = _normalize_for_narration(
+            selected, trusted
+        )
     else:
-        payload["goals"] = [_normalize_for_narration(g) for g in goals]
+        payload["goals"] = [
+            _normalize_for_narration(g, trusted) for g in goals
+        ]
 
-    return payload
+    return payload, trusted
 
 
-def _cash_flow_forecast_narration_payload(result: BaseModel) -> dict:
+def _cash_flow_forecast_narration_payload(
+    result: BaseModel,
+) -> tuple[dict, _TrustedFigures]:
     """Adds the same "monthly cash flow" figure the response's own
     chips already show (expected_income_cents - upcoming_bills_cents,
     computed in _handle_cash_flow_forecast) -- CashFlowForecastOut
@@ -290,21 +323,26 @@ def _cash_flow_forecast_narration_payload(result: BaseModel) -> dict:
     compute one; _narration_is_grounded below still catches it even if
     it does anyway.
     """
+    trusted = _TrustedFigures()
     dumped = result.model_dump(mode="json")
     monthly_flow_cents = (
         dumped["expected_income_cents"] - dumped["upcoming_bills_cents"]
     )
-    payload = _normalize_for_narration(dumped)
-    payload["monthly_cash_flow"] = _currency(monthly_flow_cents)
-    return payload
+    payload = _normalize_for_narration(dumped, trusted)
+    formatted_flow = _currency(monthly_flow_cents)
+    payload["monthly_cash_flow"] = formatted_flow
+    trusted.amounts.add(formatted_flow)
+    return payload, trusted
 
 
 def _narration_payload(
     tool_name: str, result: BaseModel, target_goal_name: str | None = None
-) -> dict:
+) -> tuple[dict, _TrustedFigures]:
     """The ONLY data a NARRATE call ever sees for a tool result -- never
     the raw model_dump_json(), which put unconverted *_cents integers
-    directly in front of the provider.
+    directly in front of the provider. Also returns the real figures
+    formatted along the way, for _narration_is_grounded to check
+    against (see _TrustedFigures).
     """
     if tool_name == "get_goal_intelligence":
         return _goal_intelligence_narration_payload(
@@ -312,7 +350,9 @@ def _narration_payload(
         )
     if tool_name == "get_cash_flow_forecast":
         return _cash_flow_forecast_narration_payload(result)
-    return _normalize_for_narration(result.model_dump(mode="json"))
+    trusted = _TrustedFigures()
+    payload = _normalize_for_narration(result.model_dump(mode="json"), trusted)
+    return payload, trusted
 
 
 _MONEY_IN_TEXT_RE = re.compile(r"\$-?\d[\d,]*(?:\.\d{1,2})?")
@@ -330,20 +370,30 @@ _MONEY_IN_TEXT_RE = re.compile(r"\$-?\d[\d,]*(?:\.\d{1,2})?")
 _PERCENT_IN_TEXT_RE = re.compile(r"(?<!\d)([+-]?\d{1,3}(?:\.\d+)?)\s*%")
 
 
-def _narration_is_grounded(payload: dict, narration: dict) -> bool:
+def _narration_is_grounded(
+    narration: dict, trusted: _TrustedFigures
+) -> bool:
     """Financial Authority Rule, enforced in code rather than trusted to
     prompt wording alone: every dollar figure and percentage the
-    provider states must be traceable to the real deterministic payload
-    it was shown -- never a number it computed, rounded to a different
-    scale, or invented itself (e.g. a hallucinated "100% confidence"
-    when the real figure is lower). Production symptom this catches: a
+    provider states must be traceable to a real numeric field in the
+    deterministic payload it was shown -- never a number it computed,
+    rounded to a different scale, invented itself (e.g. a hallucinated
+    "100% confidence" when the real figure is lower), or laundered
+    through an unrelated text field that happens to contain a similar-
+    looking substring (e.g. a goal literally named "Save 100% of my
+    bonus" -- see _TrustedFigures). Production symptom this catches: a
     cash-flow narration stating a "surplus" figure that matched no
     field in the tool result -- the provider had done its own
     arithmetic on the real numbers it saw. A smaller/faster model (this
     project also runs on Groq) is more likely to do this than a larger
     one, so this cannot be prompt-only.
+
+    Checked against `trusted` -- the figures _normalize_for_narration
+    itself formatted from real numeric fields while building this
+    payload -- never against the payload's serialized text, which also
+    contains arbitrary user-controlled strings (names, titles) that can
+    coincidentally contain a dollar-or-percent-shaped substring.
     """
-    payload_text = json.dumps(payload)
     narration_text = " ".join(
         str(narration.get(field) or "")
         for field in ("answer", "why", "what_this_means")
@@ -353,15 +403,12 @@ def _narration_is_grounded(payload: dict, narration: dict) -> bool:
     )
 
     amounts_grounded = all(
-        amount in payload_text
+        amount in trusted.amounts
         for amount in _MONEY_IN_TEXT_RE.findall(narration_text)
     )
 
-    payload_percents = {
-        float(value) for value in _PERCENT_IN_TEXT_RE.findall(payload_text)
-    }
     percents_grounded = all(
-        float(value) in payload_percents
+        float(value) in trusted.percents
         for value in _PERCENT_IN_TEXT_RE.findall(narration_text)
     )
 
@@ -2359,7 +2406,9 @@ def _narrate(
     provider was still called and still cost tokens.
     """
     tool_use_id = "toolu_deterministic_route"
-    payload = _narration_payload(tool_name, result, target_goal_name)
+    payload, trusted_figures = _narration_payload(
+        tool_name, result, target_goal_name
+    )
 
     followup_messages = [
         {"role": "user", "content": current_message},
@@ -2453,7 +2502,7 @@ def _narrate(
 
     narration = narrate_use.input or {}
 
-    if not _narration_is_grounded(payload, narration):
+    if not _narration_is_grounded(narration, trusted_figures):
         # Same treatment as any other narrate failure: discarded, never
         # shown, falls back to the deterministic template built from
         # this turn's already-successful REAL tool result -- never a

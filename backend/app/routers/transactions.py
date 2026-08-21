@@ -17,7 +17,7 @@ from app.models import (
     Transaction,
     User,
 )
-from app.rate_limit import rate_limiter
+from app.rate_limit import authenticated_rate_limiter
 from app.recurring import detect_recurring
 from app.schemas import (
     BulkTransactionCategoriesUpdate,
@@ -52,6 +52,7 @@ router = APIRouter(
 )
 
 _MAX_CSV_UPLOAD_BYTES = 5 * 1024 * 1024
+_MAX_UNPAGINATED_TRANSACTIONS = 25_000
 
 
 def _authorize_user(
@@ -142,7 +143,7 @@ async def upload_transactions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     categorizer: LLMCategorizer = Depends(get_categorizer),
-    _rate_limit: None = Depends(rate_limiter(max_attempts=10)),
+    _rate_limit: None = Depends(authenticated_rate_limiter(max_attempts=10)),
 ) -> UploadSummary:
     _authorize_user(user_id, current_user)
 
@@ -290,6 +291,13 @@ def list_transactions(
             Transaction.posted_on.desc(),
             Transaction.id.desc(),
         )
+        # A defensive ceiling, not a UX pagination limit -- paginated
+        # browsing already goes through /transactions/search. No real
+        # user's genuine transaction history approaches this (it's
+        # decades of daily activity); this only bounds how much a
+        # pathological volume of rows could turn into a single
+        # unbounded response.
+        .limit(_MAX_UNPAGINATED_TRANSACTIONS)
     )
 
     return list(db.scalars(statement).all())

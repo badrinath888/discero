@@ -1,7 +1,14 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+)
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
@@ -16,7 +23,6 @@ from app.schemas import (
     PasswordChangeRequest,
     PasswordResetRequest,
     PublicMessage,
-    RefreshTokenRequest,
     TokenOut,
     TokenRequest,
     UserCreate,
@@ -46,9 +52,67 @@ VERIFICATION_MESSAGE = (
 INVALID_RESET_TOKEN = "password reset link is invalid or expired"
 INVALID_VERIFICATION_TOKEN = "email verification link is invalid or expired"
 
+# The refresh token now lives ONLY in a browser-managed HttpOnly cookie --
+# never in a JSON response body, and never in localStorage/sessionStorage
+# (see frontend/app/lib/api.ts). A long-lived bearer credential sitting in
+# JS-readable storage is a standing session-theft target for any XSS; an
+# HttpOnly cookie cannot be read by page JavaScript at all. Scoped to
+# /users so it is never sent on ordinary API calls, only the handful of
+# auth endpoints that need it.
+REFRESH_COOKIE_NAME = "discero_refresh_token"
+REFRESH_COOKIE_PATH = "/users"
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _refresh_cookie_kwargs() -> dict:
+    # Production frontend (Vercel) and backend (Render) are on different
+    # registrable domains, so the browser only sends this cookie back
+    # cross-site if SameSite=None -- which browsers only honor together
+    # with Secure (HTTPS-only). Locally, frontend/backend share the
+    # "localhost" site (differing only by port), so SameSite=Lax already
+    # reaches the API and works over plain HTTP, which local dev needs.
+    is_production = settings.app_env == "production"
+    return {
+        "httponly": True,
+        "secure": is_production,
+        "samesite": "none" if is_production else "lax",
+        "path": REFRESH_COOKIE_PATH,
+    }
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        REFRESH_COOKIE_NAME,
+        token,
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        **_refresh_cookie_kwargs(),
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        REFRESH_COOKIE_NAME,
+        **_refresh_cookie_kwargs(),
+    )
+
+
+def _validate_refresh_origin(request: Request) -> None:
+    """Defense-in-depth CSRF guard for the one endpoint authenticated
+    purely by an ambient cookie (SameSite=None disables SameSite's own
+    CSRF protection in production, by design, for cross-site delivery).
+    Every other endpoint in this API is Bearer-token authenticated --
+    the browser never attaches those ambiently, so only this endpoint
+    needs this check. A real cross-origin browser fetch() always sets
+    Origin; a same-origin request or a non-browser client may omit it,
+    so a missing Origin is not itself treated as an attack.
+    """
+    origin = request.headers.get("origin")
+
+    if origin is not None and origin not in settings.cors_origin_list:
+        raise HTTPException(status_code=403, detail="invalid origin")
 
 
 def _send_verification(email: str, token: str) -> None:
@@ -109,6 +173,7 @@ def create_user(
 @router.post("/login", response_model=TokenOut)
 def login(
     payload: UserLogin,
+    response: Response,
     db: Session = Depends(get_db),
     _rate_limit: None = Depends(rate_limiter(max_attempts=10)),
 ) -> TokenOut:
@@ -130,23 +195,31 @@ def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    _set_refresh_cookie(
+        response,
+        create_refresh_token(user.id, user.token_version),
+    )
+
     return TokenOut(
         access_token=create_access_token(user.id, user.token_version),
-        refresh_token=create_refresh_token(
-            user.id,
-            user.token_version,
-        ),
         user=UserOut.model_validate(user),
     )
 
 
 @router.post("/refresh", response_model=TokenOut)
 def refresh_access_token(
-    payload: RefreshTokenRequest,
+    request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     _rate_limit: None = Depends(rate_limiter(max_attempts=20)),
 ) -> TokenOut:
-    token_data = decode_refresh_token(payload.refresh_token)
+    _validate_refresh_origin(request)
+
+    refresh_token = request.cookies.get(REFRESH_COOKIE_NAME)
+
+    token_data = (
+        decode_refresh_token(refresh_token) if refresh_token else None
+    )
 
     if token_data is None:
         raise HTTPException(
@@ -159,20 +232,46 @@ def refresh_access_token(
     user = db.get(User, user_id)
 
     if user is None or token_version != user.token_version:
+        _clear_refresh_cookie(response)
         raise HTTPException(
             status_code=401,
             detail="session expired; please sign in again",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Rotated on every use: the cookie set here always replaces the one
+    # that was just spent, so a leaked-and-since-refreshed cookie value
+    # stops working the next time it's tried, the same way it would for
+    # a genuine reuse-detection scheme -- this repository has no
+    # server-side refresh-token store to additionally flag that replay
+    # as an incident (see SECURITY.md).
+    _set_refresh_cookie(
+        response,
+        create_refresh_token(user.id, user.token_version),
+    )
+
     return TokenOut(
         access_token=create_access_token(user.id, user.token_version),
-        refresh_token=create_refresh_token(
-            user.id,
-            user.token_version,
-        ),
         user=UserOut.model_validate(user),
     )
+
+
+@router.post("/logout", status_code=204)
+def logout(
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Revokes every access/refresh token currently outstanding for this
+    user (same blanket granularity as password reset/change -- this
+    repository has no per-device session table to revoke just one), and
+    clears the refresh cookie on this browser.
+    """
+    current_user.token_version += 1
+    db.add(current_user)
+    db.commit()
+
+    _clear_refresh_cookie(response)
 
 
 @router.post("/forgot-password", response_model=PublicMessage)
@@ -204,6 +303,7 @@ def forgot_password(
 def reset_password(
     payload: PasswordResetRequest,
     db: Session = Depends(get_db),
+    _rate_limit: None = Depends(rate_limiter(max_attempts=10)),
 ) -> PublicMessage:
     token_hash = hash_one_time_token(payload.token)
     result = db.execute(
@@ -235,6 +335,7 @@ def reset_password(
 def verify_email(
     payload: TokenRequest,
     db: Session = Depends(get_db),
+    _rate_limit: None = Depends(rate_limiter(max_attempts=10)),
 ) -> PublicMessage:
     token_hash = hash_one_time_token(payload.token)
     result = db.execute(

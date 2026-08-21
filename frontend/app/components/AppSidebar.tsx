@@ -4,7 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { session } from "../lib/api";
+import { api, session } from "../lib/api";
 
 type IconName =
   | "home"
@@ -62,6 +62,9 @@ export default function AppSidebar() {
   }
 
   function signOut() {
+    // Fire-and-forget: revokes the server-side session, but a slow or
+    // failed request must never delay leaving the app.
+    void api.logout();
     session.clear();
     router.replace("/");
   }

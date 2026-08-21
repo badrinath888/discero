@@ -11,7 +11,10 @@ const nextConfig: NextConfig = {
             key: "Referrer-Policy",
             value: "strict-origin-when-cross-origin",
           },
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          // Consistent with the CSP frame-ancestors 'none' set in
+          // middleware.ts -- there is no legitimate use case for
+          // framing Discero, same-origin or otherwise.
+          { key: "X-Frame-Options", value: "DENY" },
           {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=()",

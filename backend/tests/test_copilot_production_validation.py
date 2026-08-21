@@ -592,7 +592,7 @@ def test_forecast_narration_payload_includes_real_monthly_cash_flow() -> (
         result = cash_flow_forecast(
             user_id=user.id, as_of=TEST_DATE, db=db, current_user=user
         )
-        payload = _cash_flow_forecast_narration_payload(result)
+        payload, _trusted = _cash_flow_forecast_narration_payload(result)
 
         expected = (
             result.expected_income_cents - result.upcoming_bills_cents
@@ -693,22 +693,26 @@ def test_forecast_narration_with_real_verbatim_amount_is_accepted() -> None:
 
 
 def test_narration_is_grounded_unit() -> None:
-    payload = {"projected_end_balance": "$33,391.26", "confidence": "88%"}
+    from app.services.copilot_service import _TrustedFigures
+
+    trusted = _TrustedFigures()
+    trusted.amounts.add("$33,391.26")
+    trusted.percents.add(88.0)
 
     assert _narration_is_grounded(
-        payload,
         {"answer": "Your balance is $33,391.26 with 88% confidence."},
+        trusted,
     )
     assert not _narration_is_grounded(
-        payload,
         {"answer": "You'll have a surplus of $32,992.84."},
+        trusted,
     )
     assert not _narration_is_grounded(
-        payload,
         {
             "answer": "All good.",
             "suggested_actions": ["Try saving $500 more"],
         },
+        trusted,
     )
 
 

@@ -2,7 +2,6 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const TOKEN_KEY = "accessToken";
-const REFRESH_TOKEN_KEY = "refreshToken";
 const USER_ID_KEY = "userId";
 const SESSION_NOTICE_KEY = "sessionNotice";
 const INVALIDATED_SESSION_DETAIL =
@@ -33,6 +32,12 @@ async function fetchWithTimeout(
 
   try {
     const response = await fetch(input, {
+      // Carries the HttpOnly refresh-token cookie (see
+      // app/routers/users.py) on requests to the backend origin. The
+      // cookie itself is scoped server-side to /users, so this has no
+      // effect on any other route -- there is nothing else for the
+      // browser to attach.
+      credentials: "include",
       ...init,
       signal: controller.signal,
     });
@@ -87,27 +92,17 @@ function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
-function getRefreshToken(): string | null {
-  if (typeof window === "undefined") return null;
-
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
-}
-
 async function refreshSession(): Promise<boolean> {
-  const refreshToken = getRefreshToken();
-
-  if (!refreshToken) return false;
-
+  // The refresh token itself is never visible to this code -- it lives
+  // only in the HttpOnly cookie the browser attaches automatically
+  // (see the `credentials: "include"` default in fetchWithTimeout).
+  // There is no client-side way to know in advance whether that cookie
+  // exists or is still valid, so this always attempts the request and
+  // lets the response say so.
   const response = await fetchWithTimeout(
     `${API_URL}/users/refresh`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        refresh_token: refreshToken,
-      }),
     },
     false
   );
@@ -141,7 +136,6 @@ function clearSession(): void {
   if (typeof window === "undefined") return;
 
   localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(USER_ID_KEY);
 }
 
@@ -241,7 +235,6 @@ export type PublicMessage = {
 
 export type AuthResponse = {
   access_token: string;
-  refresh_token: string;
   token_type: string;
   user: User;
 };
@@ -1839,11 +1832,10 @@ export type PlaidConnection = {
 
 export const session = {
   save(auth: AuthResponse): void {
+    // The refresh token is never stored here -- the backend sets it as
+    // an HttpOnly cookie the browser manages on its own, unreadable by
+    // any page JavaScript (see /users/login in app/routers/users.py).
     localStorage.setItem(TOKEN_KEY, auth.access_token);
-    localStorage.setItem(
-      REFRESH_TOKEN_KEY,
-      auth.refresh_token
-    );
     localStorage.setItem(USER_ID_KEY, String(auth.user.id));
     sessionStorage.removeItem(SESSION_NOTICE_KEY);
   },
@@ -1893,6 +1885,26 @@ export const api = {
       },
       body: JSON.stringify({ email, password }),
     }).then((res) => handle<AuthResponse>(res)),
+
+  // Best-effort, deliberate sign-out only (not called from the
+  // automatic 401/expired-session cleanup path, where the access token
+  // is presumptively already invalid and this would just be a doomed
+  // extra request). Revokes the refresh cookie and every outstanding
+  // access token for this user server-side; a network failure here
+  // must never block the local sign-out this always runs alongside.
+  logout: (): Promise<void> => {
+    const token = getToken();
+    if (!token) return Promise.resolve();
+
+    return fetch(`${API_URL}/users/logout`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+      keepalive: true,
+    })
+      .then(() => undefined)
+      .catch(() => undefined);
+  },
 
   forgotPassword: (email: string): Promise<PublicMessage> =>
     fetchWithTimeout(`${API_URL}/users/forgot-password`, {

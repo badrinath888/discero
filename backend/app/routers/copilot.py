@@ -5,7 +5,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.deps import get_copilot_client
 from app.models import User
-from app.rate_limit import rate_limiter
+from app.rate_limit import authenticated_rate_limiter
 from app.schemas import CopilotChatRequest, CopilotResponseOut
 from app.services import copilot_audit
 from app.services.copilot_service import (
@@ -43,7 +43,7 @@ def chat(
     current_user: User = Depends(get_current_user),
     client: CopilotModelProvider = Depends(get_copilot_client),
     _rate_limit: None = Depends(
-        rate_limiter(max_attempts=20, window_seconds=60)
+        authenticated_rate_limiter(max_attempts=20, window_seconds=60)
     ),
 ) -> CopilotResponseOut:
     _authorize_user(user_id, current_user)

@@ -588,15 +588,17 @@ describe("Copilot auto-scroll", () => {
     ).mockClear();
 
     deferred.resolve(answerResponse);
+
     await waitFor(() =>
       expect(
         screen.getByText("You have $5,000.00 safe to spend.")
       ).toBeInTheDocument()
     );
-
-    // The response must still be scrolled into view -- force-follow
-    // is not cancelled by a scroll event during an active request.
-    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+    // scrollIntoView is triggered from a React effect after the response
+  // render, so wait for the effect rather than assuming it has already run.
+    await waitFor(() =>
+      expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()
+    );
   });
 
   it("reproduces the repeated-message bug: the second response scrolls into view", async () => {

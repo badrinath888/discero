@@ -336,29 +336,36 @@ def test_percent_grounding_is_sign_aware() -> None:
     flips its sign, and vice versa -- magnitude-only comparison would
     treat -2.3% and +2.3% as the same number, which they aren't.
     """
-    from app.services.copilot_service import _narration_is_grounded
+    from app.services.copilot_service import (
+        _narration_is_grounded,
+        _TrustedFigures,
+    )
 
-    payload_negative = {"change": "-2.3%"}
-    payload_positive = {"change": "+2.3%"}
+    trusted_negative = _TrustedFigures()
+    trusted_negative.percents.add(-2.3)
+    trusted_positive = _TrustedFigures()
+    trusted_positive.percents.add(2.3)
+    trusted_94 = _TrustedFigures()
+    trusted_94.percents.add(94.0)
 
     # 1. payload -2.3%, narration +2.3% -> rejected
     assert not _narration_is_grounded(
-        payload_negative, {"answer": "That's a +2.3% change."}
+        {"answer": "That's a +2.3% change."}, trusted_negative
     )
 
     # 2. payload +2.3%, narration -2.3% -> rejected
     assert not _narration_is_grounded(
-        payload_positive, {"answer": "That's a -2.3% change."}
+        {"answer": "That's a -2.3% change."}, trusted_positive
     )
 
     # 3. formatting tolerance is preserved: 94.0% grounds 94%
     assert _narration_is_grounded(
-        {"confidence": "94.0%"}, {"answer": "Confidence is 94%."}
+        {"answer": "Confidence is 94%."}, trusted_94
     )
 
     # 4. matching negative percentage -> accepted
     assert _narration_is_grounded(
-        payload_negative, {"answer": "That's a -2.3% change."}
+        {"answer": "That's a -2.3% change."}, trusted_negative
     )
 
 

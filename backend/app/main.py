@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.body_size_limit import MaxBodySizeMiddleware
 from app.config import settings
 from app.database import get_db
 from app.routers import (
@@ -32,11 +33,27 @@ from app.routers import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title=settings.app_name)
+# Interactive API docs describe the entire endpoint surface -- useful
+# in development, unnecessary attack-surface reconnaissance for an
+# anonymous Internet caller once this is a real production deployment.
+_docs_enabled = settings.app_env != "production"
+
+app = FastAPI(
+    title=settings.app_name,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
+    # Required so the browser sends/receives the refresh-token cookie
+    # (see routers/users.py) on cross-site requests to this API. Safe
+    # only because allow_origins is always an explicit list, never "*"
+    # -- Starlette itself refuses allow_credentials=True combined with
+    # a wildcard origin.
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -52,6 +69,22 @@ async def add_security_headers(
         "strict-origin-when-cross-origin"
     )
     response.headers["X-Frame-Options"] = "DENY"
+    # Defensive only -- this API returns JSON, never HTML, so CSP has
+    # no real content to restrict here. Set anyway in case any response
+    # (an error page from an intermediary, a future misconfiguration)
+    # ever comes back as HTML: it must never be framable or able to run
+    # a script. Excludes the dev/test-only docs UI, which legitimately
+    # loads its own script/style assets and would otherwise break under
+    # this policy.
+    if request.url.path not in ("/docs", "/redoc"):
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; frame-ancestors 'none'"
+        )
+    # Every response from this API is either an auth flow or a specific
+    # user's financial data -- there is no cacheable public content, so
+    # this is unconditional rather than an allowlist of sensitive
+    # routes.
+    response.headers["Cache-Control"] = "no-store"
 
     is_https = (
         request.url.scheme == "https"
@@ -63,6 +96,15 @@ async def add_security_headers(
         )
 
     return response
+
+
+# Added last so it wraps outermost (Starlette middleware added later
+# runs first on the way in) -- an oversized body is rejected before
+# CORS, routing, or any of the above ever run.
+app.add_middleware(
+    MaxBodySizeMiddleware,
+    max_bytes=settings.max_request_body_bytes,
+)
 
 
 app.include_router(users.router)

@@ -196,6 +196,34 @@ def calculate_safe_to_spend(
     )
 
 
+def calculate_current_safe_to_spend(
+    db: Session,
+    user_id: int,
+    *,
+    safety_reserve_cents: int = 0,
+    essential_spending_cents: int = 0,
+    horizon_days: int = 30,
+    as_of: date | None = None,
+) -> SafeToSpendOut:
+    """The one canonical CURRENT (not scenario) Safe-to-Spend figure --
+    used by both the Overview dashboard and Copilot's `get_safe_to_spend`
+    -- so the two can never diverge on whether projected income and
+    goal reserve are folded in. Every scenario caller (Major Purchase,
+    Buy Now vs Wait, Stress Test, Recommendations, etc.) keeps calling
+    `calculate_safe_to_spend` directly with its own `SafeToSpendRequest`,
+    unaffected by this wrapper.
+    """
+    payload = SafeToSpendRequest(
+        safety_reserve_cents=safety_reserve_cents,
+        essential_spending_cents=essential_spending_cents,
+        horizon_days=horizon_days,
+        include_projected_income=True,
+        include_goal_reserve=True,
+    )
+
+    return calculate_safe_to_spend(db, user_id, payload, as_of=as_of)
+
+
 def _get_liquid_balance(
     db: Session,
     user_id: int,

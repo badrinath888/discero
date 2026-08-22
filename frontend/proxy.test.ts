@@ -72,6 +72,17 @@ describe("proxy (CSP)", () => {
     );
   });
 
+  it("sets the same CSP on the request headers as the response, so Next.js can extract the nonce for framework scripts", () => {
+    const response = proxy(new NextRequest("http://localhost:3000/"));
+    const responseCsp = response.headers.get("Content-Security-Policy");
+    const requestCsp = response.headers.get(
+      "x-middleware-request-content-security-policy"
+    );
+
+    expect(requestCsp).toBeTruthy();
+    expect(requestCsp).toBe(responseCsp);
+  });
+
   it("does not upgrade insecure requests against the local-dev http backend", () => {
     // NEXT_PUBLIC_API_URL is read once at module load; the test
     // environment leaves it unset, so this exercises the "http://

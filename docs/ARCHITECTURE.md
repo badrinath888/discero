@@ -1,118 +1,271 @@
-# Architecture
+# Discero Architecture
 
-## System context
+Discero is a financial decision-intelligence platform: a Next.js frontend and a FastAPI backend that combine account, budget, and obligation data into deterministic simulations of how a proposed decision — a purchase, an income loss, a multi-step plan — would affect liquidity, obligations, goals, and financial resilience.
 
-```text
-Browser / Next.js 16 (Vercel)
-  localStorage JWT + user id
-  HTTPS JSON/multipart REST
-FastAPI (Render)
-  auth + domain routers
-  SQLAlchemy 2 / Alembic
-  SQLite local/test | configured PostgreSQL production
-  ├─ Plaid Sandbox API
-  └─ Anthropic API (optional; deterministic fallback)
+The architecture is built around one invariant: **financial truth is deterministic**. Every balance, Safe-to-Spend figure, affordability verdict, stress-test outcome, or recommendation is computed by a backend service in integer cents. A language model may interpret a user's question, select which deterministic tool to run, and narrate an already-computed result in plain language — it never calculates, estimates, or overrides a financial figure itself. This principle shapes the Copilot trust boundary (§6) and is enforced in code, not just prompt wording.
+
+The backend is a single FastAPI application — a modular monolith with domain-separated routers and services, not a microservice mesh. Persistence is PostgreSQL via SQLAlchemy 2/Alembic; rate limiting is Redis/Valkey-backed with a local fallback; Plaid supplies linked-account data; an LLM provider abstraction supplies optional narration.
+
+## 1. System Overview
+
+The frontend is a Next.js 16 / React 19 App Router application deployed on Vercel. It holds a short-lived Bearer access token in memory/client state and relies on an HttpOnly refresh-token cookie for session renewal; a proxy layer (`frontend/proxy.ts`) issues a per-request CSP nonce and security headers ahead of every page.
+
+The backend is a FastAPI application deployed on Render. `app/main.py` registers CORS, security headers, a request-body-size ceiling, and seventeen domain routers covering authentication, financial data (transactions, accounts, budgets, goals, recurring items), decision-intelligence services, and Copilot orchestration. Business logic lives in `app/services/`, separated by domain responsibility rather than by deployable unit.
+
+PostgreSQL (via SQLAlchemy 2 and a linear Alembic migration history) is the system of record for identity, financial data, saved decisions, and Copilot audit events. Redis/Valkey backs a distributed sliding-window rate limiter for abuse-prone endpoints, with an in-process fallback if Redis is unreachable. Plaid supplies linked bank account and transaction data, synchronized via cursor-based incremental sync. A configurable provider abstraction (Groq, Anthropic, or a fully deterministic free mode with no external call) supplies optional LLM narration for the Copilot, gated by a grounding validator that rejects any narration not traceable to the real computed result.
+
+Every decision-intelligence capability — Safe-to-Spend, Major Purchase, Buy Now vs Wait, Scenario Comparison, Financial Stress Testing, Multi-Step Scenario Planning, Decision Outcome Tracking, Decision Calibration, Decision Portfolio Intelligence, and Financial Resilience — is a dedicated backend service, not a variant of one generic calculator, directly reachable through the REST API. A supported subset of these is additionally exposed through the Copilot's deterministic tool router; the remainder (including Multi-Step Scenario Planning and Decision Portfolio Intelligence) is REST-only today.
+
+## 2. System Context
+
+```mermaid
+flowchart LR
+    U[User]
+    FE["Next.js Web Application<br/>Vercel"]
+    API["FastAPI Application<br/>Render"]
+    DB[(PostgreSQL)]
+    REDIS[(Redis / Valkey)]
+    PLAID["Plaid<br/>(linked accounts)"]
+    GROQ["Groq<br/>(LLM narration)"]
+
+    U --> FE
+    FE -->|"HTTPS REST<br/>Bearer access token"| API
+    API --> DB
+    API --> REDIS
+    API -->|account/transaction sync| PLAID
+    API -->|optional narration| GROQ
 ```
 
-The frontend is a client-rendered App Router application. Each authenticated page validates the local session through `/users/me` and redirects to `/` when missing/invalid. `app/lib/api.ts` centralizes the base URL, bearer header, JSON/error handling, and a 15-second abort timeout. The backend registers CORS and ten routers in `app/main.py`: `users`, `transactions`, `budgets`, `goals`, `major_purchase`, `recurring`, `safe_to_spend`, `financial_stress_test`, `plaid`, and `accounts`. `app/routers/auth.py` is not itself registered; it supplies the shared `get_current_user` dependency that every user-domain route uses to compare the JWT subject to the path `user_id`. Login is implemented directly in `app/routers/users.py`.
+Ordinary authenticated requests carry only the Bearer access token; the HttpOnly refresh cookie is sent solely to the `/users/refresh` and other `/users`-scoped session-renewal endpoints, never on general API calls (see §7).
 
-## Database model
+The frontend never talks to PostgreSQL, Redis, Plaid, or Groq directly — every external dependency is mediated by the FastAPI backend. There is no message queue, event bus, API gateway, or service mesh in this system; the backend is one deployable process per instance.
 
-- `User`: unique indexed email, Argon2 password hash, integer token version, email-verification state, nullable SHA-256 reset/verification token hashes and expirations, and creation time. Owns transactions, budgets, recurring items, goals, and Plaid items with delete-orphan cascades. Raw one-time tokens are never stored.
-- `Transaction`: user; optional financial account (`SET NULL` on account removal); globally unique optional Plaid transaction id; date, description, optional merchant, signed integer cents, category, category lock, source, pending flag, timestamps. Positive is income; negative is expense.
-- `Budget`: user/category/canonical `YYYY-MM` unique tuple, positive limit in cents. The API requires that same ISO month form for list, upsert, delete, copy, and progress operations.
-- `RecurringItem`: user/normalized-merchant unique tuple; merchant, optional category, amount in cents, frequency, last/next payment dates, `suggested`/`active`/lifecycle status, confidence score, and price-change percent/warning. Feeds both the `/recurring` page and Safe-to-Spend's upcoming-obligations calculation.
-- `SavingsGoal`: user, name, positive target, nonnegative saved amount (derived from its contributions), optional target date, timestamps. Owns `GoalContribution` rows with delete-orphan cascade.
-- `GoalContribution`: goal, signed amount in cents, `deposit`/`withdrawal` type, contributed-on date, optional note, timestamps. A goal's `saved_cents` is the running sum of its contributions; creating a goal with an initial balance records an "Opening balance" deposit rather than setting the balance directly.
-- `PlaidItem`: user, globally unique provider item id, institution metadata, encrypted access token, active/reconnect-required connection status, cursor, sync lifecycle status, safe error summary, and attempted/successful timestamps. Owns financial accounts.
-- `FinancialAccount`: Plaid item, globally unique provider account id, names/type/subtype/mask, current/available balances, currency, timestamps. Relates to transactions.
+## 3. Production Deployment Topology
 
-Alembic is linear: `93dcf675c7ee` initial user/transaction/budget schema → `f77d39a9c4e0` Plaid items/accounts → `ac2645f928d0` transaction Plaid fields → `383774abbeb5` category lock → `568820dfb45d` savings goals → `c4a8d9e2f1b0` user token version → `e7b1c9d4a2f6` account recovery and email verification → `7d9c2a4e6b10` Plaid synchronization lifecycle → `8adb0528864c` recurring items → `146ccae6e522` goal contributions (head). Monthly-budget expansion required no migration.
+```mermaid
+flowchart TB
+    B["Browser"]
+    V["Vercel<br/>Next.js 16 / React 19"]
+    R["Render<br/>FastAPI (Uvicorn)"]
+    PG[(PostgreSQL)]
+    RV[(Redis / Valkey)]
+    PL["Plaid API"]
+    GR["Groq API"]
 
-## Authentication lifecycle
+    B -->|HTTPS| V
+    V -->|"authenticated HTTPS REST"| R
+    R --> PG
+    R --> RV
+    R --> PL
+    R --> GR
+```
 
-Registration normalizes email and rejects duplicates, hashes the password with pwdlib's recommended Argon2 hasher, and issues a 24-hour email-verification token. New users start unverified with token version zero. Unverified users may log in, intentionally preserving existing registration/login behavior. Login verifies the hash and issues an HS256 JWT containing string `sub` (user id), integer `ver` (the current user token version), and `exp`; default lifetime is 60 minutes. Authentication loads the user and requires the claim to equal the stored version. Validly signed tokens with a missing, non-integer, or mismatched `ver` receive the generic 401 `session expired; please sign in again`; legacy tokens without `ver` are intentionally rejected. Malformed, expired and unknown-user handling remains separate.
+The frontend is built and hosted on Vercel; the backend runs as a Render Web Service behind Render's own edge, which is the sole public ingress to the container (see §7 for why this matters to IP-based rate limiting). `backend/start.sh` runs `alembic upgrade head` before starting Uvicorn on every deploy, so schema migrations apply ahead of traffic; the Dockerfile-based image starts Uvicorn directly and does not run migrations itself. The application exposes `/health` (process liveness, no database access) and `/health/ready` (confirms database connectivity) for the host's health checks. PostgreSQL and Redis/Valkey are external managed dependencies reached over the network, not services co-located in the same container or dyno.
 
-Email and password changes require the current password. Email is normalized, must differ, and must be unique; a successful email change marks the new address unverified and sends a new verification link. New password must differ and meet the schema's 8-character minimum. Each successful credential change increments the token version exactly once in the same commit, invalidating every older token immediately; rejected changes do not increment it. The Settings UI clears local storage and redirects to login. Shared frontend 401 handling also clears authentication and carries a one-time sign-in-again notice to the login page for version-invalidated sessions.
+## 4. Backend Architecture
 
-Forgot-password and resend-verification accept an email but always return the same public response for unknown, already-verified, and applicable accounts. Tokens use `secrets.token_urlsafe(32)`; only SHA-256 hashes and expirations are persisted. Reset links expire after 30 minutes and verification links after 24 hours by default. Reset and verification consume their hash with one conditional database update, making reuse and concurrent double-submit fail safely. A successful reset replaces the Argon2 hash, increments `token_version`, clears the token, and invalidates every JWT. There are no refresh tokens, per-device sessions, denylist, endpoint rate limits, or account deletion.
+Discero currently uses a modular-monolith backend. FastAPI hosts domain-specific routers and services in a single deployable application; business logic is separated by domain responsibility, not by network boundary. Nothing described below is an independently deployed service.
 
-Email delivery is isolated in `app/services/email_service.py`. The development environment template enables token-safe console delivery metadata; the application itself defaults to production mode, where console delivery is prohibited. Deployments may use authenticated SMTP with optional TLS or Resend's HTTPS API, selected by `EMAIL_BACKEND`; Resend requires `RESEND_API_KEY`, and both providers use `EMAIL_FROM`. Provider failures become generic internal delivery errors and are logged without exception details, message bodies, links, tokens, API keys, or SMTP passwords, while public endpoints retain enumeration-safe responses.
+```mermaid
+flowchart TB
+    subgraph APP["FastAPI Application"]
+        subgraph SEC["Authentication & Security"]
+            AUTH["auth / session lifecycle"]
+            RATE["rate limiting"]
+            CFG["config validation / security headers"]
+        end
 
-## Data flows
+        subgraph FIN["Financial Data"]
+            TXN["transactions / accounts"]
+            BUD["budgets / goals"]
+            REC["recurring obligations"]
+            FCST["forecasting"]
+        end
 
-### CSV import
+        subgraph DEC["Decision Intelligence"]
+            STS["Safe-to-Spend"]
+            SIM["scenario / stress-test / portfolio<br/>services"]
+            OUT["outcomes / calibration"]
+        end
 
-`POST /transactions/upload` accepts only a filename ending `.csv`. UTF-8 BOM is tolerated. Case-insensitive aliases are: date (`date`, `posted_on`, `transaction date`, `posted date`), description (`description`, `name`, `memo`, `details`), and amount (`amount`, `amount_cents`, `value`). Dates accept ISO, US long/short, or `DD-MM-YYYY`; money is parsed with decimal half-up to cents. Bad rows are reported without aborting valid rows.
+        subgraph COP["Copilot"]
+            ROUTE["intent / tool routing"]
+            NARR["narration"]
+            GUARD["grounding validation"]
+            OBS["observability / evals"]
+        end
+    end
 
-Duplicates are prevented per user by exact date + trimmed/lowercased description + amount, against stored transactions and earlier rows in the same upload. This does not normalize punctuation/internal whitespace or use merchant, account, or source. Accepted descriptions are categorized in one batch and stored as CSV-source transactions.
+    subgraph EXT["Integrations"]
+        DB[(PostgreSQL)]
+        RD[(Redis / Valkey)]
+        PLAID["Plaid"]
+        GROQ["Groq"]
+    end
 
-### Categorization
+    FIN --> DEC
+    DEC --> COP
+    SEC -.enforces.-> FIN
+    SEC -.enforces.-> DEC
+    SEC -.enforces.-> COP
+    APP --> DB
+    APP --> RD
+    FIN --> PLAID
+    COP --> GROQ
+```
 
-Deterministic keyword rules cover nine categories with `Uncategorized` fallback. With `ANTHROPIC_API_KEY`, `LLMCategorizer` batches distinct uncached descriptions, asks for one allowed category per item, caches in process memory, and falls back to rules for errors, invalid categories, or wrong-length output. The broad exception handler preserves imports but hides provider error detail; cache is not persistent or user-correction-aware.
+Routers in `app/routers/` (users, transactions, accounts, budgets, goals, recurring, plaid, safe_to_spend, major_purchase, financial_stress_test, financial_resilience, goal_conflict_detection, recurring_intelligence, spending_anomalies, what_if, recommendations, copilot, decisions) handle HTTP concerns — request validation, authorization, response shaping — and delegate computation to `app/services/`. Cross-cutting concerns (authentication, rate limiting, request-size limits, production configuration validation) apply uniformly across routers rather than being reimplemented per domain.
 
-### Plaid
+## 5. Deterministic Decision Architecture
 
-The browser requests a link token, Plaid Link supplies a public token, and the API exchanges it, encrypts the access token with Fernet, upserts the item/accounts, and returns safe account fields. Manual sync works per owner-scoped item: one conditional update atomically claims non-syncing items or UTC claims at least 15 minutes old, refreshes the attempt timestamp, and rejects recent/competing claims. It requests every Plaid cursor page from the last committed cursor, then applies added/modified/removed transactions and the final cursor in one database commit. Provider transaction ids are upserted, repeated pages remain idempotent, account mappings must belong to the item, and manually locked categories are preserved. A failure rolls back data/cursor changes and separately records `failed` with a bounded safe summary; `ITEM_LOGIN_REQUIRED` also marks the connection `reconnect_required`. A retry or stale-claim recovery starts from the last valid cursor.
+```
+Financial state (accounts, transactions, budgets, goals, recurring obligations)
+    -> deterministic domain service (Safe-to-Spend, stress test, scenario, ...)
+    -> time-aware simulation (where a decision spans dates)
+    -> structured result (Pydantic schema, integer cents)
+    -> persistence (saved decision, outcome) / API response / Copilot narration input
+```
 
-Disconnect loads the item by both local id and user, calls Plaid before local deletion, and retains local data when the provider call fails. After provider success, deleting the item cascades its accounts while the account foreign key on historical transactions becomes null, preserving transaction history. Provider/config/encryption failures map to 502/503/500 responses. Safe status/account responses exclude access tokens, provider identifiers, and cursors. Provider item/account/transaction uniqueness remains global rather than `(user, provider id)`.
+Safe-to-Spend (`app/services/safe_to_spend_service.py`) is the foundational primitive: it derives a liquid balance from active depository/cash Plaid accounts, subtracts upcoming recurring obligations, essential spending, and a safety reserve, and produces a confidence-scored result. Major Purchase, Buy Now vs Wait, Scenario Comparison, and Financial Stress Testing all evaluate against that same Safe-to-Spend computation rather than each maintaining an independent notion of "what can I afford."
 
-### Analytics
+Time-aware simulation (`app/services/time_aware_financial_simulation_service.py`) is the shared temporal engine underlying Multi-Step Scenario Planning and Buy Now vs Wait's "wait" branch: it walks known recurring obligations and income chronologically between two dates using only already-deterministic Discero data, never predicting discretionary spending or investment performance. Multi-Step Scenario Planning and Decision Portfolio Intelligence both reuse Safe-to-Spend's raw (pre-clamp) total and sum deltas against one shared baseline before a single final clamp, so a compounding shortfall across steps or decisions is never silently understated by clamping each one independently.
 
-Summary endpoints compute overview, category/month totals, recurring patterns, insights, and cash-flow forecasts from stored transactions/accounts. Algorithmic recurring detection (`app/recurring.py`, `detect_recurring`) ignores pending activity, normalizes merchant/reference noise, requires three completed occurrences, recognizes weekly/biweekly/monthly cadence with tolerance, and emits confidence/price-change signals. Forecasts combine liquid balances, income pace, and detected recurring payments; these are estimates, not guarantees.
+Acted-on decisions are persisted (`SavedDecision`) and can be re-evaluated later: Decision Outcome Tracking re-runs a decision's original saved input against current data and stores a structured comparison, never a client-supplied "current" result. Decision Calibration is a read-model over already-persisted outcome rows — it recomputes accuracy statistics from stored comparison data and never re-runs a simulation or accepts client-supplied numbers.
 
-### Recurring items
+Formulas, thresholds, and exact field-level behavior are intentionally out of scope here — see [API_REFERENCE.md](API_REFERENCE.md) and the service modules themselves.
 
-`RecurringItem` rows (`app/routers/recurring.py`, prefix `/users/{user_id}/recurring-items`) are a user-owned, persisted list distinct from the algorithmic detection above: the `/recurring` page surfaces both the detected suggestions from `summary/recurring` and the persisted items, and a suggestion can be saved as a tracked item. Create validates that merchant/normalized-merchant are non-empty and relies on the user/normalized-merchant unique constraint to reject duplicates (409). Update accepts partial changes to category, amount, frequency, next payment, and status. Only `active`-status items with a `next_payment` inside the requested horizon count as upcoming obligations for Safe-to-Spend.
+## 6. Copilot Trust Boundary
 
-### Goal contributions
+```mermaid
+flowchart LR
+    USER["User Question"]
+    ROUTER["Intent / Tool Selection"]
+    TOOL["Deterministic Financial Tool<br/>(authenticated user scope)"]
+    RESULT["Trusted Structured Result"]
+    LLM["Optional LLM Narration"]
+    GUARD["Grounding Validation"]
+    RESPONSE["User Response"]
+    FALLBACK["Deterministic Fallback Narration"]
 
-Each `SavingsGoal` no longer stores a balance directly; `GoalContribution` rows (`app/routers/goals.py`, `/users/{user_id}/goals/{goal_id}/contributions`) record dated deposits/withdrawals, and `saved_cents` is maintained as their running signed sum. Creating, updating, or deleting a contribution recomputes the goal's projected balance and rejects the change with a 422 if it would go negative; update recalculates the balance excluding the contribution being edited. Creating a goal with a nonzero opening `saved_cents` writes a synthetic "Opening balance" deposit rather than setting the column directly, so the contribution history stays authoritative.
+    USER --> ROUTER
+    ROUTER --> TOOL
+    TOOL --> RESULT
+    RESULT --> LLM
+    LLM --> GUARD
+    GUARD -->|grounded| RESPONSE
+    GUARD -->|rejected| FALLBACK
+    RESULT -->|no provider / provider failure| FALLBACK
+    FALLBACK --> RESPONSE
+```
 
-### Safe-to-Spend, Major Purchase Simulator, and Scenario Comparison
+Each Copilot turn makes at most two provider calls, both structured tool-use, never free-form generation of a financial figure: a DECIDE call selects one deterministic tool (or a clarification/out-of-scope response) from a fixed registry, and — only if a financial tool ran — a NARRATE call is shown that tool's real, already-computed result and asked to phrase it in plain language. Structured figures shown to the user (chips, cards) are built directly from the real result in Python, never parsed out of the model's prose; the model's prose narration is separately checked before it reaches the response.
 
-`app/services/safe_to_spend_service.py` (`POST /users/{user_id}/safe-to-spend`) computes a liquid balance from active Plaid accounts of type `depository`/`cash` (preferring available balance, falling back to current balance with a warning), subtracts upcoming `RecurringItem` obligations due within `horizon_days` (default 30, 1–90), an essential-spending amount, and a safety reserve, and reports `safe`, `limited`, or `negative` status with a confidence score blended from obligation confidence and whether a liquid balance exists.
+A grounding validator (`_narration_is_grounded` in `app/services/copilot_service.py`) checks every dollar figure and percentage the model states in its prose against the real payload it was shown. Unsupported monetary or percentage claims cause the entire narration to be rejected before it is returned to the user, and a deterministic template narration is substituted in its place. When no provider is configured, or a provider call fails, that same deterministic router and template narration (`copilot_free_mode`) answers instead — the computed financial answer is identical whether or not an LLM is in the loop.
 
-`app/services/major_purchase_service.py` (`POST /users/{user_id}/major-purchase/simulate`) runs a Safe-to-Spend calculation as of the purchase inputs, then evaluates one purchase against it: `affordable`, `caution` (exceeds a 75%-of-safe-to-spend recommended ceiling), or `not_affordable` (exceeds the safe-to-spend amount). It returns a plain-language explanation and up to two alternative amounts (a conservative 50% option and the recommended ceiling), each only included if it is cheaper than the requested purchase. The purchase date must fall between the calculation date and the Safe-to-Spend horizon's `through_date`, or the endpoint returns 422.
+The tool schema exposed to the model excludes user identity: every tool executes against the `user_id` from the already-authenticated request, never a value the model supplies. This mirrors the same ownership-scoping enforced at the REST layer (§7) — the LLM has no path to select whose data a tool call touches.
 
-`app/services/scenario_comparison_service.py` (`POST /users/{user_id}/major-purchase/compare`) runs two independent major-purchase simulations (`option_a`, `option_b`) and ranks them by affordability status, then shortfall, then remaining safe-to-spend, then impact percent, then cost, returning the recommended option (or `tie`) with a generated reason and the cent/percent differences between options.
+## 7. Authentication and Request Security
 
-`app/services/financial_stress_test_service.py` (`POST /users/{user_id}/financial-stress-test`) runs a Safe-to-Spend calculation as of the stress event, then subtracts a user-entered `stress_amount_cents` impact for one of four scenario types: `emergency_expense`, `temporary_income_loss`, `delayed_paycheck`, or `recurring_bill_increase`. The two duration-based scenarios (`temporary_income_loss`, `delayed_paycheck`) require `duration_days` (1–365) and return 422 without it; the other two ignore `duration_days` even if supplied. Risk level is integer-cents deterministic: `critical` when pre-event safe-to-spend is zero/negative or the event produces a shortfall, `strained` when the impact exceeds half of pre-event safe-to-spend (rounded) without a shortfall, otherwise `resilient`. Confidence subtracts 0.3 points per duration day (capped at 30, floored at 0) from the underlying Safe-to-Spend confidence, but only for the two duration-based scenarios. Estimated recovery days equals the entered duration for the two duration-based scenarios regardless of risk level; for the other two it is `0` with no shortfall and `null` (not determinable) with a shortfall. The event date must be on or after the calculation date and within the Safe-to-Spend horizon's `through_date`, or the endpoint returns 422. Explanation and recommendation text is derived only from these deterministic values, not a forecast or guarantee.
+Login issues a short-lived HS256 access token (`Bearer`, default 60-minute expiry) and sets a longer-lived refresh token in an HttpOnly cookie scoped to `/users`. Access tokens are sent explicitly in the Authorization header rather than as an ambient authentication cookie, reducing CSRF exposure for ordinary authenticated API requests; every route other than `/users/refresh` relies on this Bearer header alone. `POST /users/refresh` validates request origin against the configured CORS allowlist (defense-in-depth for the one endpoint authenticated purely by an ambient cookie), reads the refresh cookie, and issues a new access token plus a rotated refresh cookie that replaces it in the browser. Refresh tokens are stateless JWTs identified only by user id, `token_version`, and expiry — there is no persisted refresh-token-family or reuse-detection table, so successful rotation does not, by itself, mark the previous refresh token as consumed; a previously issued refresh token remains cryptographically valid, governed by its own expiry and by the user-level `token_version` invalidation mechanism below, until one of those revokes it. Passwords are hashed with Argon2 (`pwdlib`'s recommended hasher).
 
-The `/decisions` page exposes single-purchase simulation, side-by-side comparison, and financial stress test modes against these endpoints.
+Session invalidation is server-side via a per-user `token_version` integer: password/email change and logout increment it, which immediately invalidates every previously issued access and refresh token regardless of expiry, without a server-side session table. Protected resource access is scoped to the authenticated user at the route and/or query layer (e.g. `WHERE user_id = :authenticated_user`), and no request schema accepts a client-supplied ownership field.
 
-### Transaction bulk mutations and Undo
+Rate limiting (`app/rate_limit.py`) applies per-IP to public/anonymous endpoints (login, register, password reset) and per-IP **and** per-authenticated-user, independently, to expensive authenticated endpoints (Copilot chat, CSV upload, Plaid link/exchange/sync) — either bucket being exceeded rejects the request. See §10 for the Redis/local-fallback design.
 
-Bulk category and delete requests validate up to 100 positive transaction IDs, then load the complete owner-scoped set before changing any row. A missing or cross-user ID produces a 404 before mutation, preventing partial writes and avoiding disclosure of another user's records. The single-category endpoint deduplicates IDs in first-occurrence order. The mixed-category endpoint rejects repeated IDs, applies one validated category per transaction, locks every category, and returns rows in request order. Deletes return the number removed. Each endpoint commits once.
+The frontend proxy (`frontend/proxy.ts`) issues a per-request nonce and a strict Content-Security-Policy (`script-src` nonce + `strict-dynamic`, no wildcard origins beyond Plaid's own CDN/API domains) ahead of every page response. The backend adds `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and HSTS (when the request is HTTPS) to every response, and refuses `APP_ENV=production` startup if the JWT secret is left at its development default, CORS includes a wildcard or localhost origin, or Plaid is configured without an encryption key set.
 
-The Transactions page optimistically removes selected rows but waits six seconds before calling the atomic bulk-delete endpoint. Delete Undo clears that timer and restores local state without making a delete request. Once the timer expires, one request deletes the entire set; a request failure restores every optimistically removed row. Single-row deletion uses the same bulk endpoint with one ID.
+Cookie contents, signing keys, and other operational secrets are intentionally not detailed here — see [SECURITY.md](../SECURITY.md) for the full threat model.
 
-Single and bulk category changes commit immediately, capture the exact previous values in browser memory, and expose Undo for six seconds. Category Undo sends one mixed-category request so restoration is atomic even when prior categories differ. Expiry or toast dismissal only clears the local opportunity; it sends no request. Generation-guarded timers prevent an older callback from clearing a newer operation. A new category or delete operation replaces the prior category Undo, and one shared action toast prevents category and delete Undo from appearing together.
+## 8. Data Architecture
 
-## Frontend architecture and routes
+```mermaid
+flowchart LR
+    ID["Identity<br/>(User)"]
+    FINDATA["Financial Data<br/>(Transaction, Budget,<br/>RecurringItem)"]
+    PLAN["Planning<br/>(SavingsGoal,<br/>GoalContribution)"]
+    DECI["Decision Intelligence<br/>(SavedDecision,<br/>DecisionOutcome)"]
+    INTEG["Integration State<br/>(PlaidItem,<br/>FinancialAccount)"]
+    AUDIT["AI Observability<br/>(CopilotAuditEvent)"]
 
-All authenticated pages use `AppSidebar`, responsive desktop/mobile navigation, reusable motion respecting reduced-motion preferences, and page-specific loading/error/empty states.
+    ID --> FINDATA
+    ID --> PLAN
+    ID --> DECI
+    ID --> INTEG
+    ID --> AUDIT
+    INTEG --> FINDATA
+    FINDATA --> DECI
+```
 
-- `/`: marketing plus login/register; validates existing token; form validation and inline auth errors.
-- `/dashboard`: loads overview, categories, budgets, all transactions, goals, forecast, and Safe-to-Spend; charts/KPIs, CSV upload, links to detail pages; bespoke loading/error/empty presentation.
-- `/transactions`: server search/filter/pagination, accounts, manual creation and full editing (date/description/merchant/amount/category), Plaid sync, bulk selection/category/delete, confirmation, success/error and six-second Undo toasts, detail drawer, filter-aware CSV export.
-- `/accounts`: accounts plus transactions; portfolio totals/grouping/detail drawer, Plaid connect/sync/disconnect with confirmation and toast.
-- `/budgets`: monthly budgets/progress; save/edit drawer, copy previous month, overwrite choice, progress visuals and toast.
-- `/recurring`: combines detected recurring payments with persisted recurring items (create/update/delete); totals, due timing, warnings, rows/detail drawer; transaction CTA when empty.
-- `/forecast`: forecast API; balance scenario, upcoming flows, risk/empty state and detail drawer.
-- `/goals`: goal CRUD, contribution/withdrawal history per goal, status/progress, form/detail drawers, deletion confirmation/toast.
-- `/insights`: selected-month insights, metrics/severity filtering, rows/detail drawer and empty CTA.
-- `/decisions`: Safe-to-Spend summary card plus single-purchase simulation, side-by-side scenario comparison, and financial stress test modes; status/risk badges, explanation text, alternative-amount suggestions, and recovery estimates.
-- `/settings`: profile, account/transaction counts, password/email changes, logout, client-side full CSV export (shared formatter with the Transactions filtered export); password visibility and toast errors/success.
-- `/forgot-password`: public email submission with enumeration-safe success and error/loading states.
-- `/reset-password`: token-based password replacement, invalid/expired state, and local session clearing on success.
-- `/verify-email`: automatic token verification plus a public resend action.
-- `/_not-found`: Next.js generated not-found route; there is no repository-authored page.
+PostgreSQL is the production system of record, accessed through SQLAlchemy 2 with a linear Alembic migration history (currently head `fcca0ee66f34`, adding decision outcome tracking). Core financial amounts are represented as signed integer cents at persistence and at every deterministic-computation boundary (`app/money.py`), which keeps floating-point rounding error out of financial decision calculations; raw user-supplied text (e.g. a dollar amount typed into Copilot free-text) may pass through a float momentarily during parsing before being rounded to integer cents, and non-financial figures such as confidence scores and percentages are represented as floats throughout.
 
-Next.js's app-router route manifest reports 17 routes: the 14 application pages above (including `/`) plus the generated `/_not-found`, `/_global-error`, and `/favicon.ico` entries.
+Identity (`User`) owns every other domain via cascading foreign keys. Financial data (`Transaction`, `Budget`, `RecurringItem`) and integration state (`PlaidItem`, `FinancialAccount`) feed the decision-intelligence services described in §5. Planning data (`SavingsGoal`, `GoalContribution`) tracks goals as a running sum of dated contribution rows rather than a directly mutated balance column. Decision intelligence persists both the decision as saved (`SavedDecision`, storing its input and result snapshots) and each later re-evaluation (`DecisionOutcome`, always computed server-side from a deterministic re-run — never accepted from the client). `CopilotAuditEvent` stores bounded per-turn metadata (tool used, latency, token counts, success/failure) — deliberately never the user's prompt text, the model's prose answer, or raw financial payloads.
 
-See [FILE_MAP.md](FILE_MAP.md) for component responsibilities and [API_REFERENCE.md](API_REFERENCE.md) for calls.
+Multi-row mutations that must not partially apply — Plaid sync applying a page of added/modified/removed transactions and advancing the sync cursor, or a bulk transaction category/delete operation — commit as a single database transaction.
 
-## Deployment
+## 9. Plaid Integration
 
-GitHub Actions validates backend on Python 3.12 and frontend on Node 24 for pushes to `main` and pull requests. `backend/start.sh` applies `alembic upgrade head` and starts Uvicorn on `$PORT` (default 8000), matching Render-style deployment. The Dockerfile starts Uvicorn but does **not** run migrations. Vercel builds the Next app using `NEXT_PUBLIC_API_URL`; the repository has no `vercel.json` or checked-in Render blueprint, so dashboard configuration is external. Production health/readiness and the supplied URLs were not network-verified during this audit.
+```mermaid
+sequenceDiagram
+    participant FE as Frontend
+    participant API as FastAPI
+    participant Plaid as Plaid API
+    participant DB as PostgreSQL
+
+    FE->>API: request link token
+    API->>Plaid: create link token
+    API-->>FE: link token
+    FE->>Plaid: Plaid Link (public token)
+    FE->>API: exchange public token
+    API->>Plaid: exchange for access token
+    API->>API: encrypt access token (Fernet)
+    API->>DB: upsert PlaidItem / FinancialAccount
+    API-->>FE: safe account fields
+
+    FE->>API: sync request
+    API->>Plaid: transactions sync (from cursor)
+    Plaid-->>API: added / modified / removed pages
+    API->>DB: apply changes + advance cursor (one commit)
+```
+
+Access tokens are encrypted at rest (Fernet, via `TOKEN_ENCRYPTION_KEY`) and never returned in any API response; safe account/status payloads expose only names, types, masks, and balances. Synchronization is cursor-based: a sync claims the item atomically (rejecting a concurrent or too-recent claim), pages through every available cursor update, applies changes and advances the cursor in one commit, and rolls back cleanly on failure while separately recording a bounded, safe error summary. `ITEM_LOGIN_REQUIRED` marks the connection as needing reconnection rather than failing silently. All Plaid operations are scoped to the requesting user's own items.
+
+## 10. Rate Limiting and Resilience
+
+Rate limiting is backend-agnostic by design (`app/rate_limit.py`): an in-process sliding-window counter is the default (sufficient for local dev/test/CI, but not coordinated across instances), and setting `REDIS_URL` switches every rate-limited endpoint to a Redis-backed sliding window implemented as a single atomic Lua script — preventing the read-then-write race that would let concurrent requests both slip under a stale count.
+
+If Redis becomes unreachable, the limiter falls back to the same in-process limiter for a short cooldown before automatically retrying Redis — a Redis outage degrades to per-instance enforcement rather than becoming unlimited traffic, and never fails open. This is a deliberate trade-off: during a Redis blip, multiple backend instances briefly stop coordinating with each other and each enforces its own bounded window, rather than the alternative of failing the whole API closed or allowing unbounded requests. Expensive authenticated endpoints are limited by IP and by authenticated user independently; public auth endpoints are limited by IP only. Redis/Valkey is used exclusively for rate-limit counters — it is not an application session store.
+
+## 11. Observability and AI Evaluation
+
+The Copilot pipeline records two independent kinds of telemetry, both scoped to a single turn. `copilot_audit` persists a bounded row per turn to PostgreSQL — tool used, intent, success/error code, latency, model, tool-call count, response kind — deliberately excluding prompt text, model prose, or raw financial payloads. `copilot_observability` is a DB-free layer that reads token-usage and latency metadata already present on the provider's response object and computes estimated cost only when both an input and output per-million-token rate are explicitly configured; it never estimates a token count or fabricates a cost figure when those rates are unset. Grounding behavior (§6) is covered by dedicated regression and evaluation tests rather than trusted to prompt wording alone.
+
+No distributed tracing platform, external APM, or log-aggregation service is integrated at the application layer; observability here is limited to the audit/telemetry described above plus whatever the hosting platforms (Render, Vercel) provide natively.
+
+## 12. CI/CD and Production Safety
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request: a backend job (Python 3.12) installs dependencies and runs the pytest suite with `APP_ENV=test`; a frontend job (Node 24) runs lint, the Vitest suite, and a production `next build`. Dependabot tracks weekly updates for pip (backend), npm (frontend), and GitHub Actions dependencies.
+
+Deployment is Vercel for the frontend and Render for the backend. `backend/start.sh` applies `alembic upgrade head` before starting Uvicorn on every Render deploy, so the running application never serves traffic against an un-migrated schema; the container also exposes `/health` and `/health/ready` for the host's health checks (§3). The repository has no checked-in `vercel.json` or Render blueprint — hosting-platform configuration (environment variables, branch protection, secret scanning) lives in each platform's dashboard rather than in source, and is covered operationally in [SECURITY.md](../SECURITY.md) rather than here.
+
+## 13. Key Architectural Decisions
+
+| Decision | Rationale | Trade-off |
+|---|---|---|
+| Modular monolith (not microservices) | One deployable FastAPI app keeps domain services able to share deterministic primitives (Safe-to-Spend, time-aware simulation) directly, in-process, without a network hop or API versioning between services | Cannot scale or deploy individual domains independently; the whole application scales as one unit |
+| Deterministic finance core, LLM narration separated | A financial platform cannot let a language model invent a balance or a recommendation; narration is generated only after the real result exists and is checked against it | Narration quality is bounded by what the structured result payload contains; the model cannot add computation the payload doesn't already support |
+| Integer-cent monetary representation | Eliminates floating-point rounding error in every financial calculation | Requires disciplined parsing at every input boundary (`app/money.py`) rather than accepting raw decimals throughout |
+| PostgreSQL + Alembic, linear migration history | Single, auditable schema history; straightforward `alembic upgrade head` on deploy | Migrations must be written and reviewed sequentially; no branching schema history |
+| Redis/Valkey-backed rate limiting with local fallback | Horizontal scaling requires shared counters across instances; a Redis outage must never become unlimited traffic on a financial API | Fallback mode is per-instance, not globally coordinated, for the duration of a Redis outage |
+| Encrypted Plaid access tokens (Fernet) | Plaid tokens are long-lived bearer credentials for real bank data and must not be stored in plaintext | Key rotation currently requires re-linking affected connections rather than transparent re-encryption (see §14) |
+| Short-lived access token + HttpOnly refresh cookie | Access tokens are sent explicitly via the Authorization header rather than as an ambient cookie, reducing CSRF exposure for ordinary authenticated requests; the refresh cookie is inaccessible to JS, limiting XSS blast radius | No server-side refresh-token-family table, so rotation does not individually invalidate a previously issued refresh token — it remains valid until its own expiry or a `token_version` bump (see §14) |
+| Time-aware simulation as a shared primitive | Multi-Step Scenario Planning and Buy Now vs Wait both need the same chronological-walk semantics; a single engine guarantees they never diverge | Any new date-spanning decision feature must be built on this engine rather than a bespoke date-math implementation |
+
+## 14. Known Architectural Boundaries / Future Evolution
+
+- Refresh tokens are rotated stateless JWTs, not a server-side session table — a previously issued refresh token is not individually invalidated by rotation and remains cryptographically valid, governed only by its own expiry and the user-level `token_version`, until one of those revokes it. There is no persisted refresh-token-family record, so a leaked-and-later-replayed refresh token is not detected or flagged as a replay incident. A per-session table would close this gap.
+- `TOKEN_ENCRYPTION_KEY` rotation is not yet transparent: existing encrypted Plaid tokens become unreadable if the key is replaced outright, so a rotation currently implies re-linking affected connections rather than dual-key (current + previous) decryption.
+- No first-party MFA/passkey support; account takeover risk today is bounded by password strength, rate limiting, and full session revocation on password change.
+- The rate-limit fallback (§10) is per-process during a Redis outage — a deliberate, bounded trade-off rather than a gap to be silently relied upon.
+- The backend intentionally remains a modular monolith; splitting a domain into an independently deployed service is a future option, not a current architecture, and would need its own consistency story for the deterministic primitives multiple domains currently share in-process.
+
+See [SECURITY.md](../SECURITY.md) for the full threat model and residual security risks.

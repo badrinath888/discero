@@ -387,7 +387,7 @@ def test_groq_audit_rows_are_tagged_with_groq_provider() -> None:
         )
         assert len(events) == 1
         assert events[0].mode == "groq"
-        assert events[0].model == "llama-3.3-70b-versatile"
+        assert events[0].model == "openai/gpt-oss-120b"
         # No prompt text, no financial payload -- same privacy bound as
         # the Anthropic path. Only bounded routing-outcome/call-budget
         # metadata is stored, never raw prompt/model/financial content.

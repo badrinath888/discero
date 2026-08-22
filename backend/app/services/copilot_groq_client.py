@@ -37,7 +37,7 @@ class GroqCopilotClient:
     def __init__(
         self,
         api_key: str | None,
-        model: str = "llama-3.3-70b-versatile",
+        model: str = "openai/gpt-oss-120b",
         timeout: float = 20.0,
         max_retries: int = 1,
     ) -> None:

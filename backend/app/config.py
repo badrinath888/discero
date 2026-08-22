@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     # otherwise) for anyone who upgrades without setting this var.
     copilot_provider: Literal["groq", "anthropic", "free"] = "anthropic"
     groq_api_key: str | None = None
-    copilot_groq_model: str = "llama-3.3-70b-versatile"
+    copilot_groq_model: str = "openai/gpt-oss-120b"
 
     # Estimated-cost observability (see app/services/copilot_observability.py).
     # Both unset by default -- an unconfigured deployment must never see a

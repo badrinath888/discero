@@ -61,10 +61,10 @@ from app.schemas import (
     CopilotRecentDecisionsOut,
     CopilotResponseOut,
     CopilotReviewItemOut,
+    CopilotSafeToSpendRequest,
     FinancialStressTestRequest,
     GoalConflictDetectionRequest,
     MajorPurchaseSimulationRequest,
-    SafeToSpendRequest,
     ScenarioComparisonRequest,
     WhatIfComparisonRequest,
     WhatIfSimulationRequest,
@@ -98,7 +98,9 @@ from app.services.recommendation_service import evaluate_recommendations
 from app.services.recurring_intelligence_service import (
     evaluate_recurring_intelligence,
 )
-from app.services.safe_to_spend_service import calculate_safe_to_spend
+from app.services.safe_to_spend_service import (
+    calculate_current_safe_to_spend,
+)
 from app.services.scenario_comparison_service import (
     compare_major_purchase_scenarios,
 )
@@ -547,7 +549,7 @@ _TOOLS = [
             "spending, and their safety reserve. Use for questions "
             "about current spending room or discretionary spending."
         ),
-        "input_schema": _tool_schema(SafeToSpendRequest),
+        "input_schema": _tool_schema(CopilotSafeToSpendRequest),
     },
     {
         "name": "simulate_major_purchase",
@@ -1040,8 +1042,21 @@ _RECOMMENDATION_SEVERITY_TONE = {
 
 
 def _handle_safe_to_spend(db, user_id, tool_input, as_of, current_user):
-    payload = SafeToSpendRequest(**tool_input)
-    result = calculate_safe_to_spend(db, user_id, payload, as_of=as_of)
+    # Uses the compact CopilotSafeToSpendRequest, not the full
+    # SafeToSpendRequest -- the LLM can adjust reserve/essential/
+    # horizon, but can never set include_projected_income or
+    # include_goal_reserve. calculate_current_safe_to_spend always
+    # enforces both True, so this can never diverge from the Overview
+    # dashboard's CURRENT Safe-to-Spend figure.
+    payload = CopilotSafeToSpendRequest(**tool_input)
+    result = calculate_current_safe_to_spend(
+        db,
+        user_id,
+        safety_reserve_cents=payload.safety_reserve_cents,
+        essential_spending_cents=payload.essential_spending_cents,
+        horizon_days=payload.horizon_days,
+        as_of=as_of,
+    )
 
     chips = [
         _chip(

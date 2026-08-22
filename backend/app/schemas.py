@@ -806,6 +806,30 @@ class SafeToSpendRequest(BaseModel):
     include_goal_reserve: bool = Field(default=False)
 
 
+class CopilotSafeToSpendRequest(BaseModel):
+    """Compact Safe-to-Spend input surface exposed to the Copilot tool
+    call. Deliberately omits include_projected_income/include_goal_reserve
+    and user_id -- the LLM must never decide whether income/goal
+    reserve are enriched into the CURRENT figure, or whose data is
+    read; both are enforced server-side by
+    `safe_to_spend_service.calculate_current_safe_to_spend`.
+    """
+
+    safety_reserve_cents: int = Field(
+        default=0,
+        ge=0,
+    )
+    essential_spending_cents: int = Field(
+        default=0,
+        ge=0,
+    )
+    horizon_days: int = Field(
+        default=30,
+        ge=1,
+        le=90,
+    )
+
+
 class SafeToSpendObligationOut(BaseModel):
     name: str
     amount_cents: int

@@ -16,6 +16,7 @@ from app.models import (
 )
 from app.schemas import SafeToSpendRequest
 from app.services.safe_to_spend_service import (
+    calculate_current_safe_to_spend,
     calculate_safe_to_spend,
 )
 from tests.conftest import TestingSessionLocal
@@ -1899,3 +1900,160 @@ def test_safe_to_spend_endpoint_includes_income_and_goal_reserve(
     assert payload["confidence_level"] in {"high", "medium", "low"}
     assert isinstance(payload["confidence_drivers"], list)
     assert isinstance(payload["explanation"], list)
+
+
+def test_current_safe_to_spend_diverges_from_bare_default() -> None:
+    """Regression fixture for the production Overview-vs-Copilot
+    mismatch: with a goal and income present, the canonical CURRENT
+    calculation (always enriched) and the bare-default
+    `SafeToSpendRequest()` calculation (both flags False) must
+    disagree. This is the exact shape of bug that shipped: a caller
+    silently using the unenriched defaults instead of the canonical
+    current-safe-to-spend path.
+    """
+    with TestingSessionLocal() as db:
+        user = create_user(db, "current-vs-default-divergence")
+
+        create_account(db, user, available_balance_cents=500_000)
+        create_goal(
+            db,
+            user,
+            target_cents=200_000,
+            target_date=date(2026, 10, 4),
+        )
+        create_income_transaction(
+            db,
+            user,
+            posted_on=date(2026, 7, 15),
+            amount_cents=300_000,
+        )
+
+        current = calculate_current_safe_to_spend(
+            db,
+            user.id,
+            as_of=TEST_DATE,
+        )
+        bare_default = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert current.breakdown.projected_income_cents == 300_000
+        assert current.breakdown.goal_reserve_cents == 100_000
+        assert bare_default.breakdown.projected_income_cents == 0
+        assert bare_default.breakdown.goal_reserve_cents == 0
+        assert current.safe_to_spend_cents != bare_default.safe_to_spend_cents
+
+
+def test_current_safe_to_spend_honors_user_provided_assumptions() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db, "current-honors-user-assumptions")
+
+        create_account(db, user, available_balance_cents=500_000)
+
+        result = calculate_current_safe_to_spend(
+            db,
+            user.id,
+            safety_reserve_cents=50_000,
+            essential_spending_cents=25_000,
+            horizon_days=45,
+            as_of=TEST_DATE,
+        )
+
+        assert result.breakdown.safety_reserve_cents == 50_000
+        assert result.breakdown.essential_spending_cents == 25_000
+        assert result.horizon_days == 45
+
+
+def test_scenario_default_request_still_excludes_income_and_goal_reserve() -> (
+    None
+):
+    """Guards that `calculate_safe_to_spend`'s global defaults -- what
+    every scenario caller (Major Purchase, Buy Now vs Wait, Stress
+    Test, Recommendations, Scenario Comparison, What-If, Goal
+    Conflict) relies on -- are unchanged by the new
+    `calculate_current_safe_to_spend` wrapper.
+    """
+    with TestingSessionLocal() as db:
+        user = create_user(db, "scenario-defaults-unchanged")
+
+        create_account(db, user, available_balance_cents=500_000)
+        create_goal(
+            db,
+            user,
+            target_cents=200_000,
+            target_date=date(2026, 10, 4),
+        )
+        create_income_transaction(
+            db,
+            user,
+            posted_on=date(2026, 7, 15),
+            amount_cents=300_000,
+        )
+
+        result = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.breakdown.projected_income_cents == 0
+        assert result.breakdown.goal_reserve_cents == 0
+
+
+def test_current_safe_to_spend_endpoint_ignores_client_supplied_flags(
+    client: TestClient,
+) -> None:
+    """The Overview dashboard endpoint always returns the canonical
+    enriched CURRENT figure -- even if a request body explicitly sends
+    include_projected_income/include_goal_reserve as False, or omits
+    them entirely.
+    """
+    user_id, headers = register_and_login(
+        client,
+        "current-flag-independent",
+    )
+
+    with TestingSessionLocal() as db:
+        user = db.get(User, user_id)
+
+        assert user is not None
+
+        create_account(db, user, available_balance_cents=500_000)
+        create_goal(
+            db,
+            user,
+            target_cents=200_000,
+            target_date=date.today() + timedelta(days=60),
+        )
+        create_income_transaction(
+            db,
+            user,
+            posted_on=date.today().replace(day=1) - timedelta(days=1),
+            amount_cents=100_000,
+        )
+
+    for body_flags in (
+        {},
+        {"include_projected_income": False, "include_goal_reserve": False},
+    ):
+        response = client.post(
+            f"/users/{user_id}/safe-to-spend",
+            headers=headers,
+            json={
+                "safety_reserve_cents": 0,
+                "essential_spending_cents": 0,
+                "horizon_days": 30,
+                **body_flags,
+            },
+        )
+
+        assert response.status_code == 200
+
+        payload = response.json()
+
+        assert payload["breakdown"]["goal_reserve_cents"] > 0
+        assert payload["breakdown"]["projected_income_cents"] == 100_000

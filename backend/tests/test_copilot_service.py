@@ -12,8 +12,16 @@ from app.models import (
     Transaction,
     User,
 )
-from app.schemas import CopilotMessageIn
-from app.services.copilot_service import CopilotClient, run_copilot_turn
+from app.schemas import CopilotMessageIn, SafeToSpendRequest
+from app.services.copilot_service import (
+    CopilotClient,
+    _handle_safe_to_spend,
+    run_copilot_turn,
+)
+from app.services.safe_to_spend_service import (
+    calculate_current_safe_to_spend,
+    calculate_safe_to_spend,
+)
 from tests.conftest import TestingSessionLocal
 
 
@@ -108,6 +116,26 @@ def create_recurring_item(
     db.commit()
     db.refresh(item)
     return item
+
+
+def create_income_transaction(
+    db: Session,
+    user: User,
+    *,
+    posted_on: date,
+    amount_cents: int,
+) -> Transaction:
+    transaction = Transaction(
+        user_id=user.id,
+        posted_on=posted_on,
+        description="Test income",
+        amount_cents=abs(amount_cents),
+        category="Income",
+    )
+    db.add(transaction)
+    db.commit()
+    db.refresh(transaction)
+    return transaction
 
 
 def _text_block(text: str) -> SimpleNamespace:
@@ -1013,3 +1041,126 @@ def test_spending_anomalies_key_cards_do_not_repeat_the_same_signal() -> (
             c.label for c in result.key_numbers if c.label != "Anomalies found"
         ]
         assert len(signal_titles) == len(set(signal_titles))
+
+
+def test_copilot_safe_to_spend_matches_canonical_current_calculation() -> (
+    None
+):
+    """Regression for the production bug: Overview showed
+    $32,475.90 (enriched) while Copilot showed $27,500.90 (unenriched)
+    for the same user/date. With a goal and income present, Copilot's
+    get_safe_to_spend chip must equal
+    `calculate_current_safe_to_spend`'s own figure -- and must diverge
+    from what the old unenriched-by-default calculation would have
+    produced, proving this fixture would have caught the mismatch.
+    """
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_goal(
+            db,
+            user,
+            target_cents=200_000,
+            target_date=date(2026, 10, 4),
+        )
+        create_income_transaction(
+            db,
+            user,
+            posted_on=date(2026, 7, 15),
+            amount_cents=300_000,
+        )
+
+        canonical = calculate_current_safe_to_spend(
+            db,
+            user.id,
+            as_of=TEST_DATE,
+        )
+        unenriched = calculate_safe_to_spend(
+            db,
+            user.id,
+            SafeToSpendRequest(),
+            as_of=TEST_DATE,
+        )
+
+        assert canonical.safe_to_spend_cents != unenriched.safe_to_spend_cents
+
+        client = CopilotClient(api_key=None)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message("What's my safe to spend?"),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        safe_chip = next(
+            c for c in result.key_numbers if c.label == "Safe to spend"
+        )
+        assert safe_chip.value_display == (
+            f"${canonical.safe_to_spend_cents / 100:,.2f}"
+        )
+
+
+def test_copilot_safe_to_spend_ignores_llm_supplied_enrichment_flags() -> (
+    None
+):
+    """Trust boundary: the compact CopilotSafeToSpendRequest schema has
+    no include_projected_income/include_goal_reserve fields, so even a
+    tool_input that tries to set them (a compromised or confused LLM
+    tool call) has those keys silently dropped, and
+    calculate_current_safe_to_spend still forces both True.
+    """
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+        create_goal(
+            db,
+            user,
+            target_cents=200_000,
+            target_date=date(2026, 10, 4),
+        )
+        create_income_transaction(
+            db,
+            user,
+            posted_on=date(2026, 7, 15),
+            amount_cents=300_000,
+        )
+
+        result, _chips, _confidence, _warning = _handle_safe_to_spend(
+            db,
+            user.id,
+            {
+                "include_projected_income": False,
+                "include_goal_reserve": False,
+                "safety_reserve_cents": 0,
+            },
+            TEST_DATE,
+            user,
+        )
+
+        assert result.breakdown.projected_income_cents == 300_000
+        assert result.breakdown.goal_reserve_cents == 100_000
+
+
+def test_copilot_safe_to_spend_honors_user_provided_assumptions() -> None:
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=500_000)
+
+        result, _chips, _confidence, _warning = _handle_safe_to_spend(
+            db,
+            user.id,
+            {
+                "safety_reserve_cents": 50_000,
+                "essential_spending_cents": 25_000,
+                "horizon_days": 45,
+            },
+            TEST_DATE,
+            user,
+        )
+
+        assert result.breakdown.safety_reserve_cents == 50_000
+        assert result.breakdown.essential_spending_cents == 25_000
+        assert result.horizon_days == 45

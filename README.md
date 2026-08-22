@@ -48,29 +48,11 @@ The principle: LLMs interpret and explain; deterministic services calculate fina
 
 ## Architecture
 
-```
-Browser
-  |
-Next.js 16 / React 19 (Vercel)
-  |  Bearer access token + HttpOnly refresh cookie
-  v
-FastAPI backend (Render)
-  |
-  +-- Authentication / per-user authorization
-  +-- Decision engines (Safe-to-Spend, stress test, scenarios, portfolio, calibration...)
-  +-- Forecasting / recurring-obligation detection
-  +-- Copilot orchestration
-  |      +-- deterministic tool router
-  |      +-- Groq LLM narration (optional, falls back to deterministic templates)
-  |      +-- grounding validator
-  |      +-- evals / observability
-  |
-  +-- SQLAlchemy 2 / Alembic -> PostgreSQL
-  +-- Redis / Valkey (distributed rate limiting)
-  +-- Plaid (account/transaction sync, encrypted tokens)
-```
+![Discero system architecture](docs/assets/discero-architecture.svg)
 
 Discero currently uses a modular-monolith backend: FastAPI hosts domain-specific routers and services — auth, decisions, forecasting, Copilot — in a single deployable application backed by PostgreSQL. Deployment topology is Vercel (frontend) → Render (backend) → PostgreSQL / Redis-Valkey / Plaid.
+
+[Detailed architecture](docs/ARCHITECTURE.md)
 
 ## Engineering Highlights
 

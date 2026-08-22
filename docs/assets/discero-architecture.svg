@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 1350" role="img" aria-labelledby="discero-arch-title discero-arch-desc">
+  <title id="discero-arch-title">Discero system architecture</title>
+  <desc id="discero-arch-desc">Next.js frontend calling a FastAPI modular monolith over Bearer-authenticated HTTPS REST. The backend groups Financial Data, Decision Intelligence, and Authentication and Platform services, and routes Copilot requests through a deterministic financial truth boundary: user intent leads to tool selection, a deterministic financial tool, and a trusted structured result, which optional LLM narration may explain; a grounding validator either approves the narration or falls back to a deterministic template. PostgreSQL, Redis/Valkey, and Plaid support the backend directly; Groq is reachable only from the optional narration step.</desc>
+
+  <defs>
+    <marker id="arrowInk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#181713"/>
+    </marker>
+    <marker id="arrowMuted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#777168"/>
+    </marker>
+    <marker id="arrowSage" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#58715A"/>
+    </marker>
+    <marker id="arrowCoral" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#B75C50"/>
+    </marker>
+  </defs>
+
+  <g font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+
+    <!-- Canvas -->
+    <rect x="0" y="0" width="1440" height="1350" fill="#F5F1EA"/>
+
+    <!-- Header -->
+    <text x="720" y="52" text-anchor="middle" font-size="38" font-weight="700" letter-spacing="4" fill="#181713">DISCERO</text>
+    <text x="720" y="78" text-anchor="middle" font-size="15" letter-spacing="2" fill="#777168">FINANCIAL DECISION INTELLIGENCE</text>
+    <text x="720" y="104" text-anchor="middle" font-size="16" font-style="italic" fill="#6E4B63">Deterministic services calculate. LLMs explain.</text>
+
+    <!-- Presentation Layer -->
+    <rect x="380" y="135" width="680" height="155" rx="16" fill="#FFFCF7" stroke="#181713" stroke-opacity="0.18" stroke-width="1.5"/>
+    <text x="720" y="168" text-anchor="middle" font-size="19" font-weight="700" letter-spacing="1" fill="#181713">PRESENTATION LAYER</text>
+    <text x="720" y="193" text-anchor="middle" font-size="17" fill="#777168">Next.js 16 · React 19 · TypeScript</text>
+    <text x="720" y="216" text-anchor="middle" font-size="14.5" letter-spacing="0.5" fill="#777168">Deployed on Vercel</text>
+    <text x="720" y="248" text-anchor="middle" font-size="14.5" fill="#777168">App Router  ·  CSP Nonce  ·  Session Renewal</text>
+
+    <!-- Arrow: Presentation -> FastAPI -->
+    <line x1="720" y1="290" x2="720" y2="370" stroke="#181713" stroke-width="2.25" marker-end="url(#arrowInk)"/>
+    <text x="745" y="318" font-size="15" font-weight="600" fill="#181713">HTTPS / REST</text>
+    <text x="745" y="336" font-size="14" fill="#777168">Bearer access token</text>
+    <text x="745" y="354" font-size="14" font-style="italic" fill="#777168">HttpOnly refresh cookie — session renewal only</text>
+
+    <!-- FastAPI Modular Monolith panel -->
+    <rect x="60" y="370" width="1320" height="701" rx="16" fill="#FFFCF7" stroke="#181713" stroke-opacity="0.2" stroke-width="1.75"/>
+    <text x="720" y="412" text-anchor="middle" font-size="24" font-weight="700" letter-spacing="1" fill="#181713">FASTAPI MODULAR MONOLITH</text>
+    <text x="720" y="436" text-anchor="middle" font-size="15" fill="#777168">Single deployable backend · Render</text>
+
+    <!-- Domain panel: Financial Data -->
+    <g>
+      <rect x="90" y="465" width="406" height="240" rx="10" fill="#FFFCF7" stroke="#181713" stroke-opacity="0.14" stroke-width="1.25"/>
+      <rect x="91" y="466" width="404" height="4" fill="#B86D4B"/>
+      <text x="114" y="499" font-size="19" font-weight="700" letter-spacing="0.5" fill="#B86D4B">FINANCIAL DATA</text>
+      <text x="114" y="531" font-size="17" fill="#181713">Transactions</text>
+      <text x="114" y="558" font-size="17" fill="#181713">Accounts</text>
+      <text x="114" y="585" font-size="17" fill="#181713">Budgets &amp; Goals</text>
+      <text x="114" y="612" font-size="17" fill="#181713">Recurring</text>
+      <text x="114" y="639" font-size="17" fill="#181713">Forecasting</text>
+    </g>
+
+    <!-- Domain panel: Decision Intelligence -->
+    <g>
+      <rect x="517" y="465" width="406" height="240" rx="10" fill="#FFFCF7" stroke="#181713" stroke-opacity="0.14" stroke-width="1.25"/>
+      <rect x="518" y="466" width="404" height="4" fill="#58715A"/>
+      <text x="541" y="499" font-size="19" font-weight="700" letter-spacing="0.5" fill="#58715A">DECISION INTELLIGENCE</text>
+      <text x="541" y="531" font-size="17" fill="#181713">Safe-to-Spend</text>
+      <text x="541" y="558" font-size="17" fill="#181713">Purchase Decisions</text>
+      <text x="541" y="585" font-size="17" fill="#181713">Stress Testing</text>
+      <text x="541" y="612" font-size="17" fill="#181713">Time-Aware / Multi-Step</text>
+      <text x="541" y="639" font-size="17" fill="#181713">Portfolio Intelligence</text>
+      <text x="541" y="666" font-size="17" fill="#181713">Outcomes &amp; Calibration</text>
+    </g>
+
+    <!-- Domain panel: Authentication & Platform -->
+    <g>
+      <rect x="944" y="465" width="406" height="240" rx="10" fill="#FFFCF7" stroke="#181713" stroke-opacity="0.14" stroke-width="1.25"/>
+      <rect x="945" y="466" width="404" height="4" fill="#777168"/>
+      <text x="968" y="499" font-size="19" font-weight="700" letter-spacing="0.5" fill="#181713">AUTHENTICATION &amp; PLATFORM</text>
+      <text x="968" y="531" font-size="17" fill="#181713">JWT Authentication</text>
+      <text x="968" y="558" font-size="17" fill="#181713">HttpOnly Refresh</text>
+      <text x="968" y="585" font-size="17" fill="#181713">User-Scoped Authorization</text>
+      <text x="968" y="612" font-size="17" fill="#181713">Rate Limiting</text>
+      <text x="968" y="639" font-size="17" fill="#181713">Configuration Guards</text>
+    </g>
+
+    <!-- Financial Truth Boundary heading -->
+    <text x="720" y="760" text-anchor="middle" font-size="24" font-weight="700" letter-spacing="1.5" fill="#B86D4B">FINANCIAL TRUTH BOUNDARY</text>
+    <text x="720" y="788" text-anchor="middle" font-size="16" font-style="italic" fill="#6E4B63">Deterministic services calculate. LLMs explain.</text>
+
+    <!-- Truth boundary container -->
+    <rect x="60" y="812" width="1320" height="234" rx="14" fill="none" stroke="#B86D4B" stroke-width="1.75" stroke-dasharray="6,5"/>
+
+    <!-- Sequence boxes -->
+    <!-- 1 User Intent -->
+    <rect x="91" y="838" width="198" height="84" rx="8" fill="#FFFCF7" stroke="#181713" stroke-opacity="0.35" stroke-width="1.25"/>
+    <text x="190" y="873" text-anchor="middle" font-size="16" font-weight="600" fill="#181713">User</text>
+    <text x="190" y="895" text-anchor="middle" font-size="16" font-weight="600" fill="#181713">Intent</text>
+
+    <line x1="289" y1="880" x2="303" y2="880" stroke="#181713" stroke-width="2" marker-end="url(#arrowInk)"/>
+
+    <!-- 2 Intent / Tool Selection -->
+    <rect x="303" y="838" width="198" height="84" rx="8" fill="#EAF0EA" stroke="#58715A" stroke-width="1.25"/>
+    <text x="402" y="873" text-anchor="middle" font-size="16" font-weight="600" fill="#181713">Intent / Tool</text>
+    <text x="402" y="895" text-anchor="middle" font-size="16" font-weight="600" fill="#181713">Selection</text>
+
+    <line x1="501" y1="880" x2="515" y2="880" stroke="#181713" stroke-width="2" marker-end="url(#arrowInk)"/>
+
+    <!-- 3 Deterministic Financial Tool (emphasized) -->
+    <rect x="515" y="838" width="198" height="84" rx="8" fill="#DCE8DC" stroke="#3F5C42" stroke-width="2.5"/>
+    <text x="614" y="873" text-anchor="middle" font-size="16" font-weight="700" fill="#181713">Deterministic</text>
+    <text x="614" y="895" text-anchor="middle" font-size="16" font-weight="700" fill="#181713">Financial Tool</text>
+
+    <line x1="713" y1="880" x2="727" y2="880" stroke="#181713" stroke-width="2" marker-end="url(#arrowInk)"/>
+
+    <!-- 4 Trusted Structured Result (emphasized) -->
+    <rect x="727" y="838" width="198" height="84" rx="8" fill="#DCE8DC" stroke="#3F5C42" stroke-width="2.5"/>
+    <text x="826" y="873" text-anchor="middle" font-size="16" font-weight="700" fill="#181713">Trusted Structured</text>
+    <text x="826" y="895" text-anchor="middle" font-size="16" font-weight="700" fill="#181713">Result</text>
+
+    <line x1="925" y1="880" x2="939" y2="880" stroke="#181713" stroke-width="2" marker-end="url(#arrowInk)"/>
+
+    <!-- 5 Optional LLM Narration -->
+    <rect x="939" y="838" width="198" height="84" rx="8" fill="#F0E9EE" stroke="#6E4B63" stroke-width="1.25"/>
+    <text x="1038" y="873" text-anchor="middle" font-size="16" font-weight="600" fill="#181713">Optional LLM</text>
+    <text x="1038" y="895" text-anchor="middle" font-size="16" font-weight="600" fill="#181713">Narration</text>
+
+    <line x1="1137" y1="880" x2="1151" y2="880" stroke="#181713" stroke-width="2" marker-end="url(#arrowInk)"/>
+
+    <!-- 6 Grounding Validation -->
+    <rect x="1151" y="838" width="198" height="84" rx="8" fill="#F7EFDC" stroke="#C59A52" stroke-width="1.25"/>
+    <text x="1250" y="873" text-anchor="middle" font-size="16" font-weight="600" fill="#181713">Grounding</text>
+    <text x="1250" y="895" text-anchor="middle" font-size="16" font-weight="600" fill="#181713">Validation</text>
+
+    <!-- Branch: Grounded -> Response -->
+    <line x1="1250" y1="922" x2="1250" y2="962" stroke="#58715A" stroke-width="2" marker-end="url(#arrowSage)"/>
+    <text x="1266" y="946" font-size="15" font-weight="600" fill="#58715A">Grounded</text>
+
+    <!-- Branch: Rejected / Provider Failure -> Deterministic Fallback -->
+    <line x1="1180" y1="922" x2="832" y2="962" stroke="#B75C50" stroke-width="1.75" marker-end="url(#arrowCoral)"/>
+    <rect x="890" y="923" width="232" height="17" fill="#FFFCF7"/>
+    <text x="1006" y="936" text-anchor="middle" font-size="14" fill="#B75C50">Rejected / Provider Failure</text>
+
+    <!-- Deterministic Fallback box -->
+    <rect x="717" y="962" width="230" height="64" rx="10" fill="#EAF0EA" stroke="#58715A" stroke-width="1.5"/>
+    <text x="832" y="1000" text-anchor="middle" font-size="16" font-weight="700" fill="#181713">Deterministic Fallback</text>
+
+    <!-- Fallback -> Response -->
+    <line x1="947" y1="994" x2="1151" y2="994" stroke="#58715A" stroke-width="2" marker-end="url(#arrowSage)"/>
+
+    <!-- Response box -->
+    <rect x="1151" y="962" width="198" height="64" rx="10" fill="#FFFCF7" stroke="#181713" stroke-opacity="0.4" stroke-width="1.5"/>
+    <text x="1250" y="1000" text-anchor="middle" font-size="17" font-weight="700" fill="#181713">Response</text>
+
+    <!-- Groq connector (exits the truth boundary above the sequence row, out of the FastAPI panel) -->
+    <path d="M1038,838 L1038,805 L1410,805 L1410,1215 L1350,1215" fill="none" stroke="#777168" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#arrowMuted)"/>
+
+    <!-- External Systems heading -->
+    <text x="720" y="1114" text-anchor="middle" font-size="24" font-weight="700" letter-spacing="1.5" fill="#181713">EXTERNAL SYSTEMS</text>
+
+    <!-- Connections: FastAPI -> PostgreSQL / Redis / Plaid (secondary) -->
+    <line x1="240" y1="1071" x2="240" y2="1170" stroke="#777168" stroke-width="1.5" marker-end="url(#arrowMuted)"/>
+    <line x1="560" y1="1071" x2="560" y2="1170" stroke="#777168" stroke-width="1.5" marker-end="url(#arrowMuted)"/>
+    <line x1="880" y1="1071" x2="880" y2="1170" stroke="#777168" stroke-width="1.5" marker-start="url(#arrowMuted)" marker-end="url(#arrowMuted)"/>
+
+    <!-- External systems row -->
+    <g>
+      <rect x="90" y="1170" width="300" height="90" rx="10" fill="#FFFCF7" stroke="#181713" stroke-opacity="0.3" stroke-width="1.25"/>
+      <text x="240" y="1208" text-anchor="middle" font-size="18" font-weight="700" fill="#181713">PostgreSQL</text>
+      <text x="240" y="1232" text-anchor="middle" font-size="15" fill="#777168">System of Record</text>
+    </g>
+
+    <g>
+      <rect x="410" y="1170" width="300" height="90" rx="10" fill="#FFFCF7" stroke="#181713" stroke-opacity="0.3" stroke-width="1.25"/>
+      <text x="560" y="1208" text-anchor="middle" font-size="18" font-weight="700" fill="#181713">Redis / Valkey</text>
+      <text x="560" y="1232" text-anchor="middle" font-size="15" fill="#777168">Distributed Rate Limiting</text>
+    </g>
+
+    <g>
+      <rect x="730" y="1170" width="300" height="90" rx="10" fill="#FFFCF7" stroke="#B86D4B" stroke-width="1.25"/>
+      <text x="880" y="1208" text-anchor="middle" font-size="18" font-weight="700" fill="#B86D4B">Plaid</text>
+      <text x="880" y="1232" text-anchor="middle" font-size="15" fill="#777168">Accounts &amp; Transactions</text>
+    </g>
+
+    <g>
+      <rect x="1050" y="1170" width="300" height="90" rx="10" fill="#F0E9EE" stroke="#6E4B63" stroke-width="1.25"/>
+      <text x="1200" y="1208" text-anchor="middle" font-size="18" font-weight="700" fill="#6E4B63">Groq</text>
+      <text x="1200" y="1232" text-anchor="middle" font-size="15" fill="#777168">Optional LLM Narration</text>
+    </g>
+
+    <!-- Legend -->
+    <line x1="150" y1="1300" x2="180" y2="1300" stroke="#181713" stroke-width="2" marker-end="url(#arrowInk)"/>
+    <text x="188" y="1304" font-size="14" fill="#777168">Solid arrow — application / data flow</text>
+
+    <line x1="545" y1="1300" x2="575" y2="1300" stroke="#777168" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#arrowMuted)"/>
+    <text x="583" y="1304" font-size="14" fill="#777168">Dashed arrow — optional / provider flow</text>
+
+    <rect x="960" y="1292" width="20" height="16" rx="4" fill="none" stroke="#B86D4B" stroke-width="1.25" stroke-dasharray="3,3"/>
+    <text x="990" y="1304" font-size="14" fill="#777168">Grouped container — logical boundary</text>
+
+    <text x="720" y="1334" text-anchor="middle" font-size="14.5" fill="#777168">Detailed architecture: docs/ARCHITECTURE.md</text>
+
+  </g>
+</svg>

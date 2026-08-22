@@ -91,7 +91,7 @@ def test_groq_model_defaults_to_configured_tool_capable_model() -> None:
     config = make_settings(copilot_provider="groq", groq_api_key="fake-key")
     client = build_copilot_client(config)
 
-    assert client.model == "llama-3.3-70b-versatile"
+    assert client.model == "openai/gpt-oss-120b"
 
 
 def test_max_retries_defaults_to_one_for_both_providers() -> None:

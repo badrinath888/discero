@@ -2,328 +2,181 @@
 
 *Discern before you decide.*
 
-Discero is a full-stack financial decision-intelligence platform: it helps you understand how a financial decision affects your cash flow, goals, and financial resilience before you make it. It securely imports transactions, connects bank accounts, tracks budgets and savings goals, detects recurring expenses, analyzes spending patterns, and forecasts cash flow.
+Discero is a financial decision-intelligence platform. It combines account, budget, and obligation data with a deterministic simulation engine to evaluate how a proposed decision would affect liquidity, obligations, goals, and financial resilience — before the decision is made. Outcomes are computed by backend services in integer cents, not inferred by a language model.
 
-## Features
+**[Live application](https://discero-app.vercel.app)** · [Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md)
 
-- JWT authentication with Argon2 password hashing, server-side session invalidation, password reset, and email verification (console/SMTP/Resend delivery)
-- Per-user data isolation and protected API routes
-- CSV upload with validation, duplicate handling, potential-duplicate detection, and categorization
-- Plaid Sandbox account connection and transaction synchronization
-- Manual transaction entry and full editing (date, description, merchant, amount, category)
-- Search, filters, pagination, category editing, category locking, deletion, and filter-aware CSV export
-- Month-specific budgets with progress, over-budget tracking, and copy-from-previous-month support
-- Savings goals with editing, deadlines, status, and a full contribution/withdrawal history
-- Persisted recurring items (bills/subscriptions) with weekly/biweekly/monthly cadence, pending-transaction filtering, and price-change alerts
-- Safe-to-Spend calculation combining liquid balances, upcoming recurring obligations, essential spending, and a safety reserve
-- Major Purchase Simulator with affordability status, recommended ceiling, and alternative amounts
-- Scenario Comparison that evaluates two purchase options side by side with a recommendation
-- Financial Stress Testing that models an emergency expense, temporary income loss, delayed paycheck, or recurring bill increase against Safe-to-Spend, returning risk level, shortfall, confidence, and recovery estimate
-- Financial insights with spending trends and savings-rate analysis
-- Cash-flow forecasting with projected month-end balance and low-balance risk
-- Responsive sidebar, mobile navigation, charts, and reusable feedback states
+## What Discero Does
 
-## Application routes
+Discero builds a forward-looking financial model from account and transaction data, budgets, savings goals, and recurring obligations. Proposed decisions — a major purchase, a temporary income loss, a multi-step plan — are evaluated against that model before they're acted on.
 
-| Route | Purpose |
+Every simulation is computed by a deterministic backend service in integer cents, not estimated by a language model. A Safe-to-Spend calculation, a stress test, or a scenario comparison will return the same result every time for the same inputs, and the reasoning behind it is inspectable rather than generated.
+
+Decisions are also persisted and revisited: outcomes are tracked against what was originally simulated, and a calibration layer reads back how past predictions actually played out, so the system's own confidence is grounded in its track record rather than asserted.
+
+## Decision Intelligence
+
+| Capability | What it does |
 |---|---|
-| `/` | Registration and login |
-| `/dashboard` | Financial overview |
-| `/transactions` | Transaction management |
-| `/accounts` | Connected financial accounts |
-| `/budgets` | Monthly budget management |
-| `/goals` | Savings-goal management |
-| `/insights` | Detailed financial insights |
-| `/decisions` | Safe-to-Spend, Major Purchase Simulator, Scenario Comparison, and Financial Stress Testing |
-| `/forecast` | Cash-flow forecasting |
-| `/recurring` | Recurring bills and subscriptions |
-| `/settings` | Profile, credentials, and CSV export |
-| `/forgot-password` | Password reset request |
-| `/reset-password` | Token-based password reset |
-| `/verify-email` | Email verification |
+| **Safe-to-Spend** | Liquid balance minus upcoming recurring obligations, essential spending, and a safety reserve — the deterministic base every other decision tool builds on |
+| **Major Purchase / Buy Now vs Wait** | Classifies a purchase against Safe-to-Spend and compares buying now vs. waiting under the same assumptions |
+| **Scenario Comparison** | Ranks two purchase options by affordability, shortfall, and cost, with a deterministic recommendation |
+| **Financial Stress Testing** | Models an emergency expense, income loss, delayed paycheck, or bill increase and returns a risk level, shortfall, and recovery estimate |
+| **Multi-Step Scenario Planning** | Evaluates 2–5 dated financial events in chronological order against one running balance |
+| **Time-Aware Simulation** | Shared temporal engine underlying every scenario and forecast, so events are evaluated in the order and timeframe they'd actually occur |
+| **Decision Outcome Tracking & Calibration** | Re-runs an acted-on decision's original saved inputs later and compares predicted vs. actual, feeding a deterministic calibration read-model |
+| **Decision Portfolio Intelligence** | Evaluates several compatible saved decisions together as one combined position instead of in isolation |
+| **Financial Resilience** | Emergency-runway modeling: how many months of survival a loss of income would leave |
 
-## Technology stack
+Each capability is implemented as a dedicated backend service with targeted regression coverage, not a variation of one generic calculator.
 
-**Backend:** Python, FastAPI, SQLAlchemy 2, Pydantic 2, Alembic, SQLite/PostgreSQL, PyJWT, Argon2, Plaid SDK, Anthropic SDK, Fernet, pytest
+## AI Architecture and Grounding
 
-**Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, React Plaid Link, ESLint
+Discero's Copilot answers financial questions in plain language, but the model never computes a balance, a percentage, or a recommendation itself.
+
+```
+User request
+  -> intent / tool selection
+  -> deterministic backend computation (Safe-to-Spend, stress test, etc.)
+  -> structured, trusted result
+  -> optional LLM narration in plain language
+  -> grounding validation against the result payload
+  -> deterministic fallback narration if validation fails
+```
+
+The principle: LLMs interpret and explain; deterministic services calculate financial results. The tool schema exposed to the model excludes user identity — execution always scopes to the authenticated request's user, never to anything the model supplies. When no provider is configured, Copilot runs entirely on its deterministic router and template narration, so the financial answer is unchanged by whether an LLM is in the loop. Grounding behavior is covered by dedicated regression and evaluation tests, alongside observability for token usage, estimated cost, and provider latency.
 
 ## Architecture
 
-```text
+```
 Browser
   |
-Next.js frontend
-  |
-  | JWT-authenticated REST requests
+Next.js 16 / React 19 (Vercel)
+  |  Bearer access token + HttpOnly refresh cookie
   v
-FastAPI backend
+FastAPI backend (Render)
   |
-  +-- SQLAlchemy / Alembic
-  +-- SQLite locally or PostgreSQL in production
-  +-- Plaid Sandbox API
-  +-- Optional Anthropic categorization
+  +-- Authentication / per-user authorization
+  +-- Decision engines (Safe-to-Spend, stress test, scenarios, portfolio, calibration...)
+  +-- Forecasting / recurring-obligation detection
+  +-- Copilot orchestration
+  |      +-- deterministic tool router
+  |      +-- Groq LLM narration (optional, falls back to deterministic templates)
+  |      +-- grounding validator
+  |      +-- evals / observability
+  |
+  +-- SQLAlchemy 2 / Alembic -> PostgreSQL
+  +-- Redis / Valkey (distributed rate limiting)
+  +-- Plaid (account/transaction sync, encrypted tokens)
 ```
 
-## Local development
+Discero currently uses a modular-monolith backend: FastAPI hosts domain-specific routers and services — auth, decisions, forecasting, Copilot — in a single deployable application backed by PostgreSQL. Deployment topology is Vercel (frontend) → Render (backend) → PostgreSQL / Redis-Valkey / Plaid.
 
-### Requirements
+## Engineering Highlights
 
-- Python 3.11+
-- Node.js 20+
-- npm
-- Plaid Sandbox credentials for bank connectivity
+- Deterministic financial simulation engines with a shared time-aware core, all operating in integer cents
+- Persisted decision lifecycle: saved decisions, tracked outcomes, and a calibration layer that reads back prediction accuracy
+- LLM narration architecturally separated from calculation, with automated grounding validation, evals, and observability
+- Session design with short-lived Bearer access tokens and an HttpOnly, origin-validated refresh cookie
+- Backend-agnostic rate limiting — Redis/Valkey-backed sliding window in production, in-memory fallback on a Redis outage, applied by IP and by authenticated user on expensive endpoints
+- Protected resource access is scoped to the authenticated user at both route and query layers
+- Plaid account/transaction sync with encrypted access tokens, idempotent cursor-based updates, and reconnect handling
+- PostgreSQL persistence via SQLAlchemy 2 with a linear Alembic migration history
+- Production configuration that fails closed at startup (default secrets, wildcard CORS, or missing encryption keys refuse to boot when `APP_ENV=production`)
+- CI on every push/PR (backend pytest suite, frontend lint/build/test), plus Dependabot dependency updates
 
-### Backend
+## Technology
+
+| | |
+|---|---|
+| **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, React Plaid Link |
+| **Backend** | Python, FastAPI, SQLAlchemy 2, Pydantic 2, Alembic |
+| **Data** | PostgreSQL, Redis / Valkey |
+| **AI** | Groq (OpenAI-compatible), deterministic tool routing, grounding validation |
+| **Integrations** | Plaid |
+| **Infrastructure** | Vercel, Render, Docker |
+| **Security / Quality** | Argon2 (pwdlib), PyJWT, Fernet encryption, GitHub Actions CI, Dependabot |
+
+## Reliability and Testing
+
+- **Backend:** 1,347 tests (pytest). Coverage includes authentication, authorization, decision engines, Copilot grounding/evaluations, rate limiting, and Plaid synchronization, with external provider boundaries mocked where appropriate
+- **Frontend:** 325 tests (Vitest + React Testing Library) across the route surface
+- GitHub Actions runs the backend suite, frontend lint, frontend tests, and a production frontend build on every push to `main` and every pull request
+- Dependabot tracks pip, npm, and GitHub Actions dependencies weekly
+
+## Security
+
+- Passwords hashed with Argon2; short-lived Bearer access tokens paired with an origin-validated refresh cookie. Refresh tokens are stored in HttpOnly cookies rather than client-accessible storage
+- Server-side session invalidation via a per-user token version, bumped on password/email change and logout
+- Protected resource queries are scoped to the authenticated user, and the LLM tool layer has no path to select whose data it touches
+- Plaid access tokens encrypted at rest (Fernet); safe account/status responses never expose provider identifiers or tokens
+- Redis/Valkey-backed distributed rate limiting with an in-process fallback on a Redis outage, applied by IP and by user on expensive endpoints
+- Nonce-based Content-Security-Policy on the frontend, plus standard security headers (HSTS, X-Frame-Options, X-Content-Type-Options) on the backend
+- Production configuration validation that refuses to start on an unsafe secret, wildcard/localhost CORS, or a missing encryption key
+
+See [SECURITY.md](SECURITY.md) for the full threat model, invariants, and residual risks.
+
+## Running Locally
+
+**Requirements:** Python 3.12+, Node.js 20+, npm
 
 ```bash
+# Backend
 cd backend
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-```
-
-Generate secrets:
-
-```bash
-python3 - <<'PY'
-import secrets
-from cryptography.fernet import Fernet
-
-print("JWT_SECRET=" + secrets.token_urlsafe(48))
-print("TOKEN_ENCRYPTION_KEY=" + Fernet.generate_key().decode())
-PY
-```
-
-Add the generated values to `backend/.env`, then run:
-
-```bash
+cp .env.example .env   # fill in JWT_SECRET / TOKEN_ENCRYPTION_KEY, see comments in the file
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-API: `http://localhost:8000`  
-Swagger documentation: `http://localhost:8000/docs`
-
-### Frontend
-
 ```bash
+# Frontend
 cd frontend
 npm install
 printf 'NEXT_PUBLIC_API_URL=http://localhost:8000\n' > .env.local
 npm run dev
 ```
 
-Frontend: `http://localhost:3000`
+Backend: `http://localhost:8000` (Swagger at `/docs`) · Frontend: `http://localhost:3000`
 
-## Environment variables
+Never commit `.env`, `.env.local`, database files, or real credentials.
 
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | SQLAlchemy database connection |
-| `CORS_ORIGINS` | Comma-separated frontend origins |
-| `JWT_SECRET` | JWT signing secret |
-| `JWT_ALGORITHM` | JWT algorithm |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Access-token lifetime |
-| `TOKEN_ENCRYPTION_KEY` | Fernet key for Plaid tokens |
-| `APP_ENV` | `development`, `test`, or `production`; gates console email delivery |
-| `FRONTEND_URL` | Base URL used to build reset/verification links |
-| `EMAIL_BACKEND` | `console`, `smtp`, or `resend` |
-| `EMAIL_FROM` | From address for reset/verification email |
-| `RESEND_API_KEY` | Required when `EMAIL_BACKEND=resend` |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_USE_TLS` | Required when `EMAIL_BACKEND=smtp` |
-| `PASSWORD_RESET_EXPIRE_MINUTES` | Password reset token lifetime (default 30) |
-| `EMAIL_VERIFICATION_EXPIRE_HOURS` | Email verification token lifetime (default 24) |
-| `ANTHROPIC_API_KEY` | Optional Anthropic API key |
-| `LLM_MODEL` | Optional categorization model |
-| `PLAID_CLIENT_ID` | Plaid client ID |
-| `PLAID_SECRET` | Plaid secret |
-| `PLAID_ENV` | `sandbox` or `production` |
-| `PLAID_PRODUCTS` | Plaid products |
-| `PLAID_COUNTRY_CODES` | Supported country codes |
-| `PLAID_REDIRECT_URI` | Optional OAuth redirect URI |
-| `NEXT_PUBLIC_API_URL` | Frontend API base URL |
+## Project Structure
 
-Never commit `.env`, `.env.local`, database files, credentials, or encryption keys.
-
-## Plaid Sandbox
-
-1. Create a Plaid developer account.
-2. Add the Sandbox client ID and secret to `backend/.env`.
-3. Set `PLAID_ENV=sandbox`.
-4. Start the backend and frontend.
-5. Open `/accounts` and select **Connect bank**.
-6. Use a Plaid Sandbox institution and test credentials.
-
-Plaid access tokens are encrypted before storage.
-
-## CSV format
-
-```csv
-date,description,amount,category
-2026-01-05,ACME Payroll,3000.00,Income
-2026-01-08,Whole Foods,-125.50,Groceries
-2026-01-10,Apartment Rent,-1450.00,Housing
 ```
-
-Positive amounts represent income; negative amounts represent expenses.
-
-## Database migrations
-
-```bash
-cd backend
-alembic revision --autogenerate -m "describe change"
-alembic upgrade head
-alembic current
+backend/     FastAPI app: routers, services, models, Alembic migrations, tests
+frontend/    Next.js App Router application
+docs/        Architecture, feature, and testing/deployment documentation
+.github/     CI workflow, Dependabot config
+SECURITY.md  Threat model and security invariants
 ```
-
-Always review generated migrations before applying them.
-
-## Testing
-
-Backend:
-
-```bash
-cd backend
-pytest -q
-```
-
-Current verified result:
-
-```text
-297 passed
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm run lint
-npm run build
-npm run test:run
-```
-
-Current verified result: 41 tests across 5 files (`auth-recovery.test.tsx`, `decisions/page.test.tsx`, `transactions/page.test.tsx`, `accounts/page.test.tsx`, `budgets/page.test.tsx`).
-
-## API overview
-
-```text
-/users
-/users/login
-/users/me
-/users/forgot-password
-/users/reset-password
-/users/verify-email
-/users/resend-verification
-/users/{user_id}/transactions
-/users/{user_id}/transactions/{transaction_id}
-/users/{user_id}/transactions/search
-/users/{user_id}/transactions/upload
-/users/{user_id}/summary/overview
-/users/{user_id}/summary/by-category
-/users/{user_id}/summary/by-month
-/users/{user_id}/summary/recurring
-/users/{user_id}/summary/insights
-/users/{user_id}/summary/cash-flow-forecast
-/users/{user_id}/budgets
-/users/{user_id}/budgets/progress
-/users/{user_id}/budgets/copy-previous
-/users/{user_id}/goals
-/users/{user_id}/goals/{goal_id}/contributions
-/users/{user_id}/recurring-items
-/users/{user_id}/safe-to-spend
-/users/{user_id}/major-purchase/simulate
-/users/{user_id}/major-purchase/compare
-/users/{user_id}/financial-stress-test
-/users/{user_id}/accounts
-/users/{user_id}/plaid/link-token
-/users/{user_id}/plaid/exchange-token
-/users/{user_id}/plaid/sync
-```
-
-Use `/docs` for complete request and response schemas.
-
-## Security decisions
-
-- Passwords are hashed with Argon2.
-- User ownership is validated on protected resources.
-- Plaid access tokens are encrypted at rest.
-- Financial values are stored as integer cents.
-- Schema changes are managed through Alembic.
-- CORS origins are explicitly configurable.
-- Request and response payloads are validated with Pydantic.
-- Sensitive provider identifiers are not exposed by account endpoints.
 
 ## Deployment
 
-Recommended architecture:
+Discero is deployed with:
 
-- Frontend: Vercel
-- Backend: Render, Railway, Fly.io, or AWS
-- Database: Managed PostgreSQL
+- **Frontend** — Vercel
+- **Backend** — Render
+- **Database** — PostgreSQL
+- **Distributed rate limiting** — Redis/Valkey
+- **Financial account integration** — Plaid
 
-Production setup requires secure secrets, production CORS, `NEXT_PUBLIC_API_URL`, Alembic migrations, and end-to-end testing of authentication and Plaid.
+The backend applies pending Alembic migrations before starting the ASGI server on every deploy, and exposes `/health` (liveness) and `/health/ready` (database connectivity) endpoints for the host's health checks.
 
-### Backend startup
+## Future Engineering Work
 
-`backend/start.sh` (used by `backend/Dockerfile`) is the production entry point. It applies pending Alembic migrations and then starts the ASGI server, binding the host's `PORT` if set:
+Additional hardening and architectural evolution planned beyond the current baseline:
 
-```bash
-alembic upgrade head
-uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
-```
-
-Migrations always run before the server starts accepting traffic; the app never creates tables itself.
-
-### Health checks
-
-- `GET /health` — process liveness only, no database access.
-- `GET /health/ready` — confirms the app can reach the database (`SELECT 1`); returns `503` if it cannot.
-
-Point a hosting platform's health check at `/health`; use `/health/ready` where a separate readiness probe is supported.
-
-### Required environment variables
-
-At minimum, production needs `DATABASE_URL` (PostgreSQL), `JWT_SECRET`, and `CORS_ORIGINS` set to the deployed frontend origin(s). `TOKEN_ENCRYPTION_KEY` is required before connecting real Plaid accounts. Plaid, Anthropic/LLM, and email-provider (`RESEND_API_KEY`/SMTP) variables remain optional and only gate their respective features — see [Environment variables](#environment-variables). Never commit real values; `.env.example` documents names/placeholders only.
-
-## Roadmap
-
-### Completed
-
-- [x] Authentication, password reset, and email verification
-- [x] CSV ingestion with potential-duplicate detection
-- [x] Plaid Sandbox integration
-- [x] Transaction management with server-side filtering, pagination, manual entry, full editing, and filter-aware export
-- [x] Monthly budgets with copy-from-previous-month workflow
-- [x] Savings goals with contribution/withdrawal history
-- [x] Persisted recurring items with weekly/biweekly/monthly detection
-- [x] Safe-to-Spend calculation
-- [x] Major Purchase Simulator and Scenario Comparison
-- [x] Financial Stress Testing
-- [x] Financial insights
-- [x] Cash-flow forecasting
-- [x] Responsive navigation
-- [x] Shared feedback states
-- [x] Backend regression tests
-
-### Planned
-
-- [ ] Production deployment
-- [ ] PostgreSQL production migration
-- [ ] Screenshots and demo video
-- [ ] Refresh-token flow
-- [ ] Rate limiting and monitoring
-- [ ] Scheduled Plaid synchronization
-- [ ] AI financial assistant
-- [ ] Anomaly detection and alerts
-- [ ] Net-worth and investment tracking
+- Server-side refresh-token replay/family detection, building on the existing stateless-JWT token-version invalidation
+- Encryption-key rotation for Plaid tokens
+- First-party MFA/passkey support
 
 ## Disclaimer
 
-Discero is a portfolio and educational project. Forecasts, insights, recurring-payment predictions, and categorizations are estimates and are not professional financial advice.
+Discero is an educational/personal engineering project. Financial simulations and recommendations are informational estimates based on supplied data and are not professional financial advice.
 
 ## Author
 
-**Badrinath T**  
+**Badrinath T**
 Software Engineer focused on backend systems, cloud platforms, distributed systems, and AI-enabled applications.

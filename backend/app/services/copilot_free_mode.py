@@ -24,15 +24,9 @@ from app.schemas import CopilotMessageIn
 from app.services.goal_impact_service import _add_months
 
 CAPABILITY_EXPLANATION = (
-    "I can help with questions Discero can calculate directly from "
-    "your real data: your safe-to-spend, whether you can afford a "
-    "specific purchase, what happens if a bill or rent payment goes "
-    "up or down, your monthly cash flow and savings insights, "
-    "whether your savings goals are on track and which one is most "
-    "urgent, whether you should buy something now or wait, cash-flow "
-    "forecasts, stress-testing an income drop, changes in your "
-    "recurring bills, and unusual spending patterns. Try asking one "
-    "of those."
+    "Discero can help with purchases, safe-to-spend, goals, "
+    "forecasts, recurring bills, and financial stress tests. Ask a "
+    "specific financial question."
 )
 
 _GOAL_STATUS_RANK = {
@@ -469,7 +463,14 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(
             r"\b(afford|can i (buy|get|purchase)|what if i (buy|spend|"
             r"purchase)|major purchase|thinking (of|about) buying)\b|"
-            r"\bcan i spend\b[^.?!]{0,15}\$\d",
+            r"\bcan i spend\b[^.?!]{0,15}\$\d|"
+            # Bare affordability-check phrasing with no item/amount yet
+            # (e.g. the "Check if a purchase fits" Copilot suggestion
+            # chip) -- routes to the same tool so the existing
+            # missing-amount Clarify below asks for it deterministically
+            # instead of falling through to provider DECIDE.
+            r"\bpurchase\b[^.?!]{0,20}\bfits?\b|"
+            r"\bcheck if\b[^.?!]{0,20}\bpurchase\b",
             re.IGNORECASE,
         ),
     ),

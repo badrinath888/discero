@@ -120,19 +120,18 @@ export default function RecommendationsPage() {
       <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto w-full max-w-[1500px]">
           <Reveal>
-            <header className="border-b border-[#181713]/10 pb-6">
-              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
+            <header className="border-b border-[#181713]/10 pb-5">
+              <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
                 <Sparkles className="h-3.5 w-3.5" />
-                Recommendations
+                Next moves
               </p>
 
-              <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                What deserves your attention?
+              <h1 className="mt-1 text-[32px] font-semibold tracking-[-0.03em]">
+                Recommendations
               </h1>
 
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#706961]">
-                Deterministic priorities from your real accounts, goals,
-                budgets, and forecasts -- ranked by how much they matter.
+              <p className="mt-1 text-sm text-[#706961]">
+                Actions worth considering now.
               </p>
             </header>
           </Reveal>

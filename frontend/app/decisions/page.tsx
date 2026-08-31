@@ -568,12 +568,12 @@ export default function DecisionsPage() {
       <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto w-full max-w-[1500px]">
           <Reveal>
-            <header className="border-b border-[#181713]/10 pb-7">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
+            <header className="border-b border-[#181713]/10 pb-5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
                 Decision Lab
               </p>
 
-              <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
+              <h1 className="mt-1 text-[32px] font-semibold tracking-[-0.03em]">
                 {mode === "stress"
                   ? "Financial stress test"
                   : mode === "buy_now_wait"
@@ -585,7 +585,7 @@ export default function DecisionsPage() {
                         : "Major purchase simulator"}
               </h1>
 
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-[#706961]">
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-[#706961]">
                 {mode === "stress"
                   ? "Model how an emergency expense, income loss, delayed paycheck, or bill increase would affect your safe-to-spend position."
                   : mode === "buy_now_wait"
@@ -1116,7 +1116,7 @@ function ModeButton({
       onClick={onClick}
       className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
         active
-          ? "bg-[#181713] text-white shadow-[0_8px_20px_rgba(60,43,35,0.18)]"
+          ? "discero-segment-selected"
           : "text-[#706961] hover:text-[#181713]"
       }`}
     >

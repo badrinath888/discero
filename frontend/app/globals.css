@@ -142,6 +142,17 @@ a {
     0 0 0 4px rgba(110, 75, 99, 0.42);
 }
 
+.recharts-surface:focus {
+  outline: none;
+}
+
+.recharts-surface:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px rgba(110, 75, 99, 0.42);
+}
+
 .discero-button-primary,
 .discero-button-secondary,
 .discero-button-tertiary,
@@ -197,6 +208,12 @@ a {
 
 .discero-button-destructive:hover:not(:disabled) {
   background: #f8e6e1;
+}
+
+.discero-segment-selected {
+  border: 1px solid rgba(110, 75, 99, 0.28);
+  background: var(--brand-soft);
+  color: var(--brand);
 }
 
 .discero-button-primary:focus-visible,

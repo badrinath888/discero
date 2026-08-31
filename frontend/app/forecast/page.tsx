@@ -295,19 +295,18 @@ export default function ForecastPage() {
       <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto max-w-[1500px]">
           <Reveal>
-            <header className="flex flex-col gap-6 border-b border-[#181713]/10 pb-7 lg:flex-row lg:items-end lg:justify-between">
+            <header className="flex flex-col gap-6 border-b border-[#181713]/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
-                  Forecast
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
+                  Forward view
                 </p>
 
-                <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                  Where is your cash heading?
+                <h1 className="mt-1 text-[32px] font-semibold tracking-[-0.03em]">
+                  Forecast
                 </h1>
 
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#706961]">
-                  Project month-end cash, review expected outflows, and spot
-                  low-balance risk before it becomes urgent.
+                <p className="mt-1 text-sm text-[#706961]">
+                  Where known cash movement takes you next.
                 </p>
               </div>
             </header>
@@ -944,7 +943,7 @@ function ResilienceSection({
                   type="button"
                   onClick={onSimulate}
                   disabled={simulating}
-                  className="h-11 rounded-xl bg-[#181713] px-4 text-sm font-semibold text-white transition hover:bg-[#2A2723] disabled:cursor-not-allowed disabled:opacity-55"
+                  className="discero-button-primary h-11 rounded-xl px-4 text-sm font-semibold transition disabled:cursor-not-allowed"
                 >
                   {simulating ? "Simulating..." : "Simulate"}
                 </button>

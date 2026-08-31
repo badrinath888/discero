@@ -397,16 +397,16 @@ export default function RecurringPage() {
       <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto max-w-[1500px]">
           <Reveal>
-            <header className="flex flex-col gap-6 border-b border-[#181713]/10 pb-7 lg:flex-row lg:items-end lg:justify-between">
+            <header className="flex flex-col gap-6 border-b border-[#181713]/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
-                  Recurring commitments
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
+                  Commitments
                 </p>
-                <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                  What money is already committed?
+                <h1 className="mt-1 text-[32px] font-semibold tracking-[-0.03em]">
+                  Recurring bills
                 </h1>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#706961]">
-                  Understand your recurring load, upcoming obligations, and changes that need review.
+                <p className="mt-1 text-sm text-[#706961]">
+                  The expenses that keep coming back.
                 </p>
               </div>
             </header>
@@ -643,7 +643,7 @@ export default function RecurringPage() {
                               onClick={() => setFilter(value)}
                               className={`h-full rounded-lg px-3 text-xs font-semibold transition ${
                                 filter === value
-                                  ? "bg-[#181713] text-white"
+                                  ? "discero-segment-selected"
                                   : "text-[#706961]"
                               }`}
                             >

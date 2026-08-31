@@ -4,15 +4,18 @@ import {
   FormEvent,
   ReactNode,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
 import {
+  AnimatePresence,
   animate,
   motion,
   useInView,
   useMotionValue,
   useReducedMotion,
+  useScroll,
   useTransform,
 } from "framer-motion";
 import Link from "next/link";
@@ -32,6 +35,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
   const [error, setError] = useState("");
+  const [authOpen, setAuthOpen] = useState(false);
 
   useEffect(() => {
     async function validateSession() {
@@ -57,6 +61,15 @@ export default function HomePage() {
 
     void validateSession();
   }, [router]);
+
+  useEffect(() => {
+    if (!authOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [authOpen]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,8 +109,16 @@ export default function HomePage() {
     setError("");
   }
 
-  function scrollTo(id: string, nextMode?: Mode) {
-    if (nextMode) changeMode(nextMode);
+  function openAuth(nextMode: Mode) {
+    changeMode(nextMode);
+    setAuthOpen(true);
+  }
+
+  function closeAuth() {
+    setAuthOpen(false);
+  }
+
+  function scrollToId(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
   }
 
@@ -113,81 +134,22 @@ export default function HomePage() {
   }
 
   return (
-    <main className="overflow-hidden bg-[#F5F1EA] text-[#181713]">
-      <Navigation
-        onSignIn={() => scrollTo("access", "login")}
-        onTry={() => scrollTo("access", "register")}
-      />
+    <main className="relative bg-[#F5F1EA] text-[#181713]">
+      <Navigation onSignIn={() => openAuth("login")} onTry={() => openAuth("register")} />
 
-      <section className="relative px-5 pb-24 pt-32 sm:px-8 sm:pt-36 lg:pb-36 lg:pt-44">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_82%_18%,rgba(110,75,99,0.13),transparent_28rem),radial-gradient(circle_at_10%_85%,rgba(184,109,75,0.08),transparent_24rem)]" />
-        <div className="relative mx-auto grid max-w-[1240px] gap-16 lg:grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)] lg:items-center">
-          <HeroCopy
-            onTry={() => scrollTo("access", "register")}
-            onLearn={() => scrollTo("problem")}
-          />
-          <DecisionPreview />
-        </div>
-      </section>
+      <Hero onTry={() => openAuth("register")} onLearn={() => scrollToId("financial-state")} />
+      <FinancialState />
+      <DecisionRipple />
+      <Receipt />
+      <DecisionBreadth />
+      <AskDiscero />
+      <DecisionsOverTime />
+      <FinalCTA onTry={() => openAuth("register")} onSignIn={() => openAuth("login")} />
+      <Footer />
 
-      <section id="problem" className="bg-[#FFFCF7] px-5 py-24 sm:px-8 lg:py-36">
-        <Scene className="mx-auto max-w-[1240px]">
-          <div className="grid gap-12 border-b border-[#181713]/10 pb-14 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
-            <h2 className="max-w-4xl text-5xl font-semibold leading-[1] tracking-[-0.035em] sm:text-6xl">
-              Your money is connected.
-              <span className="mt-2 block text-[#8A8178]">Your decisions usually aren&apos;t.</span>
-            </h2>
-            <p className="max-w-lg text-lg leading-8 text-[#777168] lg:justify-self-end">
-              Balances, transactions, goals, and recurring commitments all shape what a decision really costs.
-            </p>
-          </div>
-          <DecisionFlow />
-        </Scene>
-      </section>
-
-      <section id="examples" className="bg-[#F0E9E1] px-5 py-24 sm:px-8 lg:py-36">
-        <Scene className="mx-auto max-w-[1240px]">
-          <DecisionExamples />
-        </Scene>
-      </section>
-
-      <section className="bg-[#1B1A18] px-5 py-24 text-[#F5F1EA] sm:px-8 lg:py-36">
-        <Scene className="mx-auto max-w-[1240px]">
-          <div className="space-y-12 lg:space-y-14">
-            <AskIntro />
-            <AnalysisPreview />
-          </div>
-        </Scene>
-      </section>
-
-      <section className="bg-[#FFFCF7] px-5 py-24 sm:px-8 lg:py-36">
-        <Scene className="mx-auto max-w-[1240px]">
-          <div className="grid gap-16 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Discero principle</p>
-              <h2 className="mt-5 max-w-3xl text-5xl font-semibold leading-[1] tracking-[-0.035em] sm:text-6xl">
-                Calculations first.
-                <span className="block text-[#B86D4B]">Explanation second.</span>
-              </h2>
-              <p className="mt-6 max-w-lg text-lg leading-8 text-[#777168]">Discero applies deterministic financial analysis, then explains the result in plain language.</p>
-            </div>
-            <Stagger className="divide-y divide-[#181713]/10 border-y border-[#181713]/10">
-              <TrustRow number="01" title="Grounded inputs" detail="Balances, transactions, goals, and recurring commitments provide the inputs." />
-              <TrustRow number="02" title="Visible confidence" detail="Confidence appears when the available data supports it." />
-              <TrustRow number="03" title="Clear consequences" detail="Cash, goal, and runway effects are shown before you commit." />
-            </Stagger>
-          </div>
-        </Scene>
-      </section>
-
-      <section id="access" className="bg-[#E9DDD3] px-5 py-16 sm:px-8 lg:py-20">
-        <Scene className="mx-auto grid max-w-[1240px] gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-start lg:gap-12">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Before the commitment</p>
-            <h2 className="mt-4 text-5xl font-semibold leading-[1] tracking-[-0.035em] sm:text-6xl">Discern before you decide.</h2>
-            <p className="mt-5 max-w-lg text-lg leading-8 text-[#777168]">Understand what a commitment could change before you make it.</p>
-          </div>
-          <AuthenticationCard
+      <AnimatePresence>
+        {authOpen && (
+          <AuthOverlay
             mode={mode}
             email={email}
             password={password}
@@ -199,16 +161,10 @@ export default function HomePage() {
             onPasswordChange={setPassword}
             onConfirmPasswordChange={setConfirmPassword}
             onSubmit={handleSubmit}
+            onClose={closeAuth}
           />
-        </Scene>
-      </section>
-
-      <footer className="border-t border-[#181713]/10 bg-[#F5F1EA] px-5 py-8 sm:px-8">
-        <div className="mx-auto flex max-w-[1240px] flex-col gap-3 text-sm text-[#777168] sm:flex-row sm:items-center sm:justify-between">
-          <p className="font-semibold text-[#181713]">Discero</p>
-          <p>Financial analysis is informational and is not financial advice.</p>
-        </div>
-      </footer>
+        )}
+      </AnimatePresence>
     </main>
   );
 }
@@ -227,6 +183,36 @@ function Navigation({ onSignIn, onTry }: { onSignIn: () => void; onTry: () => vo
   );
 }
 
+function Hero({ onTry, onLearn }: { onTry: () => void; onLearn: () => void }) {
+  return (
+    <section className="relative overflow-hidden px-5 pb-16 pt-32 sm:px-8 sm:pt-40 lg:pb-20 lg:pt-44">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_82%_10%,rgba(110,75,99,0.16),transparent_28rem),radial-gradient(circle_at_8%_70%,rgba(184,109,75,0.12),transparent_26rem)]" />
+      <div className="relative mx-auto grid max-w-[1240px] items-center gap-14 text-center lg:grid-cols-[1.05fr_0.95fr] lg:gap-16 lg:text-left">
+        <HeroCopy onTry={onTry} onLearn={onLearn} />
+        <HeroDecisionCard />
+      </div>
+      <HeroTransitionCue onClick={onLearn} />
+    </section>
+  );
+}
+
+function HeroTransitionCue({ onClick }: { onClick: () => void }) {
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      initial={reduceMotion ? false : { opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.5, delay: reduceMotion ? 0 : 0.95, ease }}
+      className="relative mx-auto mt-12 flex flex-col items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178] transition hover:text-[#6E4B63] lg:mt-14"
+    >
+      See the math behind the number
+      <span aria-hidden="true">&darr;</span>
+    </motion.button>
+  );
+}
+
 function HeroCopy({ onTry, onLearn }: { onTry: () => void; onLearn: () => void }) {
   const reduceMotion = useReducedMotion();
   return (
@@ -235,11 +221,20 @@ function HeroCopy({ onTry, onLearn }: { onTry: () => void; onLearn: () => void }
       animate="visible"
       variants={{ hidden: {}, visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.13 } } }}
     >
-      <HeroItem><p className="text-lg font-semibold uppercase tracking-[0.12em] text-[#181713]">Discero</p><p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Financial decision intelligence</p></HeroItem>
-      <HeroItem><h1 style={{ wordSpacing: "0.14em" }} className="mt-6 max-w-3xl text-[clamp(3.7rem,7.2vw,6.7rem)] font-semibold leading-[0.9] tracking-[0em]">Discern before you decide.</h1></HeroItem>
       <HeroItem>
-        <p className="mt-8 max-w-xl text-lg leading-8 text-[#777168] sm:text-xl">See how a financial decision could affect your cash, goals, and financial resilience before you commit.</p>
-        <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+        <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#181713]">Discero</p>
+        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Financial decision intelligence</p>
+      </HeroItem>
+      <HeroItem>
+        <h1 className="mx-auto mt-6 max-w-3xl text-[clamp(3.1rem,7vw,6.2rem)] font-semibold leading-[0.96] tracking-[-0.01em] lg:mx-0">
+          Discern before you decide.
+        </h1>
+      </HeroItem>
+      <HeroItem>
+        <p className="mx-auto mt-8 max-w-xl text-lg leading-8 text-[#777168] sm:text-xl lg:mx-0">
+          See how a financial decision could affect your cash, goals, and financial resilience before you commit.
+        </p>
+        <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
           <button type="button" onClick={onTry} className="discero-button-primary rounded-full px-6 py-3.5 text-sm font-semibold transition hover:-translate-y-0.5">Try Discero</button>
           <button type="button" onClick={onLearn} className="discero-button-secondary rounded-full border px-6 py-3.5 text-sm font-semibold transition hover:-translate-y-0.5">See how it works</button>
         </div>
@@ -248,271 +243,689 @@ function HeroCopy({ onTry, onLearn }: { onTry: () => void; onLearn: () => void }
   );
 }
 
-function DecisionPreview() {
+function HeroDecisionCard() {
   const reduceMotion = useReducedMotion();
+  const rowVariants = {
+    hidden: { opacity: 0, y: 10 },
+    visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.32, ease } },
+  };
   return (
     <motion.div
-      initial={reduceMotion ? false : { opacity: 0, x: 42, scale: 0.96 }}
-      animate={{ opacity: 1, x: 0, scale: 1 }}
-      transition={{ duration: reduceMotion ? 0 : 0.62, delay: reduceMotion ? 0 : 0.38, ease }}
-      className="relative mx-auto w-full max-w-[620px]"
+      initial={reduceMotion ? false : "hidden"}
+      animate="visible"
+      variants={{ hidden: {}, visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.16, delayChildren: reduceMotion ? 0 : 0.3 } } }}
+      className="relative mx-auto w-full max-w-[380px] rounded-2xl border border-[#181713]/10 bg-[#FFFCF7] p-6 shadow-[0_8px_24px_rgba(71,48,64,0.06)] lg:mx-0"
     >
-      <div className="absolute -inset-10 -z-10 bg-[radial-gradient(circle,rgba(110,75,99,0.16),transparent_65%)]" />
-      <div className="overflow-hidden rounded-[18px] bg-[#FFFCF7] shadow-[0_32px_90px_rgba(50,37,43,0.16)] ring-1 ring-[#181713]/10">
-        <div className="flex items-center justify-between border-b border-[#181713]/10 px-5 py-4 sm:px-7">
-          <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-[#B75C50]" /><span className="h-2 w-2 rounded-full bg-[#C59A52]" /><span className="h-2 w-2 rounded-full bg-[#58715A]" /></div>
-          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#968D84]">Decision / 01</span>
-        </div>
-        <div className="p-5 sm:p-8">
-          <motion.p initial={reduceMotion ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.42, delay: reduceMotion ? 0 : 0.58, ease }} className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A8178]">Decision analysis</motion.p>
-          <motion.h2 initial={reduceMotion ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.48, delay: reduceMotion ? 0 : 0.66, ease }} className="mt-4 text-2xl font-semibold tracking-[-0.025em] sm:text-3xl">Can I afford a $2,000 laptop?</motion.h2>
-          <motion.div initial={reduceMotion ? false : { opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: reduceMotion ? 0 : 0.42, delay: reduceMotion ? 0 : 0.76, ease }} className="mt-7 flex items-center justify-between border-y border-[#58715A]/25 bg-[#EEF1EB] px-1 py-4 sm:px-2">
-            <div><p className="text-xs text-[#687868]">Result</p><p className="mt-1 text-xl font-semibold text-[#4E6A51]">Affordable</p></div>
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#58715A] text-white">✓</span>
-          </motion.div>
-          <motion.div initial={reduceMotion ? false : "hidden"} animate="visible" variants={{ hidden: {}, visible: { transition: { delayChildren: reduceMotion ? 0 : 0.82, staggerChildren: reduceMotion ? 0 : 0.09 } } }} className="mt-4 divide-y divide-[#181713]/10">
-            <ResultRow label="Safe to spend">
-              <AnimatedValue value={27406} format={money} delay={0.05} />
-              <span className="mx-1.5 text-[#B86D4B]">→</span>
-              <AnimatedValue value={25406} format={money} delay={0.14} />
-            </ResultRow>
-            <ResultRow label="Goals"><span className="text-[#58715A]">Unaffected</span></ResultRow>
-            <ResultRow label="Runway"><AnimatedValue value={8.3} format={(value) => `${value.toFixed(1)} months`} /></ResultRow>
-            <ResultRow label="Confidence"><span className="text-[#6E4B63]"><AnimatedValue value={94} format={(value) => `${Math.round(value)}%`} /></span></ResultRow>
-          </motion.div>
-          <motion.p initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: reduceMotion ? 0 : 0.4, delay: reduceMotion ? 0 : 1.15 }} className="mt-5 text-xs text-[#938A81]">Based on current balances, recurring commitments, and active goals.</motion.p>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
+      <IllustrativeBadge />
 
-function ResultRow({ label, children }: { label: string; children: ReactNode }) {
-  const reduceMotion = useReducedMotion();
-  return (
-    <motion.div variants={{ hidden: { opacity: 0, x: 24 }, visible: { opacity: 1, x: 0, transition: { duration: reduceMotion ? 0 : 0.42, ease } } }} className="flex items-center justify-between gap-4 py-4">
-      <span className="text-sm text-[#777168]">{label}</span>
-      <span className="text-right text-sm font-semibold sm:text-base">{children}</span>
-    </motion.div>
-  );
-}
-
-function DecisionFlow() {
-  const reduceMotion = useReducedMotion();
-  const sources = [
-    { icon: "◒", label: "Accounts", detail: "$27,406 available" },
-    { icon: "↕", label: "Transactions", detail: "$2,000 evaluated" },
-    { icon: "◎", label: "Goals", detail: "68% funded" },
-    { icon: "↻", label: "Recurring commitments", detail: "Included in analysis" },
-  ];
-  const signalPaths = [
-    { path: "M 300 54 C 386 54 398 126 476 160", x: [300, 365, 420, 476], y: [54, 70, 124, 160] },
-    { path: "M 300 120 C 388 120 414 146 476 160", x: [300, 370, 425, 476], y: [120, 124, 146, 160] },
-    { path: "M 300 200 C 388 200 414 174 476 160", x: [300, 370, 425, 476], y: [200, 196, 174, 160] },
-    { path: "M 300 266 C 386 266 398 194 476 160", x: [300, 365, 420, 476], y: [266, 250, 196, 160] },
-  ];
-  return (
-    <motion.div initial={reduceMotion ? false : "hidden"} whileInView="visible" viewport={{ once: false, amount: 0.25, margin: "-5% 0px" }} className="relative mt-16 grid gap-10 lg:min-h-[320px] lg:grid-cols-[0.34fr_0.25fr_0.41fr] lg:items-center lg:gap-0">
-      <svg aria-hidden="true" viewBox="0 0 1000 320" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 hidden h-full w-full overflow-visible lg:block">
-        {signalPaths.map((signal, index) => (
-          <g key={signal.path}>
-            <motion.path d={signal.path} fill="none" stroke={index % 2 === 0 ? "#B86D4B" : "#6E4B63"} strokeOpacity="0.32" strokeWidth="1" vectorEffect="non-scaling-stroke" variants={{ hidden: { pathLength: 0, opacity: 0 }, visible: { pathLength: 1, opacity: 1, transition: { pathLength: { duration: reduceMotion ? 0 : 0.42, delay: reduceMotion ? 0 : 0.3 + index * 0.06, ease }, opacity: { duration: reduceMotion ? 0 : 0.18, delay: reduceMotion ? 0 : 0.3 + index * 0.06 } } } }} />
-            <motion.circle r="3.2" fill={index % 2 === 0 ? "#B86D4B" : "#6E4B63"} variants={{ hidden: { opacity: 0, cx: signal.x[0], cy: signal.y[0] }, visible: { opacity: [0, 1, 1, 0], cx: signal.x, cy: signal.y, transition: { duration: reduceMotion ? 0 : 0.46, delay: reduceMotion ? 0 : 0.42 + index * 0.06, ease } } }} />
-          </g>
-        ))}
-        <motion.path d="M 548 160 C 566 160 576 148 592 148" fill="none" stroke="#B86D4B" strokeOpacity="0.4" strokeWidth="1" vectorEffect="non-scaling-stroke" variants={{ hidden: { pathLength: 0, opacity: 0 }, visible: { pathLength: 1, opacity: 1, transition: { duration: reduceMotion ? 0 : 0.3, delay: reduceMotion ? 0 : 1.08, ease } } }} />
-        <motion.circle r="3" fill="#B86D4B" variants={{ hidden: { opacity: 0, cx: 548, cy: 160 }, visible: { opacity: [0, 1, 1, 0], cx: [548, 566, 580, 592], cy: [160, 158, 151, 148], transition: { duration: reduceMotion ? 0 : 0.34, delay: reduceMotion ? 0 : 1.12, ease } } }} />
-      </svg>
-
-      <div className="relative z-10 grid grid-cols-2 gap-x-7 gap-y-8 lg:grid-cols-1 lg:gap-y-6">
-        {sources.map((source, index) => (
-          <motion.div
-            key={source.label}
-            variants={{ hidden: { opacity: 0, x: -18 }, visible: { opacity: 1, x: 0, transition: { duration: reduceMotion ? 0 : 0.3, delay: reduceMotion ? 0 : index * 0.08, ease } } }}
-            whileHover={reduceMotion ? undefined : { x: 4 }}
-            className="group relative pl-4"
-          >
-            <motion.span variants={{ hidden: { scaleY: 0 }, visible: { scaleY: 1, transition: { duration: reduceMotion ? 0 : 0.26, delay: reduceMotion ? 0 : index * 0.08 + 0.1, ease } } }} className="absolute inset-y-1 left-0 w-px origin-top bg-[#B86D4B]/55" />
-            <div className="flex items-start gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#6E4B63]/10 text-xs font-semibold text-[#6E4B63]">{source.icon}</span>
-              <div><p className="font-semibold">{source.label}</p><p className="mt-1 text-xs text-[#8A8178] tabular-nums">{source.detail}</p></div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-
-      <MobileSignal delay={0.42} />
-      <motion.div
-        variants={{
-          hidden: { opacity: 0, scale: 0.9, boxShadow: "0 0 0 0 rgba(110,75,99,0)" },
-          visible: { opacity: 1, scale: [0.9, 1, 1.045, 1], boxShadow: ["0 0 0 0 rgba(110,75,99,0)", "0 0 0 0 rgba(110,75,99,0)", "0 0 0 18px rgba(110,75,99,0.11)", "0 0 0 0 rgba(110,75,99,0)"], transition: { duration: reduceMotion ? 0 : 0.48, delay: reduceMotion ? 0 : 0.72, ease } },
-        }}
-        className="relative z-10 mx-auto flex aspect-square w-40 flex-col items-center justify-center rounded-full bg-[#FFFCF7] text-center shadow-[0_18px_48px_rgba(71,48,64,0.10)] ring-1 ring-[#6E4B63]/20"
-      >
-        <span className="absolute inset-3 rounded-full border border-[#6E4B63]/10" />
-        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Discero</p>
-        <p className="mt-2 max-w-[110px] text-xl font-semibold leading-tight tracking-[-0.025em]">Decision analysis</p>
-        <div className="relative mt-3 h-4 w-full text-[10px] font-medium text-[#777168]">
-          <motion.p variants={{ hidden: { opacity: 0 }, visible: { opacity: reduceMotion ? 0 : [0, 1, 1, 0], transition: { duration: reduceMotion ? 0 : 0.44, delay: reduceMotion ? 0 : 0.74 } } }} className="absolute inset-0">Analyzing signals</motion.p>
-          <motion.p variants={{ hidden: { opacity: 0 }, visible: { opacity: 1, transition: { duration: reduceMotion ? 0 : 0.2, delay: reduceMotion ? 0 : 1.16 } } }} className="absolute inset-0 text-[#58715A]">Analysis complete</motion.p>
-        </div>
+      <motion.div variants={rowVariants} className="mt-5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Safe to spend</p>
+        <p className="mt-2 text-3xl font-semibold tracking-[-0.02em] tabular-nums">$32,475</p>
       </motion.div>
 
-      <MobileSignal delay={1.08} />
-      <motion.div variants={{ hidden: { opacity: 0, x: 24 }, visible: { opacity: 1, x: 0, transition: { duration: reduceMotion ? 0 : 0.3, delay: reduceMotion ? 0 : 1.14, ease } } }} className="relative z-10 border-y border-[#181713]/12 bg-[#F0E9E1]/35 px-5 py-6 sm:px-6">
-        <motion.p variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.24, delay: reduceMotion ? 0 : 1.18, ease } } }} className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Decision impact</motion.p>
-        <motion.p variants={{ hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.26, delay: reduceMotion ? 0 : 1.2, ease } } }} className="mt-4 text-[clamp(2.8rem,5vw,4.5rem)] font-semibold leading-none tracking-[-0.035em] text-[#6E4B63] tabular-nums">+<AnimatedValue value={1026} format={money} delay={0.62} duration={0.82} once={false} /></motion.p>
-        <motion.p variants={{ hidden: { opacity: 0 }, visible: { opacity: 1, transition: { duration: reduceMotion ? 0 : 0.22, delay: reduceMotion ? 0 : 1.25 } } }} className="mt-2 text-sm text-[#777168]">More cash buffer by waiting</motion.p>
-        <div className="mt-5 divide-y divide-[#181713]/10 border-t border-[#181713]/10">
-          {[
-            ["Goals", "Unaffected"],
-            ["Runway", "No material change"],
-          ].map(([label, value], index) => (
-            <motion.div key={label} variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.22, delay: reduceMotion ? 0 : 1.16 + index * 0.1, ease } } }} className="flex items-center justify-between gap-4 py-3 text-sm">
-              <span className="text-[#777168]">{label}</span><span className="font-semibold text-[#181713]">{value}</span>
-            </motion.div>
-          ))}
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
-
-function MobileSignal({ delay }: { delay: number }) {
-  const reduceMotion = useReducedMotion();
-  return (
-    <div className="relative mx-auto h-11 w-8 lg:hidden">
-      <motion.span variants={{ hidden: { scaleY: 0 }, visible: { scaleY: 1, transition: { duration: reduceMotion ? 0 : 0.36, delay: reduceMotion ? 0 : delay, ease } } }} className="absolute bottom-0 left-1/2 top-0 w-px origin-top -rotate-6 bg-[#B86D4B]/55" />
-      <motion.span variants={{ hidden: { opacity: 0, y: 0 }, visible: { opacity: [0, 1, 1, 0], y: 38, x: -4, transition: { duration: reduceMotion ? 0 : 0.38, delay: reduceMotion ? 0 : delay + 0.04, ease } } }} className="absolute left-1/2 top-0 h-2 w-2 -translate-x-1/2 rounded-full bg-[#B86D4B]" />
-    </div>
-  );
-}
-
-function DecisionExamples() {
-  return (
-    <div className="border-t border-[#181713]/15">
-      <Scene className="grid gap-10 border-b border-[#181713]/15 py-14 lg:grid-cols-[0.78fr_1.22fr] lg:items-center">
-        <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Decision comparison</p><h3 className="mt-5 text-3xl font-semibold leading-[1.1] tracking-[-0.025em] sm:text-4xl">Would waiting create more breathing room?</h3></div>
-        <div className="grid grid-cols-2 border-y border-[#181713]/15">
-          <CompareColumn label="Buy now" value={25406} detail="Available buffer" muted />
-          <CompareColumn label="Wait until October" value={26432} detail="+$1,026 buffer" />
-        </div>
-      </Scene>
-      <div className="grid border-b border-[#181713]/15 lg:grid-cols-[1.2fr_0.8fr]">
-        <Scene className="border-b border-[#181713]/15 py-14 lg:border-b-0 lg:border-r lg:pr-14">
-          <div className="grid gap-8 sm:grid-cols-[1fr_auto] sm:items-end"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Goal impact</p><h3 className="mt-5 max-w-xl text-3xl font-semibold leading-[1.1] tracking-[-0.025em] sm:text-4xl">Will this purchase delay something more important?</h3></div><span className="w-fit border border-[#58715A]/30 px-3 py-1.5 text-xs font-semibold text-[#58715A]">No change</span></div>
-          <div className="mt-12"><div className="flex justify-between text-sm"><span className="font-semibold">Emergency fund</span><span className="text-[#6E4B63]"><AnimatedValue value={68} format={(value) => `${Math.round(value)}%`} /></span></div><div className="mt-4 h-2 bg-[#FFFCF7]"><ProgressLine /></div><p className="mt-4 text-sm text-[#777168]">Projected progress remains unchanged.</p></div>
-        </Scene>
-        <Scene className="py-14 lg:pl-14">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#B86D4B]">Financial runway</p><h3 className="mt-5 text-3xl font-semibold leading-[1.1] tracking-[-0.025em] sm:text-4xl">How long could my cash support me if income stopped?</h3>
-          <p className="mt-12 text-[clamp(4rem,8vw,7rem)] font-semibold leading-none tracking-[-0.035em] text-[#6E4B63] tabular-nums"><AnimatedValue value={8.3} format={(value) => value.toFixed(1)} /></p>
-          <p className="mt-2 text-xl text-[#777168]">months after the purchase</p>
-        </Scene>
-      </div>
-    </div>
-  );
-}
-
-function AskIntro() {
-  const reduceMotion = useReducedMotion();
-  return (
-    <motion.div initial={reduceMotion ? false : "hidden"} whileInView="visible" viewport={{ once: false, amount: 0.25, margin: "-5% 0px" }} variants={{ hidden: {}, visible: {} }} className="max-w-2xl">
-      <motion.p variants={{ hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.26, ease } } }} className="text-xs font-semibold uppercase tracking-[0.18em] text-[#C89A78]">Ask Discero</motion.p>
-      <motion.h2 variants={{ hidden: { opacity: 0, y: 30 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.32, delay: reduceMotion ? 0 : 0.06, ease } } }} className="mt-5 text-4xl font-semibold leading-[1.05] tracking-[0em] sm:text-5xl">Ask a question.<span className="block">See the consequence.</span></motion.h2>
-      <motion.p variants={{ hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.28, delay: reduceMotion ? 0 : 0.14, ease } } }} className="mt-5 max-w-lg text-lg leading-8 text-[#AAA39A]">Ask about a financial choice. Discero evaluates the effects that matter.</motion.p>
-    </motion.div>
-  );
-}
-
-function AnalysisPreview() {
-  const reduceMotion = useReducedMotion();
-  const question = "Should I buy this now or wait until October?".split(" ");
-  const checks = [
-    { icon: "$", label: "Cash position" },
-    { icon: "◎", label: "Goal impact" },
-    { icon: "◷", label: "Timing" },
-  ];
-  return (
-    <motion.div initial={reduceMotion ? false : "hidden"} whileInView="visible" viewport={{ once: false, amount: 0.25, margin: "-5% 0px" }} className="relative border-y border-white/15 bg-white/[0.025] px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
-      <div className="grid gap-6 border-b border-white/10 pb-8 sm:grid-cols-[1fr_auto] sm:items-end">
+      <motion.div variants={rowVariants} className="mt-4 flex items-center justify-between border-t border-[#181713]/8 pt-4">
         <div>
-          <motion.p variants={{ hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.24, delay: reduceMotion ? 0 : 0.03, ease } } }} className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8F8981]">Your question</motion.p>
-          <h3 style={{ wordSpacing: "normal" }} className="mt-4 max-w-4xl text-3xl font-semibold leading-[1.1] tracking-[-0.025em] sm:text-4xl lg:text-5xl">
-            {question.map((word, index) => (
-              <span key={`${word}-${index}`}>
-                <motion.span variants={{ hidden: { opacity: 0, y: 16, filter: "blur(4px)" }, visible: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: reduceMotion ? 0 : 0.22, delay: reduceMotion ? 0 : 0.05 + index * 0.03, ease } } }} className="inline-block">{word}</motion.span>
-                {index < question.length - 1 ? " " : null}
-              </span>
-            ))}
-          </h3>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Decision</p>
+          <p className="mt-1 text-sm font-semibold">Laptop</p>
         </div>
-        <motion.span variants={{ hidden: { opacity: 0, scale: 0.8 }, visible: { opacity: 1, scale: 1, transition: { duration: reduceMotion ? 0 : 0.24, delay: reduceMotion ? 0 : 0.43, ease } } }} className="flex h-11 w-11 items-center justify-center justify-self-end rounded-full border border-[#C89A78]/35 text-lg text-[#C89A78]">→</motion.span>
-      </div>
-
-      <motion.div variants={{ hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.26, delay: reduceMotion ? 0 : 0.48, ease } } }} className="mt-8">
-        <div className="relative h-5 text-sm font-medium">
-          <motion.p variants={{ hidden: { opacity: 0 }, visible: { opacity: reduceMotion ? 0 : [1, 1, 0], transition: { duration: reduceMotion ? 0 : 0.52, delay: reduceMotion ? 0 : 0.48 } } }} className="absolute inset-0 text-[#C8C1B8]">Analyzing your financial position...</motion.p>
-          <motion.p variants={{ hidden: { opacity: 0 }, visible: { opacity: 1, transition: { duration: reduceMotion ? 0 : 0.22, delay: reduceMotion ? 0 : 1.02 } } }} className="absolute inset-0 text-[#91A990]">Analysis complete</motion.p>
-        </div>
-        <div className="relative mt-6 grid gap-5 sm:grid-cols-3 sm:gap-8">
-          <span className="absolute bottom-5 left-5 top-5 w-px bg-white/10 sm:bottom-auto sm:left-5 sm:right-5 sm:top-5 sm:h-px sm:w-auto" />
-          <motion.span variants={{ hidden: { scaleY: 0 }, visible: { scaleY: 1, transition: { duration: reduceMotion ? 0 : 0.5, delay: reduceMotion ? 0 : 0.5, ease } } }} className="absolute bottom-5 left-5 top-5 w-px origin-top bg-[#C89A78] sm:hidden" />
-          <motion.span variants={{ hidden: { scaleX: 0 }, visible: { scaleX: 1, transition: { duration: reduceMotion ? 0 : 0.5, delay: reduceMotion ? 0 : 0.5, ease } } }} className="absolute left-5 right-5 top-5 hidden h-px origin-left bg-[#C89A78] sm:block" />
-          {checks.map((check, index) => (
-            <motion.div key={check.label} variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.3, delay: reduceMotion ? 0 : 0.54 + index * 0.2, ease } } }} className={`relative z-10 flex items-center gap-3 sm:flex-col ${index === 0 ? "sm:items-start" : index === 1 ? "sm:items-center" : "sm:items-end"}`}>
-              <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#91A990]/30 bg-[#1B1A18] text-sm text-[#91A990]"><motion.span variants={{ hidden: { opacity: 1 }, visible: { opacity: reduceMotion ? 0 : [1, 1, 0], transition: { duration: reduceMotion ? 0 : 0.3, delay: reduceMotion ? 0 : 0.64 + index * 0.2 } } }}>{check.icon}</motion.span><motion.span variants={{ hidden: { opacity: 0, scale: 0.7 }, visible: { opacity: 1, scale: [0.7, 1.12, 1], transition: { duration: reduceMotion ? 0 : 0.3, delay: reduceMotion ? 0 : 0.64 + index * 0.2 } } }} className="absolute inset-0 flex items-center justify-center">✓</motion.span></span>
-              <div className={index === 1 ? "sm:text-center" : index === 2 ? "sm:text-right" : ""}><span className="text-sm font-semibold text-[#F5F1EA]">{check.label}</span><span className="mt-1 block text-[10px] uppercase tracking-[0.16em] text-[#8F8981]">Complete</span></div>
-            </motion.div>
-          ))}
-        </div>
+        <p className="text-sm font-semibold text-[#B75C50]">&minus;$2,000</p>
       </motion.div>
 
-      <div className="mt-10 grid gap-8 border-t border-white/10 pt-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-end">
-        <motion.div variants={{ hidden: { opacity: 0, y: 22 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.3, delay: reduceMotion ? 0 : 0.98, ease } } }} className="relative pl-5">
-          <span className="absolute bottom-1 left-0 top-1 w-px bg-[#D3A963]" />
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#AAA39A]">Recommendation</p>
-          <motion.p variants={{ hidden: { opacity: 0, scale: 0.9 }, visible: { opacity: 1, scale: [0.9, 1.04, 1], transition: { duration: reduceMotion ? 0 : 0.3, delay: reduceMotion ? 0 : 1.02, ease } } }} className="mt-3 text-6xl font-semibold leading-none tracking-[0em] text-[#D3A963] sm:text-7xl">Wait</motion.p>
-        </motion.div>
-        <div className="grid grid-cols-2 gap-5 sm:gap-8">
-          <motion.div variants={{ hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.24, delay: reduceMotion ? 0 : 1.06, ease } } }} className="border-l border-white/10 pl-4 sm:pl-6">
-            <p className="text-3xl font-semibold tracking-[-0.025em] text-[#91A990] tabular-nums sm:text-4xl">+<AnimatedValue value={1026} format={money} delay={0.62} duration={0.84} once={false} /></p>
-            <p className="mt-2 text-sm text-[#AAA39A]">More cash buffer</p>
-          </motion.div>
-          <motion.div variants={{ hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.24, delay: reduceMotion ? 0 : 1.24, ease } } }} className="border-l border-white/10 pl-4 sm:pl-6">
-            <p className="text-3xl font-semibold tracking-[-0.025em] text-[#F5F1EA] sm:text-4xl">No change</p>
-            <p className="mt-2 text-sm text-[#AAA39A]">Goal impact</p>
-          </motion.div>
-        </div>
-      </div>
+      <motion.div variants={rowVariants} className="mt-4 flex items-center justify-between border-t border-[#181713]/8 pt-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Remaining</p>
+        <p className="text-2xl font-semibold tracking-[-0.02em] tabular-nums text-[#6E4B63]">$30,475</p>
+      </motion.div>
 
-      <motion.div variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.25, delay: reduceMotion ? 0 : 1.25, ease } } }} className="mt-8 text-[11px] text-[#8F8981]"><p><span className="font-semibold uppercase tracking-[0.18em]">Discero analysis</span><span className="ml-2 text-[#AAA39A]">Based on current balances, goals, and recurring commitments.</span></p></motion.div>
+      <motion.div variants={rowVariants} className="mt-5 flex flex-wrap items-center gap-2 border-t border-[#181713]/8 pt-4">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#58715A]/30 bg-[#EEF1EB] px-3 py-1.5 text-xs font-semibold text-[#4E6A51]">
+          <span aria-hidden="true">&#10003;</span> Goals protected
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#58715A]/30 bg-[#EEF1EB] px-3 py-1.5 text-xs font-semibold text-[#4E6A51]">
+          Affordable
+        </span>
+        <span className="text-xs text-[#8A8178]">94% confidence</span>
+      </motion.div>
     </motion.div>
   );
 }
 
-function AuthenticationCard({ mode, email, password, confirmPassword, loading, error, onModeChange, onEmailChange, onPasswordChange, onConfirmPasswordChange, onSubmit }: { mode: Mode; email: string; password: string; confirmPassword: string; loading: boolean; error: string; onModeChange: (mode: Mode) => void; onEmailChange: (value: string) => void; onPasswordChange: (value: string) => void; onConfirmPasswordChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+function IllustrativeBadge() {
   return (
-    <section className="bg-[#FFFCF7] p-6 shadow-[0_24px_70px_rgba(60,43,35,0.10)] ring-1 ring-[#181713]/10 sm:p-7">
-      <div className="grid grid-cols-2 border border-[#181713]/10 p-1">
-        {(["login", "register"] as Mode[]).map((item) => <button key={item} type="button" onClick={() => onModeChange(item)} className={`px-4 py-2.5 text-sm font-semibold transition ${mode === item ? "bg-[#1B1A18] text-white" : "text-[#777168]"}`}>{item === "login" ? "Sign in" : "Create account"}</button>)}
-      </div>
-      <h3 className="mt-5 text-2xl font-semibold tracking-[-0.025em]">{mode === "login" ? "Welcome back" : "Try Discero"}</h3>
-      <p className="mt-2 text-sm leading-6 text-[#777168]">{mode === "login" ? "Sign in to continue your decision analysis." : "Create an account to evaluate financial decisions."}</p>
-      <form onSubmit={onSubmit} className="mt-5 space-y-3">
-        <AuthInput label="Email address" type="email" autoComplete="email" value={email} placeholder="you@example.com" onChange={onEmailChange} />
-        <AuthInput label="Password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} value={password} placeholder="Minimum 8 characters" onChange={onPasswordChange} />
-        <div className="flex min-h-[4.5rem] items-center justify-end">
-          {mode === "register" ? <div className="w-full"><AuthInput label="Confirm password" type="password" autoComplete="new-password" value={confirmPassword} placeholder="Repeat your password" onChange={onConfirmPasswordChange} /></div> : <Link href="/forgot-password" className="text-sm font-semibold text-[#6E4B63]">Forgot password?</Link>}
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-[#181713]/12 bg-[#F8F4EE] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">
+      Illustrative example
+    </span>
+  );
+}
+
+function FinancialState() {
+  return (
+    <section id="financial-state" className="bg-[#FFFCF7] px-5 pb-24 pt-14 sm:px-8 sm:pt-16 lg:pb-32 lg:pt-20">
+      <Scene className="mx-auto max-w-[1240px]">
+        <div className="grid gap-10 border-b border-[#181713]/10 pb-14 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">How Discero gets there</p>
+              <IllustrativeBadge />
+            </div>
+            <h2 className="mt-5 max-w-3xl text-4xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-5xl lg:text-6xl">
+              Every number has a receipt.
+            </h2>
+          </div>
+          <p className="max-w-lg text-lg leading-8 text-[#777168] lg:justify-self-end">
+            Discero shows the financial inputs behind the amount — not just the answer.
+          </p>
         </div>
-        {error && <div role="alert" className="border border-[#B75C50]/25 bg-[#F6E5E0] px-4 py-3 text-sm text-[#96493F]">{error}</div>}
-        <button type="submit" disabled={loading} className="discero-button-primary w-full rounded-full px-5 py-3.5 text-sm font-semibold transition disabled:cursor-not-allowed">{loading ? "Please wait..." : mode === "login" ? "Sign in to Discero" : "Create my account"}</button>
-      </form>
+        <FinancialReceipt />
+      </Scene>
     </section>
   );
 }
 
+function FinancialReceipt() {
+  const reduceMotion = useReducedMotion();
+  const rowVariants = {
+    hidden: { opacity: 0, y: 10 },
+    visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.32, ease } },
+  };
+  return (
+    <motion.div
+      initial={reduceMotion ? false : "hidden"}
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.3, margin: "-5% 0px" }}
+      variants={{ hidden: {}, visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.12 } } }}
+      className="mt-16 lg:ml-[8%] lg:w-[64%]"
+    >
+      <div className="rounded-2xl border border-[#181713]/10 bg-[#FFFCF7] p-7 shadow-[0_10px_32px_rgba(71,48,64,0.06)] sm:p-9">
+        <motion.div variants={rowVariants} className="flex items-baseline justify-between gap-4">
+          <span className="text-sm text-[#777168]">Liquid cash</span>
+          <span className="text-base font-semibold tabular-nums">$26,500</span>
+        </motion.div>
+        <motion.div variants={rowVariants} className="mt-4 flex items-baseline justify-between gap-4">
+          <span className="text-sm text-[#777168]">Expected income</span>
+          <span className="text-base font-semibold tabular-nums text-[#58715A]">+$8,125</span>
+        </motion.div>
+        <motion.div variants={rowVariants} className="mt-4 flex items-baseline justify-between gap-4">
+          <span className="text-sm text-[#777168]">Upcoming obligations</span>
+          <span className="text-base font-semibold tabular-nums text-[#B75C50]">&minus;$2,150</span>
+        </motion.div>
+
+        <motion.div variants={rowVariants} className="my-6 border-t border-[#181713]/15" />
+
+        <motion.div variants={rowVariants} className="flex items-baseline justify-between gap-4">
+          <span className="text-sm font-semibold uppercase tracking-[0.1em] text-[#6E4B63]">Safe to spend</span>
+          <span className="text-3xl font-semibold tracking-[-0.02em] tabular-nums text-[#6E4B63] sm:text-4xl">
+            <AnimatedValue value={32475} format={money} />
+          </span>
+        </motion.div>
+
+        <motion.div variants={rowVariants} className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-[#181713]/10 pt-5 text-sm text-[#777168]">
+          <span>Goals protected</span>
+          <span>Runway 8.3 months</span>
+        </motion.div>
+      </div>
+
+      <p className="mt-4 text-xs text-[#8A8178]">Deterministic calculation</p>
+    </motion.div>
+  );
+}
+
+function DecisionRipple() {
+  const reduceMotion = useReducedMotion();
+  return (
+    <div id="decision-ripple">
+      {!reduceMotion && (
+        <div className="hidden md:block">
+          <DecisionRippleScroll />
+        </div>
+      )}
+      <div className={reduceMotion ? "block" : "block md:hidden"}>
+        <DecisionRippleSimple />
+      </div>
+    </div>
+  );
+}
+
+function DecisionRippleScroll() {
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({ target: sectionRef, offset: ["start start", "end end"] });
+
+  const stage = (progress: number, from: number, to: number, start: number, end: number) => {
+    const t = Math.min(1, Math.max(0, (progress - start) / (end - start)));
+    return from + t * (to - from);
+  };
+
+  const hintOpacity = useTransform(scrollYProgress, (v) => stage(v, 1, 0, 0, 0.08));
+  const railScale = scrollYProgress;
+
+  const questionOpacity = useTransform(scrollYProgress, (v) => stage(v, 0, 1, 0.05, 0.12));
+  const questionY = useTransform(scrollYProgress, (v) => stage(v, 16, 0, 0.05, 0.12));
+
+  const topLabelOpacity = useTransform(scrollYProgress, (v) => stage(v, 0, 1, 0, 0.05));
+
+  const laptopOpacity = useTransform(scrollYProgress, (v) => stage(v, 0, 1, 0.12, 0.2));
+  const laptopY = useTransform(scrollYProgress, (v) => stage(v, 12, 0, 0.12, 0.2));
+
+  const arrowDownOpacity = useTransform(scrollYProgress, (v) => stage(v, 0, 1, 0.2, 0.26));
+
+  const resultOpacity = useTransform(scrollYProgress, (v) => stage(v, 0, 1, 0.22, 0.28));
+  const resultValue = useTransform(scrollYProgress, (v) => stage(v, 32475, 30475, 0.24, 0.46));
+  const resultDisplay = useTransform(resultValue, money);
+
+  const equationScale = useTransform(scrollYProgress, (v) => stage(v, 1, 0.82, 0.46, 0.56));
+  const equationY = useTransform(scrollYProgress, (v) => stage(v, 0, -32, 0.46, 0.56));
+
+  const chipsRowOpacity = useTransform(scrollYProgress, (v) => stage(v, 0, 1, 0.5, 0.56));
+  const chip1Y = useTransform(scrollYProgress, (v) => stage(v, 14, 0, 0.5, 0.56));
+  const chip2Y = useTransform(scrollYProgress, (v) => stage(v, 14, 0, 0.54, 0.6));
+  const chip3Y = useTransform(scrollYProgress, (v) => stage(v, 14, 0, 0.58, 0.64));
+
+  const verdictOpacity = useTransform(scrollYProgress, (v) => stage(v, 0, 1, 0.68, 0.8));
+  const verdictScale = useTransform(scrollYProgress, (v) => stage(v, 0.92, 1, 0.68, 0.8));
+  const confidenceValue = useTransform(scrollYProgress, (v) => stage(v, 0, 94, 0.72, 0.92));
+  const confidenceDisplay = useTransform(confidenceValue, (value) => `${Math.round(value)}%`);
+
+  return (
+    <section ref={sectionRef} className="relative h-[440vh] bg-[#FFFCF7]">
+      <div className="sticky top-0 flex h-[100svh] flex-col items-center justify-center overflow-hidden px-5 sm:px-8">
+        <motion.div
+          aria-hidden="true"
+          style={{ scaleY: railScale }}
+          className="absolute left-6 top-1/2 hidden h-40 w-px origin-top -translate-y-1/2 bg-[#6E4B63]/30 lg:block"
+        />
+
+        <div className="mx-auto w-full max-w-[760px] text-center">
+          <IllustrativeBadge />
+
+          <motion.h2 style={{ opacity: questionOpacity, y: questionY }} className="mt-6 text-3xl font-semibold tracking-[-0.02em] sm:text-4xl">
+            Can I afford a $2,000 laptop?
+          </motion.h2>
+
+          <div className="relative mt-12">
+            <motion.div style={{ scale: equationScale, y: equationY }}>
+              <motion.p style={{ opacity: topLabelOpacity }} className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A8178]">
+                Current safe-to-spend
+              </motion.p>
+              <p className="mt-3 text-[clamp(2.6rem,7vw,4.6rem)] font-semibold tracking-[-0.02em] tabular-nums">$32,475</p>
+
+              <motion.div style={{ opacity: laptopOpacity, y: laptopY }} className="mt-6 flex items-center justify-center gap-2 text-lg font-semibold text-[#B75C50]">
+                <span aria-hidden="true">&darr;</span>
+                <span>Laptop &minus;$2,000</span>
+              </motion.div>
+
+              <motion.span style={{ opacity: arrowDownOpacity }} aria-hidden="true" className="mt-4 block text-[#8A8178]">
+                &darr;
+              </motion.span>
+
+              <motion.div style={{ opacity: resultOpacity }} className="mt-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Safe-to-spend after this decision</p>
+                <motion.p className="mt-3 text-[clamp(2.6rem,7vw,4.6rem)] font-semibold tracking-[-0.02em] tabular-nums text-[#6E4B63]">
+                  {resultDisplay}
+                </motion.p>
+              </motion.div>
+            </motion.div>
+
+            <motion.div style={{ opacity: chipsRowOpacity }} className="mt-10 grid grid-cols-3 gap-4 border-t border-[#181713]/10 pt-8 sm:gap-8">
+              <motion.div style={{ y: chip1Y }}>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Goals</p>
+                <p className="mt-2 text-sm font-semibold text-[#58715A] sm:text-base">Protected</p>
+              </motion.div>
+              <motion.div style={{ y: chip2Y }}>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Runway</p>
+                <p className="mt-2 text-sm font-semibold sm:text-base">8.3 months</p>
+              </motion.div>
+              <motion.div style={{ y: chip3Y }}>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Obligations</p>
+                <p className="mt-2 text-sm font-semibold text-[#58715A] sm:text-base">Covered</p>
+              </motion.div>
+            </motion.div>
+
+            <motion.div style={{ opacity: verdictOpacity, scale: verdictScale }} className="mt-10">
+              <span className="inline-flex items-center gap-2 rounded-full border border-[#58715A]/30 bg-[#EEF1EB] px-5 py-2.5 text-sm font-semibold text-[#4E6A51]">
+                <span aria-hidden="true">&#10003;</span> Affordable
+              </span>
+              <p className="mt-3 text-sm text-[#777168]">
+                <motion.span>{confidenceDisplay}</motion.span> confidence
+              </p>
+            </motion.div>
+          </div>
+
+          <motion.p style={{ opacity: hintOpacity }} className="mt-14 text-xs font-semibold uppercase tracking-[0.16em] text-[#8A8178]">
+            Scroll to continue
+          </motion.p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DecisionRippleSimple() {
+  return (
+    <section className="bg-[#FFFCF7] px-5 py-20 sm:px-8">
+      <Scene className="mx-auto max-w-[640px] text-center">
+        <IllustrativeBadge />
+        <h2 className="mt-6 text-3xl font-semibold tracking-[-0.02em] sm:text-4xl">Can I afford a $2,000 laptop?</h2>
+
+        <div className="mt-10">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Current safe-to-spend</p>
+          <p className="mt-3 text-4xl font-semibold tracking-[-0.02em] tabular-nums sm:text-5xl">$32,475</p>
+          <p className="mt-5 text-lg font-semibold text-[#B75C50]">&darr; Laptop &minus;$2,000</p>
+          <p className="mt-5 text-xs font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Safe-to-spend after this decision</p>
+          <p className="mt-3 text-4xl font-semibold tracking-[-0.02em] tabular-nums text-[#6E4B63] sm:text-5xl">$30,475</p>
+        </div>
+
+        <Stagger className="mt-10 grid grid-cols-3 gap-4 border-t border-[#181713]/10 pt-8">
+          <RippleChip label="Goals" value="Protected" sage />
+          <RippleChip label="Runway" value="8.3 months" />
+          <RippleChip label="Obligations" value="Covered" sage />
+        </Stagger>
+
+        <div className="mt-10">
+          <span className="inline-flex items-center gap-2 rounded-full border border-[#58715A]/30 bg-[#EEF1EB] px-5 py-2.5 text-sm font-semibold text-[#4E6A51]">
+            <span aria-hidden="true">&#10003;</span> Affordable
+          </span>
+          <p className="mt-3 text-sm text-[#777168]">94% confidence</p>
+        </div>
+      </Scene>
+    </section>
+  );
+}
+
+function RippleChip({ label, value, sage = false }: { label: string; value: string; sage?: boolean }) {
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.div variants={{ hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.32, ease } } }}>
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">{label}</p>
+      <p className={`mt-2 text-sm font-semibold sm:text-base ${sage ? "text-[#58715A]" : "text-[#181713]"}`}>{value}</p>
+    </motion.div>
+  );
+}
+
+function Receipt() {
+  const rows: { label: string; value: string; sign?: "plus" | "minus" }[] = [
+    { label: "Cash available", value: "$26,500" },
+    { label: "Projected income", value: "$9,800", sign: "plus" },
+    { label: "Known obligations", value: "$2,150", sign: "minus" },
+    { label: "Protection / reserve", value: "$1,675", sign: "minus" },
+  ];
+
+  return (
+    <section className="bg-[#F0E9E1] px-5 py-24 sm:px-8 lg:py-32">
+      <Scene className="mx-auto max-w-[1240px]">
+        <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Discero principle</p>
+            <h2 className="mt-5 max-w-lg text-4xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-5xl">
+              Every recommendation has a receipt.
+            </h2>
+            <p className="mt-6 max-w-md text-lg leading-8 text-[#777168]">
+              See what the decision is based on. Discero applies deterministic financial analysis, then explains the result in plain language.
+            </p>
+          </div>
+
+          <Stagger className="divide-y divide-[#181713]/15 border-y border-[#181713]/15">
+            {rows.map((row) => (
+              <ReceiptRow key={row.label} {...row} />
+            ))}
+            <ReceiptRow label="Safe-to-spend" value="$32,475" strong />
+            <ReceiptRow label="Decision · Laptop" value="$2,000" sign="minus" />
+            <ReceiptRow label="Remaining room" value="$30,475" strong accent />
+          </Stagger>
+        </div>
+      </Scene>
+    </section>
+  );
+}
+
+function ReceiptRow({
+  label,
+  value,
+  sign,
+  strong = false,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  sign?: "plus" | "minus";
+  strong?: boolean;
+  accent?: boolean;
+}) {
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.div
+      variants={{ hidden: { opacity: 0, x: 24 }, visible: { opacity: 1, x: 0, transition: { duration: reduceMotion ? 0 : 0.4, ease } } }}
+      className="flex items-center justify-between gap-4 py-5"
+    >
+      <span className={`text-sm sm:text-base ${strong ? "font-semibold text-[#181713]" : "text-[#777168]"}`}>{label}</span>
+      <span className={`text-right text-sm font-semibold tabular-nums sm:text-base ${accent ? "text-[#6E4B63]" : "text-[#181713]"}`}>
+        {sign === "minus" ? "− " : sign === "plus" ? "+ " : ""}
+        {value}
+      </span>
+    </motion.div>
+  );
+}
+
+function DecisionBreadth() {
+  const steps = [
+    { label: "Laptop purchase", detail: "A single upfront decision." },
+    { label: "Buy now vs. wait", detail: "Compare timing, not just cost." },
+    { label: "Income interruption", detail: "Model a paycheck that pauses." },
+    { label: "Multi-step plan", detail: "Sequence several decisions together." },
+  ];
+
+  return (
+    <section className="bg-[#FFFCF7] px-5 py-24 sm:px-8 lg:py-32">
+      <Scene className="mx-auto max-w-[1240px]">
+        <div className="max-w-2xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Beyond one decision</p>
+          <h2 className="mt-5 text-4xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-5xl">
+            The same analysis scales with the decision.
+          </h2>
+        </div>
+
+        <Stagger className="mt-14 grid gap-8 border-t border-[#181713]/10 pt-10 sm:grid-cols-2 lg:grid-cols-4 lg:gap-0 lg:divide-x lg:divide-[#181713]/10">
+          {steps.map((step, index) => (
+            <BreadthStep key={step.label} index={index} {...step} />
+          ))}
+        </Stagger>
+      </Scene>
+    </section>
+  );
+}
+
+function BreadthStep({ index, label, detail }: { index: number; label: string; detail: string }) {
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.div
+      variants={{ hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.4, ease } } }}
+      className="lg:px-8 lg:first:pl-0"
+    >
+      <span className="text-xs font-semibold text-[#B86D4B] tabular-nums">0{index + 1}</span>
+      <p className="mt-3 text-lg font-semibold tracking-[-0.01em]">{label}</p>
+      <p className="mt-2 text-sm leading-6 text-[#777168]">{detail}</p>
+    </motion.div>
+  );
+}
+
+function AskDiscero() {
+  return (
+    <section className="bg-[#1B1A18] px-5 py-24 text-[#F5F1EA] sm:px-8 lg:py-32">
+      <Scene className="mx-auto max-w-[1240px]">
+        <div className="max-w-2xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#C89A78]">Ask Discero</p>
+          <h2 className="mt-5 text-4xl font-semibold leading-[1.05] tracking-[0em] sm:text-5xl">
+            Ask a question.
+            <span className="block">See the consequence.</span>
+          </h2>
+        </div>
+
+        <AskSequence />
+
+        <p className="mt-10 max-w-xl text-sm text-[#AAA39A]">Calculated from financial data. Explained in plain language.</p>
+      </Scene>
+    </section>
+  );
+}
+
+function AskSequence() {
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.div
+      initial={reduceMotion ? false : "hidden"}
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.25, margin: "-5% 0px" }}
+      className="relative mt-14 border-y border-white/15 bg-white/[0.025] px-5 py-8 sm:px-8 lg:px-10 lg:py-10"
+    >
+      <motion.p
+        variants={{ hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.3, ease } } }}
+        className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8F8981]"
+      >
+        Your question
+      </motion.p>
+      <motion.h3
+        variants={{ hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.34, delay: reduceMotion ? 0 : 0.05, ease } } }}
+        className="mt-4 text-2xl font-semibold tracking-[-0.02em] sm:text-3xl"
+      >
+        How much can I safely spend right now?
+      </motion.h3>
+
+      <motion.p
+        variants={{ hidden: { opacity: 0 }, visible: { opacity: 1, transition: { duration: reduceMotion ? 0 : 0.24, delay: reduceMotion ? 0 : 0.4 } } }}
+        className="mt-6 text-sm font-medium text-[#91A990]"
+      >
+        Deterministic analysis complete
+      </motion.p>
+
+      <motion.p
+        variants={{ hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.36, delay: reduceMotion ? 0 : 0.5, ease } } }}
+        className="mt-4 text-[clamp(2.6rem,6vw,4.2rem)] font-semibold leading-none tracking-[-0.03em] tabular-nums text-[#D3A963]"
+      >
+        $32,475
+      </motion.p>
+
+      <motion.p
+        variants={{ hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.36, delay: reduceMotion ? 0 : 0.62, ease } } }}
+        className="mt-6 max-w-2xl border-t border-white/10 pt-6 text-base leading-7 text-[#D8D2C8]"
+      >
+        Based on your current cash, expected income, and known obligations, this is what you can spend without affecting your goals or runway.
+      </motion.p>
+    </motion.div>
+  );
+}
+
+function DecisionsOverTime() {
+  const stages = [
+    { label: "Plan", detail: "Model the decision before committing." },
+    { label: "Act", detail: "Move forward with confidence." },
+    { label: "Review", detail: "See how the outcome played out." },
+    { label: "Learn", detail: "Future recommendations get sharper." },
+  ];
+
+  return (
+    <section className="bg-[#F0E9E1] px-5 py-24 sm:px-8 lg:py-32">
+      <Scene className="mx-auto max-w-[1240px]">
+        <div className="max-w-2xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">Decisions over time</p>
+          <h2 className="mt-5 text-4xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-5xl">
+            Every decision sharpens the next one.
+          </h2>
+        </div>
+
+        <div className="relative mt-14">
+          <div aria-hidden="true" className="pointer-events-none absolute left-[1.125rem] top-0 bottom-0 w-px bg-[#6E4B63]/25 lg:hidden" />
+          <div aria-hidden="true" className="pointer-events-none absolute left-[12.5%] right-[12.5%] top-[1.125rem] hidden h-px bg-[#6E4B63]/25 lg:block" />
+          <Stagger className="relative grid grid-cols-1 gap-8 lg:grid-cols-4 lg:gap-6">
+            {stages.map((stage, index) => (
+              <LifecycleStage key={stage.label} index={index} {...stage} />
+            ))}
+          </Stagger>
+        </div>
+      </Scene>
+    </section>
+  );
+}
+
+function LifecycleStage({ index, label, detail }: { index: number; label: string; detail: string }) {
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.div
+      variants={{ hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : 0.36, ease } } }}
+      className="relative flex items-start gap-4 lg:flex-col lg:items-center lg:gap-0 lg:text-center"
+    >
+      <span className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#6E4B63]/30 bg-[#F0E9E1] text-xs font-semibold text-[#6E4B63]">
+        {index + 1}
+      </span>
+      <div className="lg:mt-4">
+        <p className="text-lg font-semibold tracking-[-0.01em]">{label}</p>
+        <p className="mt-1 text-sm leading-6 text-[#777168] lg:mt-2">{detail}</p>
+      </div>
+    </motion.div>
+  );
+}
+
+function FinalCTA({ onTry, onSignIn }: { onTry: () => void; onSignIn: () => void }) {
+  return (
+    <section className="bg-[#F5F1EA] px-5 py-28 text-center sm:px-8 lg:py-36">
+      <Scene className="mx-auto max-w-[720px]">
+        <h2 className="text-4xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-5xl lg:text-6xl">
+          See what your next decision means.
+        </h2>
+        <p className="mx-auto mt-5 max-w-md text-lg leading-8 text-[#777168]">
+          See how a decision changes your numbers, before you make it.
+        </p>
+        <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <button type="button" onClick={onTry} className="discero-button-primary rounded-full px-6 py-3.5 text-sm font-semibold transition hover:-translate-y-0.5">Try Discero</button>
+          <button type="button" onClick={onSignIn} className="discero-button-secondary rounded-full border px-6 py-3.5 text-sm font-semibold transition hover:-translate-y-0.5">Sign in</button>
+        </div>
+      </Scene>
+    </section>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="border-t border-[#181713]/10 bg-[#F5F1EA] px-5 py-8 sm:px-8">
+      <div className="mx-auto flex max-w-[1240px] flex-col gap-3 text-sm text-[#777168] sm:flex-row sm:items-center sm:justify-between">
+        <p className="font-semibold text-[#181713]">Discero</p>
+        <p>Financial analysis is informational and is not financial advice.</p>
+      </div>
+    </footer>
+  );
+}
+
+function AuthOverlay({
+  mode,
+  email,
+  password,
+  confirmPassword,
+  loading,
+  error,
+  onModeChange,
+  onEmailChange,
+  onPasswordChange,
+  onConfirmPasswordChange,
+  onSubmit,
+  onClose,
+}: {
+  mode: Mode;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  loading: boolean;
+  error: string;
+  onModeChange: (mode: Mode) => void;
+  onEmailChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onConfirmPasswordChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onClose: () => void;
+}) {
+  const reduceMotion = useReducedMotion();
+  const titleId = useId();
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-8"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.2 }}
+    >
+      <button
+        type="button"
+        aria-label="Close sign in"
+        onClick={onClose}
+        className="absolute inset-0 bg-[#181713]/45 backdrop-blur-[3px]"
+      />
+
+      <motion.section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        initial={reduceMotion ? false : { opacity: 0, scale: 0.97, y: 14 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 14 }}
+        transition={{ duration: reduceMotion ? 0 : 0.24, ease }}
+        className="relative w-full max-w-md bg-[#FFFCF7] p-6 shadow-[0_30px_90px_rgba(60,43,35,0.22)] ring-1 ring-[#181713]/10 sm:p-8"
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute right-5 top-5 flex h-8 w-8 items-center justify-center rounded-full text-[#777168] transition hover:bg-[#181713]/5 hover:text-[#181713]"
+        >
+          &#10005;
+        </button>
+
+        <Link href="/" onClick={onClose} className="text-sm font-semibold">Discero</Link>
+
+        <div className="mt-6 grid grid-cols-2 border border-[#181713]/10 p-1">
+          {(["login", "register"] as Mode[]).map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => onModeChange(item)}
+              className={`px-4 py-2.5 text-sm font-semibold transition ${mode === item ? "bg-[var(--brand)] text-white" : "text-[#777168] hover:text-[#181713]"}`}
+            >
+              {item === "login" ? "Sign in" : "Create account"}
+            </button>
+          ))}
+        </div>
+
+        <h2 id={titleId} className="mt-5 text-2xl font-semibold tracking-[-0.02em]">
+          {mode === "login" ? "Welcome back" : "Try Discero"}
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-[#777168]">
+          {mode === "login" ? "Sign in to continue your decision analysis." : "Create an account to evaluate financial decisions."}
+        </p>
+
+        <form onSubmit={onSubmit} className="mt-5 space-y-3">
+          <AuthInput label="Email address" type="email" autoComplete="email" value={email} placeholder="you@example.com" onChange={onEmailChange} />
+          <AuthInput
+            label="Password"
+            type="password"
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            value={password}
+            placeholder="Minimum 8 characters"
+            onChange={onPasswordChange}
+          />
+          <div className="flex min-h-[4.5rem] items-center justify-end">
+            {mode === "register" ? (
+              <div className="w-full">
+                <AuthInput label="Confirm password" type="password" autoComplete="new-password" value={confirmPassword} placeholder="Repeat your password" onChange={onConfirmPasswordChange} />
+              </div>
+            ) : (
+              <Link href="/forgot-password" onClick={onClose} className="text-sm font-semibold text-[#6E4B63]">Forgot password?</Link>
+            )}
+          </div>
+          {error && <div role="alert" className="border border-[#B75C50]/25 bg-[#F6E5E0] px-4 py-3 text-sm text-[#96493F]">{error}</div>}
+          <button type="submit" disabled={loading} className="discero-button-primary w-full rounded-full px-5 py-3.5 text-sm font-semibold transition disabled:cursor-not-allowed">
+            {loading ? "Please wait..." : mode === "login" ? "Sign in to Discero" : "Create my account"}
+          </button>
+        </form>
+      </motion.section>
+    </motion.div>
+  );
+}
+
 function AuthInput({ label, onChange, ...props }: { label: string; type: string; autoComplete: string; value: string; placeholder: string; onChange: (value: string) => void }) {
-  return <label className="block"><span className="text-xs font-medium text-[#706961]">{label}</span><input {...props} onChange={(event) => onChange(event.target.value)} className="mt-2 w-full border border-[#181713]/10 bg-[#F8F4EE] px-4 py-3 text-sm outline-none transition placeholder:text-[#A49D95] focus:border-[#6E4B63] focus:ring-2 focus:ring-[#6E4B63]/15" /></label>;
+  return (
+    <label className="block">
+      <span className="text-xs font-medium text-[#706961]">{label}</span>
+      <input
+        {...props}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 w-full border border-[#181713]/10 bg-[#F8F4EE] px-4 py-3 text-sm outline-none transition placeholder:text-[#A49D95] focus:border-[#6E4B63] focus:ring-2 focus:ring-[#6E4B63]/15"
+      />
+    </label>
+  );
 }
 
 function AnimatedValue({ value, format, delay = 0, duration = 0.82, once = true }: { value: number; format: (value: number) => string; delay?: number; duration?: number; once?: boolean }) {
@@ -540,31 +953,41 @@ function AnimatedValue({ value, format, delay = 0, duration = 0.82, once = true 
 
 function Scene({ children, className = "" }: { children: ReactNode; className?: string }) {
   const reduceMotion = useReducedMotion();
-  return <motion.div initial={reduceMotion ? false : { opacity: 0, y: 64, scale: 0.985 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, amount: 0.13 }} transition={{ duration: reduceMotion ? 0 : 0.72, ease }} className={className}>{children}</motion.div>;
+  return (
+    <motion.div
+      initial={reduceMotion ? false : { opacity: 0, y: 64, scale: 0.985 }}
+      whileInView={{ opacity: 1, y: 0, scale: 1 }}
+      viewport={{ once: true, amount: 0.13 }}
+      transition={{ duration: reduceMotion ? 0 : 0.72, ease }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
 }
 
 function Stagger({ children, className = "" }: { children: ReactNode; className?: string }) {
   const reduceMotion = useReducedMotion();
-  return <motion.div initial={reduceMotion ? false : "hidden"} whileInView="visible" viewport={{ once: true, amount: 0.2 }} variants={{ hidden: {}, visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.12 } } }} className={className}>{children}</motion.div>;
-}
-
-function TrustRow({ number, title, detail }: { number: string; title: string; detail: string }) {
-  const reduceMotion = useReducedMotion();
-  return <motion.div variants={{ hidden: { opacity: 0, x: 38 }, visible: { opacity: 1, x: 0, transition: { duration: reduceMotion ? 0 : 0.52, ease } } }} className="grid gap-3 py-7 sm:grid-cols-[48px_160px_1fr]"><span className="text-xs font-semibold text-[#B86D4B] tabular-nums">{number}</span><h3 className="font-semibold">{title}</h3><p className="text-sm leading-6 text-[#777168]">{detail}</p></motion.div>;
+  return (
+    <motion.div
+      initial={reduceMotion ? false : "hidden"}
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.2 }}
+      variants={{ hidden: {}, visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.12 } } }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
 }
 
 function HeroItem({ children }: { children: ReactNode }) {
   const reduceMotion = useReducedMotion();
-  return <motion.div variants={{ hidden: { opacity: 0, y: 34, filter: "blur(7px)" }, visible: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: reduceMotion ? 0 : 0.55, ease } } }}>{children}</motion.div>;
-}
-
-function CompareColumn({ label, value, detail, muted = false }: { label: string; value: number; detail: string; muted?: boolean }) {
-  return <div className={`py-8 ${muted ? "border-r border-[#181713]/15 pr-5" : "pl-5"}`}><p className="text-xs font-medium text-[#777168]">{label}</p><p className={`mt-5 text-3xl font-semibold tracking-[-0.035em] tabular-nums sm:text-5xl ${muted ? "text-[#777168]" : "text-[#6E4B63]"}`}><AnimatedValue value={value} format={money} /></p><p className="mt-3 text-sm text-[#8A8178]">{detail}</p></div>;
-}
-
-function ProgressLine() {
-  const reduceMotion = useReducedMotion();
-  return <motion.div initial={reduceMotion ? false : { scaleX: 0 }} whileInView={{ scaleX: 1 }} viewport={{ once: true }} transition={{ duration: reduceMotion ? 0 : 0.9, ease }} className="h-full w-[68%] origin-left bg-[#58715A]" />;
+  return (
+    <motion.div variants={{ hidden: { opacity: 0, y: 34, filter: "blur(7px)" }, visible: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: reduceMotion ? 0 : 0.55, ease } } }}>
+      {children}
+    </motion.div>
+  );
 }
 
 function money(value: number) {

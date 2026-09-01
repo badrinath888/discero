@@ -205,10 +205,12 @@ export default function Dashboard() {
       <AppSidebar />
       <div className="px-5 pb-16 pt-20 sm:px-8 lg:ml-60 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto w-full max-w-[1500px]">
-          <header className="flex items-end justify-between gap-5">
+          <header className="flex items-end justify-between gap-5 border-b border-[#181713]/10 pb-5">
             <div>
-              <h1 className="text-3xl font-semibold tracking-[-0.045em] text-[#181713] sm:text-4xl">Overview</h1>
-              <p className="mt-2 text-sm text-[#706961]">{formatMonth(budgetMonth)}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">Financial position</p>
+              <h1 className="mt-1 text-[32px] font-semibold tracking-[-0.03em] text-[#181713]">Overview</h1>
+              <p className="mt-1 text-sm text-[#706961]">Your money, distilled into what matters now.</p>
+              <p className="mt-1 text-xs text-[#8A8178]">{formatMonth(budgetMonth)}</p>
             </div>
             <label className="focus-ring inline-flex cursor-pointer items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-[#706961] transition hover:bg-white hover:text-[#6E4B63]">
               <Upload className="h-4 w-4" />

@@ -454,6 +454,56 @@ def test_missing_purchase_amount_asks_clarification() -> None:
         assert result.provenance == "deterministic"
 
 
+def test_purchase_fits_suggestion_chip_asks_clarification() -> None:
+    """The "Check if a purchase fits" suggestion chip has no amount or
+    item yet -- it must get a deterministic clarifying question, not
+    the generic out-of-scope fallback (previously misrouted because
+    the intent regex required a verb like "afford"/"buy")."""
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Check if a purchase fits"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "clarifying_question"
+        assert result.provenance == "deterministic"
+        assert result.clarifying_question == (
+            "What amount are you considering?"
+        )
+        # No fabricated financial result anywhere in the clarification.
+        assert "$" not in (result.clarifying_question or "")
+
+
+def test_purchase_fits_with_amount_still_routes_deterministically() -> (
+    None
+):
+    """Once an amount is present, the same intent still runs through
+    the real deterministic purchase tool -- this fix must not change
+    that path."""
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=5_000_000)
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _messages("Check if a $1,500 purchase fits my budget"),
+            _free_client(),
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Major Purchase Simulator"
+        assert "$1,500.00" in (result.answer or "")
+
+
 def test_malformed_amount_asks_clarification_instead_of_crashing() -> (
     None
 ):

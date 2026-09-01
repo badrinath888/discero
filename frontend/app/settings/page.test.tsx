@@ -91,6 +91,8 @@ describe("settings stale toast handling", () => {
     render(<SettingsPage />);
     await screen.findByText("user@example.com");
 
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+
     const passwordForm = screen
       .getByRole("button", { name: "Update password" })
       .closest("form") as HTMLFormElement;
@@ -116,6 +118,8 @@ describe("settings stale toast handling", () => {
     // Submitting the email form unchanged (but with its own required
     // password field filled) trips its own validation error, without
     // touching the password form above.
+    fireEvent.click(screen.getByRole("button", { name: "Change email" }));
+
     const emailForm = screen
       .getByRole("button", { name: "Update email" })
       .closest("form") as HTMLFormElement;

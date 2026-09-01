@@ -724,7 +724,7 @@ function ReviewQueueSection({
                     type="button"
                     disabled={busyId === item.decision_id}
                     onClick={() => onMarkActedOn(item.decision_id)}
-                    className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-[#181713] px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-[#2F2930] disabled:opacity-50"
+                    className="discero-button-primary inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition"
                   >
                     I made this decision
                   </button>
@@ -1645,7 +1645,7 @@ export default function DecisionHistoryPage() {
                           portfolioLoading
                         }
                         onClick={handleAnalyzeTogether}
-                        className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-[#181713] px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-[#2F2930] disabled:opacity-40"
+                        className="discero-button-primary inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold transition"
                       >
                         {portfolioLoading ? "Analyzing…" : "Analyze together"}
                       </button>
@@ -1997,7 +1997,7 @@ export default function DecisionHistoryPage() {
                                 onClick={() =>
                                   handleUpdateStatus(decision.id, "acted_on")
                                 }
-                                className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-[#181713] px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-[#2F2930] disabled:opacity-50"
+                                className="discero-button-primary inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition"
                               >
                                 <CheckCircle2 className="h-3.5 w-3.5" />
                                 I made this decision

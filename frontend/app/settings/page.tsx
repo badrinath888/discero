@@ -2,14 +2,13 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
+  ChevronDown,
   Eye,
   EyeOff,
   FileDown,
   KeyRound,
   LogOut,
-  Mail,
   ShieldCheck,
-  UserRound,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import AppSidebar from "../components/AppSidebar";
@@ -43,6 +42,8 @@ export default function SettingsPage() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [emailFormOpen, setEmailFormOpen] = useState(false);
+  const [passwordFormOpen, setPasswordFormOpen] = useState(false);
 
   const loadProfile = useCallback(async () => {
     const id = session.getUserId();
@@ -272,14 +273,18 @@ export default function SettingsPage() {
 
       <div className="px-5 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <div className="mx-auto w-full max-w-[1500px]">
-        <header className="border-b border-[#181713]/10 pb-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
-            Settings
+        <header className="border-b border-[#181713]/10 pb-5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
+            Account control
           </p>
 
-          <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-            Manage your Discero account.
+          <h1 className="mt-1 text-[32px] font-semibold tracking-[-0.03em]">
+            Settings
           </h1>
+
+          <p className="mt-1 text-sm text-[#706961]">
+            Identity, security, and connected data.
+          </p>
         </header>
 
         {loading ? (
@@ -287,191 +292,177 @@ export default function SettingsPage() {
             <PageLoading message="Loading account settings..." />
           </div>
         ) : user ? (
-          <div className="mt-8 space-y-7">
-            <section className="border-y border-[#181713]/10 bg-[#FFFCF7] p-6 sm:p-7">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
-                    Profile
-                  </p>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
-                    Account overview
-                  </h2>
-                </div>
+          <div className="mt-8 space-y-5">
+            <div className="grid gap-5 lg:grid-cols-2">
+              <section className="rounded-2xl border border-[#181713]/10 bg-[#FFFCF7] p-5 sm:p-6">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
+                  Profile
+                </p>
 
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EDE7E1] text-[#6E4B63]">
-                  <UserRound className="h-5 w-5" />
-                </span>
-              </div>
-
-              <div className="mt-7 grid gap-4 sm:grid-cols-2">
-                <StatCard
-                  label="Email"
-                  value={user.email}
-                  className="sm:col-span-2"
-                />
-                <StatCard label="User ID" value={String(user.id)} />
-                <StatCard
-                  label="Connected accounts"
-                  value={
-                    stats ? String(stats.connectedAccounts) : "Unavailable"
-                  }
-                />
-                <StatCard
-                  label="Transactions"
-                  value={
-                    stats ? stats.transactions.toLocaleString() : "Unavailable"
-                  }
-                />
-              </div>
-
-              <div className="mt-6 border-t border-[#181713]/10 pt-5">
-                <div className="flex items-start gap-3">
-                  <ShieldCheck className="mt-0.5 h-5 w-5 text-[#58715A]" />
-
-                  <div>
-                    <p className="text-sm font-semibold">
-                      Protected account
-                    </p>
-                    <p className="mt-1 text-sm leading-6 text-[#706961]">
-                      Your password is securely hashed and your authenticated
-                      requests use protected access tokens.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="border-y border-[#181713]/10 bg-[#FFFCF7] p-6 sm:p-7">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
-                    Security
-                  </p>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
-                    Change password
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-[#706961]">
-                    Use at least eight characters and choose a password you
-                    have not used for this account.
-                  </p>
-                </div>
-
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f7e8b5] text-[#8b6518]">
-                  <KeyRound className="h-5 w-5" />
-                </span>
-              </div>
-
-              <form onSubmit={changePassword} className="mt-7 max-w-2xl space-y-4">
-                <PasswordField
-                  label="Current password"
-                  value={currentPassword}
-                  onChange={setCurrentPassword}
-                  autoComplete="current-password"
-                />
-
-                <PasswordField
-                  label="New password"
-                  value={newPassword}
-                  onChange={setNewPassword}
-                  autoComplete="new-password"
-                />
-
-                <PasswordField
-                  label="Confirm new password"
-                  value={confirmPassword}
-                  onChange={setConfirmPassword}
-                  autoComplete="new-password"
-                />
-
-                <button
-                  type="submit"
-                  disabled={savingPassword}
-                  className="discero-button-primary min-h-11 w-full rounded-xl px-5 text-sm font-semibold transition disabled:cursor-not-allowed"
-                >
-                  {savingPassword
-                    ? "Updating password..."
-                    : "Update password"}
-                </button>
-              </form>
-            </section>
-
-            <section className="border-y border-[#181713]/10 bg-[#FFFCF7] p-6 sm:p-7">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
-                    Contact
-                  </p>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em]">
-                    Change email address
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-[#706961]">
-                    Your new email will be used the next time you sign in.
-                    Confirm this change using your current password.
-                  </p>
-                </div>
-
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EDE7E1] text-[#6E4B63]">
-                  <Mail className="h-5 w-5" />
-                </span>
-              </div>
-
-              <form
-                onSubmit={changeEmail}
-                className="mt-7 grid gap-4 lg:grid-cols-[1fr_1fr_auto] lg:items-end"
-              >
-                <label className="block">
-                    <span className="text-sm font-semibold text-[#2F2930]">
-                    New email
+                <div className="mt-3 flex items-center gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#6E4B63]/12 text-sm font-semibold text-[#6E4B63]">
+                    {emailInitials(user.email)}
                   </span>
 
-                  <input
-                    type="email"
-                    value={newEmail}
-                    onChange={(event) => setNewEmail(event.target.value)}
-                    autoComplete="email"
-                    required
-                    className="mt-2 h-11 w-full rounded-xl border border-[#181713]/12 bg-[#F8F4EE] px-4 text-sm outline-none transition focus:border-[#6E4B63]/50 focus:ring-4 focus:ring-[#6E4B63]/10"
-                  />
-                </label>
-
-                <PasswordField
-                  label="Current password"
-                  value={emailPassword}
-                  onChange={setEmailPassword}
-                  autoComplete="current-password"
-                />
-
-                <button
-                  type="submit"
-                  disabled={savingEmail}
-                  className="discero-button-primary min-h-11 rounded-xl px-6 text-sm font-semibold transition disabled:cursor-not-allowed"
-                >
-                  {savingEmail ? "Updating..." : "Update email"}
-                </button>
-              </form>
-            </section>
-
-            <section className="border-y border-[#181713]/10 bg-[#FFFCF7] p-6 sm:p-7">
-              <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
-                    Your data
-                  </p>
-                  <h2 className="mt-2 text-xl font-semibold">
-                    Export transactions
-                  </h2>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-[#706961]">
-                    Download all of your Discero transactions as a CSV file
-                    for spreadsheets, reporting, or personal backup.
-                  </p>
+                  <div className="min-w-0">
+                    <p className="truncate text-base font-semibold">{user.email}</p>
+                    <span className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-[#58715A]">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      Protected
+                    </span>
+                  </div>
                 </div>
 
                 <button
                   type="button"
+                  onClick={() => setEmailFormOpen((value) => !value)}
+                  aria-expanded={emailFormOpen}
+                  className="focus-ring mt-5 inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-[#6E4B63] transition hover:bg-[#F0E9EE]"
+                >
+                  Change email
+                  <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${emailFormOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {emailFormOpen && (
+                  <form onSubmit={changeEmail} className="mt-4 space-y-4">
+                    <label className="block">
+                      <span className="text-sm font-semibold text-[#2F2930]">
+                        New email
+                      </span>
+
+                      <input
+                        type="email"
+                        value={newEmail}
+                        onChange={(event) => setNewEmail(event.target.value)}
+                        autoComplete="email"
+                        required
+                        className="mt-2 h-11 w-full rounded-xl border border-[#181713]/12 bg-[#F8F4EE] px-4 text-sm outline-none transition focus:border-[#6E4B63]/50 focus:ring-4 focus:ring-[#6E4B63]/10"
+                      />
+                    </label>
+
+                    <PasswordField
+                      label="Current password"
+                      value={emailPassword}
+                      onChange={setEmailPassword}
+                      autoComplete="current-password"
+                    />
+
+                    <button
+                      type="submit"
+                      disabled={savingEmail}
+                      className="discero-button-primary min-h-11 w-full rounded-xl px-5 text-sm font-semibold transition disabled:cursor-not-allowed"
+                    >
+                      {savingEmail ? "Updating..." : "Update email"}
+                    </button>
+                  </form>
+                )}
+              </section>
+
+              <section className="rounded-2xl border border-[#181713]/10 bg-[#FFFCF7] p-5 sm:p-6">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f7e8b5] text-[#8b6518]">
+                    <KeyRound className="h-5 w-5" />
+                  </span>
+
+                  <div>
+                    <p className="text-base font-semibold">Security</p>
+                    <p className="mt-1 text-xs text-[#706961]">
+                      Password &amp; account access
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setPasswordFormOpen((value) => !value)}
+                  aria-expanded={passwordFormOpen}
+                  className="focus-ring mt-5 inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-[#6E4B63] transition hover:bg-[#F0E9EE]"
+                >
+                  Change password
+                  <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${passwordFormOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {passwordFormOpen && (
+                  <form onSubmit={changePassword} className="mt-4 space-y-4">
+                    <PasswordField
+                      label="Current password"
+                      value={currentPassword}
+                      onChange={setCurrentPassword}
+                      autoComplete="current-password"
+                    />
+
+                    <PasswordField
+                      label="New password"
+                      value={newPassword}
+                      onChange={setNewPassword}
+                      autoComplete="new-password"
+                    />
+
+                    <PasswordField
+                      label="Confirm new password"
+                      value={confirmPassword}
+                      onChange={setConfirmPassword}
+                      autoComplete="new-password"
+                    />
+
+                    <button
+                      type="submit"
+                      disabled={savingPassword}
+                      className="discero-button-primary min-h-11 w-full rounded-xl px-5 text-sm font-semibold transition disabled:cursor-not-allowed"
+                    >
+                      {savingPassword
+                        ? "Updating password..."
+                        : "Update password"}
+                    </button>
+                  </form>
+                )}
+              </section>
+            </div>
+
+            <section className="rounded-2xl border border-[#181713]/10 bg-[#FFFCF7] p-5 sm:p-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E4B63]">
+                Financial data
+              </p>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <StatCard
+                    label="Connected accounts"
+                    value={
+                      stats ? String(stats.connectedAccounts) : "Unavailable"
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() => router.push("/accounts")}
+                    className="focus-ring mt-2 inline-flex items-center gap-1 rounded text-sm font-semibold text-[#6E4B63] transition hover:text-[#583B50]"
+                  >
+                    Manage accounts <span aria-hidden="true">&rarr;</span>
+                  </button>
+                </div>
+                <div>
+                  <StatCard
+                    label="Transactions"
+                    value={
+                      stats ? stats.transactions.toLocaleString() : "Unavailable"
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() => router.push("/transactions")}
+                    className="focus-ring mt-2 inline-flex items-center gap-1 rounded text-sm font-semibold text-[#6E4B63] transition hover:text-[#583B50]"
+                  >
+                    View transactions <span aria-hidden="true">&rarr;</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-5 border-t border-[#181713]/8 pt-4">
+                <button
+                  type="button"
                   onClick={exportTransactions}
                   disabled={exporting}
-                  className="discero-button-tertiary inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50"
+                  className="discero-button-tertiary inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <FileDown className="h-4 w-4" />
                   {exporting ? "Preparing..." : "Download CSV"}
@@ -479,7 +470,17 @@ export default function SettingsPage() {
               </div>
             </section>
 
-            <section className="border-y border-[#A25543]/20 bg-[#FFFCF7] p-6 sm:p-7">
+            <section className="border-t border-[#181713]/10 px-1 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">
+                Account details
+              </p>
+              <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#8A8178]">
+                <span>User ID</span>
+                <span className="tabular-nums text-[#181713]">{user.id}</span>
+              </div>
+            </section>
+
+            <section className="border-y border-[#A25543]/20 bg-[#FFFCF7] p-5 sm:p-6">
               <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#a64b3d]">
@@ -576,6 +577,17 @@ function PasswordField({
       </div>
     </label>
   );
+}
+
+function emailInitials(email: string): string {
+  const local = email.split("@")[0] ?? "";
+  const parts = local.split(/[._-]+/).filter(Boolean);
+
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+
+  return local.slice(0, 2).toUpperCase() || "?";
 }
 
 function StatCard({

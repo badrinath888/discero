@@ -1,6 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, formatCents, SafeToSpendResult } from "../lib/api";
 import { AnimatedNumber } from "./PremiumMotion";
@@ -131,20 +132,20 @@ export default function SafeToSpendCard({
             type="button"
             onClick={() => setWhyExpanded((value) => !value)}
             aria-expanded={whyExpanded}
-            className="focus-ring flex w-fit items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-[#6E4B63] transition hover:bg-[#F0E9EE]"
+            className="focus-ring inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-[#6E4B63] transition hover:bg-[#F0E9EE]"
           >
             Why this amount?
-            <span aria-hidden="true" className={`transition-transform ${whyExpanded ? "rotate-180" : ""}`}>⌄</span>
+            <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${whyExpanded ? "rotate-180" : ""}`} />
           </button>
 
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
             aria-expanded={expanded}
-            className="focus-ring flex w-fit items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-[#6E4B63] transition hover:bg-[#F0E9EE]"
+            className="focus-ring inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-[#6E4B63] transition hover:bg-[#F0E9EE]"
           >
             Adjust assumptions
-            <span aria-hidden="true" className={`transition-transform ${expanded ? "rotate-180" : ""}`}>⌄</span>
+            <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
           </button>
         </div>
       </div>

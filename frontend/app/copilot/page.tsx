@@ -277,18 +277,18 @@ export default function CopilotPage() {
       <div className="flex min-h-screen flex-col px-4 pb-6 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto flex w-full max-w-[880px] flex-1 flex-col">
           <Reveal>
-            <header className="border-b border-[#181713]/10 pb-7">
-              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
+            <header className="border-b border-[#181713]/10 pb-5">
+              <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
                 <MessageCircle className="h-3.5 w-3.5" />
-                Ask Discero
+                Financial intelligence
               </p>
 
-              <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                Ask a financial question.
+              <h1 className="mt-1 text-[32px] font-semibold tracking-[-0.03em]">
+                Ask Discero
               </h1>
 
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#706961]">
-                See what it means for your cash, goals, obligations, and resilience.
+              <p className="mt-1 text-sm text-[#706961]">
+                Questions in. Grounded answers out.
               </p>
             </header>
           </Reveal>

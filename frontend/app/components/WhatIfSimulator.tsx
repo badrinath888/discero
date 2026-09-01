@@ -103,7 +103,7 @@ export default function WhatIfSimulator({
           onClick={() => setMode("single")}
           className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
             mode === "single"
-              ? "bg-[#181713] text-white"
+              ? "discero-segment-selected"
               : "text-[#6d655c] hover:text-[#181713]"
           }`}
         >
@@ -114,7 +114,7 @@ export default function WhatIfSimulator({
           onClick={() => setMode("compare")}
           className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
             mode === "compare"
-              ? "bg-[#181713] text-white"
+              ? "discero-segment-selected"
               : "text-[#6d655c] hover:text-[#181713]"
           }`}
         >

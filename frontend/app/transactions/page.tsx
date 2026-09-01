@@ -1013,15 +1013,19 @@ export default function TransactionsPage() {
       <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto max-w-[1500px]">
           <Reveal>
-          <header className="flex flex-col gap-5 border-b border-[#181713]/10 pb-6 lg:flex-row lg:items-end lg:justify-between">
+          <header className="flex flex-col gap-5 border-b border-[#181713]/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
-                Transactions
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
+                Money movement
               </p>
 
-              <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                What happened to my money?
+              <h1 className="mt-1 text-[32px] font-semibold tracking-[-0.03em]">
+                Transactions
               </h1>
+
+              <p className="mt-1 text-sm text-[#706961]">
+                Every movement, in context.
+              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -1185,7 +1189,7 @@ export default function TransactionsPage() {
                       aria-pressed={density === "compact"}
                       className={`h-full rounded-lg px-3 text-xs font-semibold transition ${
                         density === "compact"
-                          ? "bg-[#181713] text-white"
+                          ? "discero-segment-selected"
                           : "text-[#706961]"
                       }`}
                     >
@@ -1198,7 +1202,7 @@ export default function TransactionsPage() {
                       aria-pressed={density === "comfortable"}
                       className={`h-full rounded-lg px-3 text-xs font-semibold transition ${
                         density === "comfortable"
-                          ? "bg-[#181713] text-white"
+                          ? "discero-segment-selected"
                           : "text-[#706961]"
                       }`}
                     >

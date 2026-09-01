@@ -580,16 +580,16 @@ useEffect(() => {
       <div className="px-4 pb-14 pt-20 sm:px-8 lg:ml-56 lg:px-10 lg:pt-9">
         <PageReveal className="mx-auto max-w-[1500px]">
           <Reveal>
-            <header className="flex flex-col gap-6 border-b border-[#181713]/10 pb-7 lg:flex-row lg:items-end lg:justify-between">
+            <header className="flex flex-col gap-6 border-b border-[#181713]/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6E4B63]">
-                  Financial milestones
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6E4B63]">
+                  Future money
                 </p>
-                <h1 className="mt-2 text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">
-                  Can you reach what you&apos;re planning for?
+                <h1 className="mt-1 text-[32px] font-semibold tracking-[-0.03em]">
+                  Savings goals
                 </h1>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#706961]">
-                  Progress, feasibility, and the funding pressure behind each goal.
+                <p className="mt-1 text-sm text-[#706961]">
+                  Progress toward what matters next.
                 </p>
               </div>
 
@@ -964,10 +964,12 @@ function GoalConflictPanel({
                 <SummaryCard
                   label="Capacity"
                   value={formatCents(analysis.total_capacity_cents)}
+                  tone="positive"
                 />
                 <SummaryCard
                   label="Required"
                   value={formatCents(analysis.total_required_cents)}
+                  tone="neutral"
                 />
                 <SummaryCard
                   label={
@@ -980,6 +982,7 @@ function GoalConflictPanel({
                       ? analysis.total_shortfall_cents
                       : analysis.monthly_headroom_cents
                   )}
+                  tone={analysis.total_shortfall_cents > 0 ? "warning" : "positive-strong"}
                 />
               </div>
 
@@ -1460,7 +1463,7 @@ function FundManager({
                 }
                 className={`rounded-xl px-3 py-2.5 text-sm font-semibold capitalize ${
                   form.contributionType === type
-                    ? "bg-[#181713] text-white"
+                    ? "discero-segment-selected"
                     : "text-[#706961]"
                 }`}
               >
@@ -1656,16 +1659,32 @@ function ContributionRow({
 function SummaryCard({
   label,
   value,
+  tone = "neutral",
 }: {
   label: string;
   value: string;
+  tone?: "positive" | "positive-strong" | "neutral" | "warning";
 }) {
+  const surfaceClasses =
+    tone === "positive-strong"
+      ? "border border-[#58715A]/30 bg-[#58715A]/[0.12]"
+      : tone === "positive"
+        ? "border border-[#58715A]/25 bg-[#58715A]/[0.08]"
+        : tone === "warning"
+          ? "border border-[#B86D4B]/30 bg-[#B86D4B]/[0.08]"
+          : "border border-[#181713]/10 bg-[#FFFCF7]";
+  const labelClasses =
+    tone === "positive" || tone === "positive-strong"
+      ? "text-[#58715A]/70"
+      : tone === "warning"
+        ? "text-[#B86D4B]/80"
+        : "text-[#777168]";
   return (
-    <div className="rounded-2xl bg-[#181713] p-4 text-white">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/45">
+    <div className={`rounded-2xl p-4 ${surfaceClasses}`}>
+      <p className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${labelClasses}`}>
         {label}
       </p>
-      <p className="mt-2 text-lg font-semibold">{value}</p>
+      <p className={`mt-2 text-lg text-[#181713] ${tone === "positive-strong" ? "font-bold" : "font-semibold"}`}>{value}</p>
     </div>
   );
 }

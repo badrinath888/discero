@@ -185,19 +185,30 @@ beforeEach(() => {
 
 describe("Dashboard redesign", () => {
   it("renders the light executive hierarchy with a single financial strip", async () => {
-    render(<Dashboard />);
+    // Dashboard derives its displayed month from the real system clock
+    // (getCurrentMonth() -> new Date()), not from any mocked API
+    // response, so this test must pin the clock itself rather than
+    // hardcode a month that will drift out of date every CI run.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 7, 3));
 
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
-    expect(screen.getByText("August 2026")).toBeInTheDocument();
-    expect(screen.getByText("Safe to spend")).toBeInTheDocument();
+    try {
+      render(<Dashboard />);
 
-    const strip = await screen.findByLabelText("Executive financial summary");
-    expect(within(strip).getByText("Liquid cash")).toBeInTheDocument();
-    expect(within(strip).getByText("Cash outlook")).toBeInTheDocument();
-    expect(within(strip).getByText("Runway")).toBeInTheDocument();
-    expect(within(strip).getByText("Needs attention")).toBeInTheDocument();
-    expect(screen.getByText("Cash trajectory")).toBeInTheDocument();
-    expect(screen.getByText("50%")).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+      expect(screen.getByText("August 2026")).toBeInTheDocument();
+      expect(screen.getByText("Safe to spend")).toBeInTheDocument();
+
+      const strip = await screen.findByLabelText("Executive financial summary");
+      expect(within(strip).getByText("Liquid cash")).toBeInTheDocument();
+      expect(within(strip).getByText("Cash outlook")).toBeInTheDocument();
+      expect(within(strip).getByText("Runway")).toBeInTheDocument();
+      expect(within(strip).getByText("Needs attention")).toBeInTheDocument();
+      expect(screen.getByText("Cash trajectory")).toBeInTheDocument();
+      expect(screen.getByText("50%")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows compact actionable recommendations and follows their existing deep links", async () => {

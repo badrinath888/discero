@@ -1966,6 +1966,14 @@ function TransactionDrawer({
 
   const reduceMotion = useReducedMotion();
 
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   return (
     <motion.div
       className="fixed inset-0 z-50"
@@ -2167,6 +2175,14 @@ function TransactionFormModal({
   onSubmit: () => void;
 }) {
   const reduceMotion = useReducedMotion();
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !busy) onCancel();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [busy, onCancel]);
 
   return (
     <motion.div

@@ -3,7 +3,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, session } from "../lib/api";
 
 type IconName =
@@ -60,6 +60,15 @@ export default function AppSidebar() {
   function closeMobileMenu() {
     setMobileOpen(false);
   }
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setMobileOpen(false);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [mobileOpen]);
 
   function signOut() {
     // Fire-and-forget: revokes the server-side session, but a slow or

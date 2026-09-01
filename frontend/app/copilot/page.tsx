@@ -585,7 +585,7 @@ function MetricChip({ metric }: { metric: CopilotMetric }) {
       <p className="text-[10px] font-semibold uppercase tracking-[0.1em] opacity-70">
         {metric.label}
       </p>
-      <p className="mt-0.5 text-base font-semibold tracking-[-0.02em]">
+      <p className="mt-0.5 text-lg font-semibold tracking-[-0.02em] tabular-nums">
         {metric.value_display}
       </p>
     </div>

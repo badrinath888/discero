@@ -489,9 +489,9 @@ export default function RecurringPage() {
                           <div key={item.id} className="flex min-w-0 items-baseline justify-between gap-3 sm:border-l sm:border-[#181713]/10 sm:pl-4 first:border-l-0 first:pl-0">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold">{item.merchant}</p>
-                              <p className="mt-1 text-xs text-[#8A8178]">{dueLabel(days)}</p>
+                              <p className="mt-1 text-sm font-medium text-[#706961]">{dueLabel(days)}</p>
                             </div>
-                            <p className="shrink-0 text-sm font-semibold text-[#A25543]">
+                            <p className="shrink-0 text-base font-semibold tabular-nums text-[#A25543]">
                               {formatCents(-item.amount_cents)}
                             </p>
                           </div>
@@ -764,7 +764,7 @@ function RecurringItemRow({
       </div>
 
       <p className="text-sm font-medium">{item.frequency}</p>
-      <p className="text-sm font-semibold text-[#a64b3d]">
+      <p className="text-base font-semibold tabular-nums text-[#a64b3d]">
         {formatCents(-item.amount_cents)}
       </p>
 

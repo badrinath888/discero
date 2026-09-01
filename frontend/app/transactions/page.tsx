@@ -1729,7 +1729,7 @@ function TransactionGroup({
         </p>
 
         <p
-          className={`text-xs font-semibold ${
+          className={`text-sm font-semibold tabular-nums ${
             dailyTotal >= 0 ? "text-[#58715A]" : "text-[#A25543]"
           }`}
         >

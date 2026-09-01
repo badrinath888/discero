@@ -466,7 +466,7 @@ function InsightRow({
       transition={{ duration: reduceMotion ? 0 : 0.32, delay: reduceMotion ? 0 : (rank - 1) * 0.06 }}
       className="grid w-full gap-4 px-5 py-4 text-left xl:grid-cols-[54px_minmax(260px,1.5fr)_150px_150px_40px] xl:items-center"
     >
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f1eee7] text-xs font-bold text-[#66746e]">
+      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f1eee7] text-base font-semibold text-[#52635b]">
         {String(rank).padStart(2, "0")}
       </span>
 
@@ -591,6 +591,7 @@ function InsightDrawer({
               <DrawerDetail
                 label="Amount"
                 value={formatCents(insight.amount_cents)}
+                strong
               />
             )}
             {insight.percentage !== null && (
@@ -623,16 +624,26 @@ function InsightDrawer({
 function DrawerDetail({
   label,
   value,
+  strong = false,
 }: {
   label: string;
   value: string;
+  strong?: boolean;
 }) {
   return (
     <div className="grid gap-1 py-4 sm:grid-cols-[120px_1fr]">
       <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-[#87928d]">
         {label}
       </dt>
-      <dd className="text-sm font-medium sm:text-right">{value}</dd>
+      <dd
+        className={
+          strong
+            ? "text-lg font-semibold tabular-nums text-[#181713] sm:text-right"
+            : "text-sm font-medium sm:text-right"
+        }
+      >
+        {value}
+      </dd>
     </div>
   );
 }

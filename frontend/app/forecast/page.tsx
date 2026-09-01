@@ -818,7 +818,7 @@ function HorizonOutlookCard({
       >
         {formatCents(horizon.projected_balance_cents)}
       </p>
-      <p className="mt-1 text-xs text-[#8A8178]">
+      <p className={shortfall ? "mt-1 text-sm font-semibold text-[#923f32]" : "mt-1 text-xs text-[#8A8178]"}>
         {shortfall
           ? `${formatCents(horizon.shortfall_cents)} projected shortfall`
           : "Projected balance"}
@@ -961,7 +961,7 @@ function ResilienceSection({
               </div>
 
               {overrideActive && (
-                <p className="mt-3 text-xs font-medium text-[#6E4B63]">
+                <p className="mt-3 text-sm font-semibold text-[#6E4B63]">
                   Showing your scenario at{" "}
                   {formatCents(resilience.monthly_essential_cents)}/month.
                 </p>
@@ -1143,7 +1143,7 @@ function CoverageHorizonRow({
           style={{ width: `${Math.min(horizon.coverage_percent, 100)}%` }}
         />
       </div>
-      <p className="mt-2 text-xs text-[#8A8178]">
+      <p className={shortfall ? "mt-2 text-sm font-semibold text-[#923f32]" : "mt-2 text-sm font-medium text-[#706961]"}>
         {shortfall
           ? `${formatCents(horizon.shortfall_cents)} shortfall against ${spendingPhrase}`
           : `${formatCents(horizon.remaining_liquid_cents)} remaining after ${spendingPhrase}`}

@@ -770,6 +770,7 @@ function AccountRow({
       <button
         type="button"
         onClick={onToggle}
+        aria-expanded={expanded}
         className="grid w-full gap-4 px-5 py-4 text-left transition hover:bg-[#fbfaf6] md:grid-cols-[52px_minmax(220px,1.4fr)_minmax(160px,1fr)_150px_36px] md:items-center"
       >
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EDE7E1] text-[#6E4B63]">
@@ -961,6 +962,14 @@ function AccountDrawer({
 }) {
   const reduceMotion = useReducedMotion();
   const liability = getAccountGroup(account) === "liability";
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   return (
     <motion.div

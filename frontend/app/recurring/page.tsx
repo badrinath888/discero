@@ -816,6 +816,14 @@ function RecurringDrawer({
   ) => void;
   onDelete: (item: RecurringItem) => void;
 }) {
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   const reduceMotion = useReducedMotion();
   const payment =
     selection.kind === "detected"

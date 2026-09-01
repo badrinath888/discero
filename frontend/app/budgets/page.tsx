@@ -712,7 +712,7 @@ function BudgetRow({
         </div>
       </div>
 
-      <p className="text-sm font-semibold">
+      <p className="text-base font-semibold tabular-nums text-[#181713]">
         {budget ? formatCents(budget.limit_cents) : "Not set"}
       </p>
 
@@ -735,9 +735,13 @@ function BudgetRow({
           />
         </div>
 
-        <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#8A8178]">
-          <span>{Math.round(percent)}% used</span>
-          <span>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <span className="text-xs text-[#8A8178]">{Math.round(percent)}% used</span>
+          <span
+            className={`text-sm font-semibold tabular-nums ${
+              progress?.overspent ? "text-[#a64b3d]" : "text-[#181713]"
+            }`}
+          >
             {progress
               ? progress.over_budget_cents > 0
                 ? `${formatCents(progress.over_budget_cents)} over`

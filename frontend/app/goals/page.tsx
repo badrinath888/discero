@@ -1207,7 +1207,7 @@ function GoalRow({
       </div>
 
       <div>
-        <p className="text-sm font-semibold">
+        <p className="text-base font-semibold tabular-nums text-[#181713]">
           {formatCents(goal.saved_cents)}
         </p>
         <p className="mt-1 text-xs text-[#8A8178]">
@@ -1215,9 +1215,9 @@ function GoalRow({
         </p>
       </div>
 
-      <div className="text-xs text-[#8A8178]">
-        <p>{goal.target_date ? `Target ${formatDate(goal.target_date)}` : "No target date"}</p>
-        {intelligenceGoal && <p className="mt-1 font-semibold text-[#2F2930]">{formatCents(intelligenceGoal.required_monthly_cents)}/month</p>}
+      <div>
+        <p className="text-sm font-medium text-[#706961]">{goal.target_date ? `Target ${formatDate(goal.target_date)}` : "No target date"}</p>
+        {intelligenceGoal && <p className="mt-1 text-sm font-semibold tabular-nums text-[#2F2930]">{formatCents(intelligenceGoal.required_monthly_cents)}/month</p>}
       </div>
 
       <div>
@@ -1228,9 +1228,9 @@ function GoalRow({
             className="h-full rounded-full bg-[#6E4B63]"
           />
         </div>
-        <div className="mt-2 flex justify-between gap-3 text-xs text-[#8A8178]">
-          <span>{goal.progress_percent}% complete</span>
-          <span>{formatCents(goal.remaining_cents)} left</span>
+        <div className="mt-2 flex justify-between gap-3">
+          <span className="text-xs text-[#8A8178]">{goal.progress_percent}% complete</span>
+          <span className="text-sm font-semibold tabular-nums text-[#181713]">{formatCents(goal.remaining_cents)} left</span>
         </div>
       </div>
 

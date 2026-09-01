@@ -232,7 +232,7 @@ function RecommendationCard({
         }
       >
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span className="text-[11px] font-semibold tabular-nums text-[#8A8178]">
+          <span className="text-lg font-semibold tabular-nums text-[#2F2930]">
             {String(rank).padStart(2, "0")}
           </span>
           <span

@@ -791,7 +791,7 @@ function AccountRow({
         </span>
 
         <span
-          className={`text-base font-semibold md:text-right ${
+          className={`text-lg font-semibold md:text-right ${
             liability ? "text-[#A25543]" : "text-[#181713]"
           }`}
         >

@@ -16,6 +16,9 @@ from app.schemas import MajorPurchaseSimulationRequest
 from app.services.major_purchase_service import (
     simulate_major_purchase,
 )
+from app.services.safe_to_spend_service import (
+    calculate_current_safe_to_spend,
+)
 from tests.conftest import TestingSessionLocal
 
 
@@ -252,6 +255,102 @@ def test_respects_reserve_and_essential_spending() -> None:
         assert result.affordability_status == "affordable"
 
 
+def test_opted_in_baseline_matches_canonical_current_safe_to_spend() -> (
+    None
+):
+    """The production bug: simulate_major_purchase built its own
+    SafeToSpendRequest without ever setting include_projected_income/
+    include_goal_reserve, so its "before" figure silently diverged from
+    calculate_current_safe_to_spend (the same figure the Overview
+    dashboard and Copilot's get_safe_to_spend show). Income and a
+    goal with a target date are seeded so the two flags are not a
+    no-op -- without the fix, `before` is strictly less than
+    `canonical.safe_to_spend_cents` here.
+    """
+    with TestingSessionLocal() as db:
+        user = create_user(db, "canonical-parity")
+
+        create_account(db, user, available_balance_cents=5_000_000)
+        seed_income(db, user)
+        create_goal(db, user, name="Vacation")
+
+        canonical = calculate_current_safe_to_spend(
+            db, user.id, as_of=TEST_DATE
+        )
+
+        purchase_amount_cents = 200_000
+
+        result = simulate_major_purchase(
+            db,
+            user.id,
+            MajorPurchaseSimulationRequest(
+                purchase_name="Laptop",
+                purchase_amount_cents=purchase_amount_cents,
+                purchase_date=TEST_DATE + timedelta(days=7),
+                horizon_days=30,
+            ),
+            as_of=TEST_DATE,
+            include_projected_income=True,
+            include_goal_reserve=True,
+        )
+
+        assert (
+            result.safe_to_spend_before_purchase_cents
+            == canonical.safe_to_spend_cents
+        )
+        assert result.affordability_status == "affordable"
+        assert (
+            result.safe_to_spend_after_purchase_cents
+            == canonical.safe_to_spend_cents - purchase_amount_cents
+        )
+
+
+def test_default_flags_stay_backward_compatible_for_other_scenarios() -> (
+    None
+):
+    """Buy Now vs Wait and Scenario Comparison call
+    simulate_major_purchase without the new flags and must keep their
+    exact pre-fix numeric behavior -- proves the fix is additive/opt-in,
+    not a global behavior change, and that no duplicate deduction was
+    introduced for the already-tested default path.
+    """
+    with TestingSessionLocal() as db:
+        user = create_user(db, "default-flags-unaffected")
+
+        create_account(db, user, available_balance_cents=5_000_000)
+        seed_income(db, user)
+        create_goal(db, user, name="Vacation")
+
+        canonical = calculate_current_safe_to_spend(
+            db, user.id, as_of=TEST_DATE
+        )
+
+        default_result = simulate_major_purchase(
+            db,
+            user.id,
+            MajorPurchaseSimulationRequest(
+                purchase_name="Laptop",
+                purchase_amount_cents=200_000,
+                purchase_date=TEST_DATE + timedelta(days=7),
+                horizon_days=30,
+            ),
+            as_of=TEST_DATE,
+        )
+
+        # Seeded income/goal make the flags non-trivial: with them off
+        # (the untouched default), the baseline stays liquid-balance-
+        # only, same as before this fix, and does NOT equal the
+        # canonical enriched figure.
+        assert (
+            default_result.safe_to_spend_before_purchase_cents
+            == 5_000_000
+        )
+        assert (
+            default_result.safe_to_spend_before_purchase_cents
+            != canonical.safe_to_spend_cents
+        )
+
+
 def test_rejects_purchase_date_before_calculation_date() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db, "past-date")
@@ -348,6 +447,72 @@ def test_major_purchase_endpoint(
     assert payload["shortfall_after_purchase_cents"] == 0
     assert payload["recommended_max_purchase_cents"] == 375_000
     assert payload["safe_to_spend"]["safe_to_spend_cents"] == 500_000
+
+
+def test_major_purchase_endpoint_baseline_matches_safe_to_spend_endpoint(
+    client: TestClient,
+) -> None:
+    """API-level regression: the /major-purchase/simulate endpoint the
+    Decisions page and Copilot both ultimately drive must never show a
+    different "before" figure than the /safe-to-spend endpoint the
+    Overview dashboard shows, for the same account/goal state.
+    """
+    user_id, headers = register_and_login(
+        client,
+        "major-purchase-parity",
+    )
+
+    with TestingSessionLocal() as db:
+        user = db.get(User, user_id)
+        assert user is not None
+
+        create_account(db, user, available_balance_cents=500_000)
+        create_goal(
+            db,
+            user,
+            name="Vacation",
+            target_cents=600_000,
+            saved_cents=0,
+            target_date=date(2027, 8, 4),
+        )
+
+    safe_to_spend_response = client.post(
+        f"/users/{user_id}/safe-to-spend",
+        headers=headers,
+        json={
+            "safety_reserve_cents": 0,
+            "essential_spending_cents": 0,
+            "horizon_days": 30,
+        },
+    )
+    assert safe_to_spend_response.status_code == 200
+    canonical_cents = safe_to_spend_response.json()["safe_to_spend_cents"]
+
+    purchase_response = client.post(
+        f"/users/{user_id}/major-purchase/simulate",
+        headers=headers,
+        json={
+            "purchase_name": "Laptop",
+            "purchase_amount_cents": 200_000,
+            "purchase_date": (
+                date.today() + timedelta(days=7)
+            ).isoformat(),
+            "safety_reserve_cents": 0,
+            "essential_spending_cents": 0,
+            "horizon_days": 30,
+        },
+    )
+    assert purchase_response.status_code == 200
+    purchase_payload = purchase_response.json()
+
+    assert (
+        purchase_payload["safe_to_spend_before_purchase_cents"]
+        == canonical_cents
+    )
+    assert (
+        purchase_payload["safe_to_spend_after_purchase_cents"]
+        == canonical_cents - 200_000
+    )
 
 
 def create_goal(

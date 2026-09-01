@@ -29,7 +29,20 @@ def simulate_major_purchase(
     *,
     as_of: date | None = None,
     starting_liquid_balance_override_cents: int | None = None,
+    include_projected_income: bool = False,
+    include_goal_reserve: bool = False,
 ) -> MajorPurchaseSimulationOut:
+    """`include_projected_income`/`include_goal_reserve` default False so
+    Buy Now vs Wait, Scenario Comparison, and saved-decision replay keep
+    their exact existing numeric behavior (they never pass these).
+    Callers presenting this simulation as evaluated against the CURRENT
+    canonical Safe-to-Spend figure -- the direct Major Purchase
+    Simulator endpoint and Copilot's simulate_major_purchase tool --
+    must pass both True so `safe_to_spend_before_purchase_cents` always
+    equals `calculate_current_safe_to_spend`'s result (same reasoning
+    as `SafeToSpendRequest.include_projected_income`/
+    `include_goal_reserve`; never taken from client/LLM input).
+    """
     calculation_date = as_of or date.today()
 
     if payload.purchase_date < calculation_date:
@@ -46,6 +59,8 @@ def simulate_major_purchase(
                 payload.essential_spending_cents
             ),
             horizon_days=payload.horizon_days,
+            include_projected_income=include_projected_income,
+            include_goal_reserve=include_goal_reserve,
         ),
         as_of=calculation_date,
         starting_liquid_balance_override_cents=(

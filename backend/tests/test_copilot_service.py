@@ -322,6 +322,112 @@ def test_major_purchase_tool_converts_dollars_to_cents_via_schema() -> (
         assert affordability_chip.value_display == "Affordable"
 
 
+def test_major_purchase_baseline_matches_canonical_current_safe_to_spend() -> (
+    None
+):
+    """Regression for the production bug where "How much can I safely
+    spend right now?" and "Check if a purchase fits" -> "Laptop,
+    $2,000" answered from two different Safe-to-Spend baselines in the
+    same conversation, because simulate_major_purchase built its own
+    SafeToSpendRequest without opting into
+    include_projected_income/include_goal_reserve like
+    calculate_current_safe_to_spend always does. Income and a
+    goal-with-target-date are seeded specifically so the two flags are
+    not a no-op -- without the fix, `before` would be strictly less
+    than the canonical figure here.
+    """
+    with TestingSessionLocal() as db:
+        user = create_user(db)
+        create_account(db, user, available_balance_cents=5_000_000)
+
+        for month in (5, 6, 7):
+            db.add(
+                Transaction(
+                    user_id=user.id,
+                    posted_on=date(2026, month, 1),
+                    description="Paycheck",
+                    amount_cents=300_000,
+                    category="Income",
+                )
+            )
+        db.commit()
+
+        create_goal(
+            db,
+            user,
+            name="Vacation",
+            target_cents=600_000,
+            saved_cents=0,
+            target_date=date(2027, 8, 4),
+        )
+
+        canonical = calculate_current_safe_to_spend(
+            db, user.id, as_of=TEST_DATE
+        )
+
+        client = CopilotClient(api_key="fake-key")
+        purchase_amount_cents = 200_000
+
+        def fake_call(**kwargs):
+            tools = kwargs.get("tools") or []
+            if any(
+                t.get("name") == "present_financial_answer"
+                for t in tools
+            ):
+                return _response(
+                    _tool_use_block(
+                        "tool_2",
+                        "present_financial_answer",
+                        {"answer": "Yes, that's affordable."},
+                    )
+                )
+            return _response(
+                _tool_use_block(
+                    "tool_1",
+                    "simulate_major_purchase",
+                    {
+                        "purchase_name": "Laptop",
+                        "purchase_amount_cents": purchase_amount_cents,
+                        "purchase_date": TEST_DATE.isoformat(),
+                    },
+                )
+            )
+
+        client.call = fake_call  # type: ignore[method-assign]
+
+        result = run_copilot_turn(
+            db,
+            user.id,
+            user,
+            _user_message("Laptop, $2,000"),
+            client,
+            as_of=TEST_DATE,
+        )
+
+        assert result.kind == "answer"
+        assert result.tool_used == "Major Purchase Simulator"
+
+        after_chip = next(
+            c
+            for c in result.key_numbers
+            if c.label == "Safe to spend after"
+        )
+        expected_after_cents = (
+            canonical.safe_to_spend_cents - purchase_amount_cents
+        )
+        assert after_chip.value_display == (
+            f"${expected_after_cents / 100:,.2f}"
+        )
+
+        # Same read repeated afterwards is unaffected -- simulate is a
+        # pure calculation over live source data, never a deduction/
+        # reservation persisted anywhere.
+        replay = calculate_current_safe_to_spend(
+            db, user.id, as_of=TEST_DATE
+        )
+        assert replay.safe_to_spend_cents == canonical.safe_to_spend_cents
+
+
 def test_what_if_tool_grounds_chips_in_real_calculation() -> None:
     with TestingSessionLocal() as db:
         user = create_user(db)

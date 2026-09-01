@@ -1086,8 +1086,20 @@ def _handle_safe_to_spend(db, user_id, tool_input, as_of, current_user):
 
 
 def _handle_major_purchase(db, user_id, tool_input, as_of, current_user):
+    # Must agree with _handle_safe_to_spend's canonical CURRENT figure
+    # (calculate_current_safe_to_spend always folds in projected income
+    # and goal reserve) -- otherwise "how much can I safely spend" and
+    # "check if a purchase fits" answer from two different baselines in
+    # the same conversation. Never taken from tool_input/LLM.
     payload = MajorPurchaseSimulationRequest(**tool_input)
-    result = simulate_major_purchase(db, user_id, payload, as_of=as_of)
+    result = simulate_major_purchase(
+        db,
+        user_id,
+        payload,
+        as_of=as_of,
+        include_projected_income=True,
+        include_goal_reserve=True,
+    )
 
     chips = [
         _chip(

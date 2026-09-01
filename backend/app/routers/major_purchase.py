@@ -50,10 +50,16 @@ def simulate_purchase(
     _authorize_user(user_id, current_user)
 
     try:
+        # The direct Major Purchase Simulator must evaluate against the
+        # same canonical CURRENT Safe-to-Spend baseline shown on the
+        # Overview dashboard and by Copilot's get_safe_to_spend -- see
+        # simulate_major_purchase's docstring.
         return simulate_major_purchase(
             db,
             user_id,
             payload,
+            include_projected_income=True,
+            include_goal_reserve=True,
         )
     except ValueError as exc:
         raise HTTPException(

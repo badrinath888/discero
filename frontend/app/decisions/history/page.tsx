@@ -377,6 +377,22 @@ function summaryChips(
   return chips;
 }
 
+// A fixed 3-column grid leaves an empty, still-visible cell (the
+// container's own background shows through) whenever a decision type
+// resolves fewer than 3 chips and none of them are `wide` (which
+// forces its own full row via sm:col-span-3) -- e.g. what_if only
+// ever has "Safe-to-spend impact" + "Confidence". Sizing the grid to
+// the actual chip count removes that empty cell without touching the
+// `wide` row-break behavior, which still needs 3 columns to span.
+function summaryChipsGridColsClass(
+  chips: { wide?: boolean }[]
+): string {
+  if (chips.some((chip) => chip.wide) || chips.length >= 3) {
+    return "sm:grid-cols-3";
+  }
+  return chips.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1";
+}
+
 function statusLabel(decision: SavedDecision): string | null {
   const r = decision.result_snapshot as Record<string, unknown>;
   const impact = r.impact as Record<string, unknown> | undefined;
@@ -1863,23 +1879,31 @@ export default function DecisionHistoryPage() {
                             </fieldset>
                           )}
 
-                        <div className="mt-5 grid gap-px overflow-hidden bg-[#181713]/10 sm:grid-cols-3">
-                          {summaryChips(decision).map((chip) => (
+                        {(() => {
+                          const chips = summaryChips(decision);
+                          if (chips.length === 0) return null;
+                          return (
                             <div
-                              key={chip.label}
-                              className={`bg-[#FFFCF7] px-4 py-3 ${
-                                chip.wide ? "sm:col-span-3" : ""
-                              }`}
+                              className={`mt-5 grid gap-px overflow-hidden bg-[#181713]/10 ${summaryChipsGridColsClass(chips)}`}
                             >
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
-                                {chip.label}
-                              </p>
-                              <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#2F2930]">
-                                {chip.value}
-                              </p>
+                              {chips.map((chip) => (
+                                <div
+                                  key={chip.label}
+                                  className={`bg-[#FFFCF7] px-4 py-3 ${
+                                    chip.wide ? "sm:col-span-3" : ""
+                                  }`}
+                                >
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a978f]">
+                                    {chip.label}
+                                  </p>
+                                  <p className="mt-0.5 text-base font-semibold tracking-[-0.02em] text-[#2F2930]">
+                                    {chip.value}
+                                  </p>
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
+                          );
+                        })()}
 
                         {rerun && (
                           <div

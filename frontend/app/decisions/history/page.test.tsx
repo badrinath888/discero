@@ -686,6 +686,19 @@ describe("Decision history page", () => {
     expect(screen.queryByText("Buffer difference")).not.toBeInTheDocument();
   });
 
+  it("sizes the summary chip grid to the actual chip count, leaving no empty cell for a 2-chip what_if decision", async () => {
+    mocks.getSavedDecisions.mockResolvedValue([whatIfDecision]);
+
+    render(<DecisionHistoryPage />);
+
+    const impactChip = await screen.findByText("Safe-to-spend impact");
+    expect(screen.getByText("Confidence")).toBeInTheDocument();
+
+    const chipGrid = impactChip.closest("div")?.parentElement as HTMLElement;
+    expect(chipGrid.className).toContain("sm:grid-cols-2");
+    expect(chipGrid.className).not.toContain("sm:grid-cols-3");
+  });
+
   it("still renders a saved Scenario Comparison decision", async () => {
     mocks.getSavedDecisions.mockResolvedValue([scenarioDecision]);
 

@@ -255,6 +255,9 @@ export default function AccountsPage() {
   }, [accounts]);
   const syncInProgress =
     syncing || connectedItems.some((item) => item.sync_status === "syncing");
+  const hasSyncableConnection = connectedItems.some(
+    (item) => item.sync_available
+  );
 
   const disconnectAccountIds = useMemo(() => {
     const seenItems = new Set<number>();
@@ -382,8 +385,8 @@ export default function AccountsPage() {
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-3">
-                {userId && accounts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3">
+                {userId && accounts.length > 0 && hasSyncableConnection && (
                   <button
                     type="button"
                     onClick={handleSync}
@@ -395,6 +398,12 @@ export default function AccountsPage() {
                     />
                     {syncInProgress ? "Syncing..." : "Sync now"}
                   </button>
+                )}
+
+                {userId && accounts.length > 0 && !hasSyncableConnection && (
+                  <p className="text-xs text-[#706961]">
+                    Demo data — no live bank connection
+                  </p>
                 )}
 
                 {userId && (
@@ -449,7 +458,11 @@ export default function AccountsPage() {
                       </span>
                     </div>
 
-                    {item.connection_status === "reconnect_required" ? (
+                    {!item.sync_available ? (
+                      <p className="mt-3 text-sm text-[#706961]">
+                        Demo data — no live bank connection
+                      </p>
+                    ) : item.connection_status === "reconnect_required" ? (
                       <p className="mt-3 text-sm font-medium text-[#8f3f33]">
                         Reconnect required. Use Connect bank to restore this institution.
                       </p>

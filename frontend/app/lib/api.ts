@@ -1788,6 +1788,7 @@ export type FinancialAccount = {
   currency: string;
   connection_status: string;
   sync_status: "idle" | "syncing" | "succeeded" | "failed";
+  sync_available: boolean;
   sync_error: string | null;
   last_sync_attempted_at: string | null;
   last_synced_at: string | null;

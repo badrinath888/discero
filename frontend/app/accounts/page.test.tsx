@@ -99,6 +99,7 @@ const account: FinancialAccount = {
   currency: "USD",
   connection_status: "active",
   sync_status: "succeeded",
+  sync_available: true,
   sync_error: null,
   last_sync_attempted_at: "2026-08-03T15:31:00Z",
   last_synced_at: "2026-08-03T15:30:00Z",

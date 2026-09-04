@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
+from app.constants import DEMO_PLAID_TOKEN_PLACEHOLDER
 from app.database import get_db
 from app.models import FinancialAccount, PlaidItem, User
 from app.schemas import ConnectedAccountOut
@@ -67,6 +68,9 @@ def list_accounts(
             currency=account.currency,
             connection_status=item.status,
             sync_status=item.sync_status,
+            sync_available=(
+                item.access_token_ciphertext != DEMO_PLAID_TOKEN_PLACEHOLDER
+            ),
             sync_error=item.sync_error,
             last_sync_attempted_at=item.last_sync_attempted_at,
             last_synced_at=item.last_synced_at,

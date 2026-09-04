@@ -567,6 +567,7 @@ class ConnectedAccountOut(BaseModel):
     currency: str
     connection_status: str
     sync_status: str
+    sync_available: bool
     sync_error: str | None
     last_sync_attempted_at: datetime | None
     last_synced_at: datetime | None

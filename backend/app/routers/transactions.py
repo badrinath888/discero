@@ -374,6 +374,15 @@ def search_transactions(
 
     if duplicates_only:
         duplicate = aliased(Transaction)
+        # Date +/- integer isn't portable across our two backends: SQLite
+        # stores Date as ISO8601 text (needs the date() modifier form),
+        # while Postgres's native date type supports +/- integer directly.
+        if db.get_bind().dialect.name == "sqlite":
+            day_before = func.date(Transaction.posted_on, "-1 day")
+            day_after = func.date(Transaction.posted_on, "+1 day")
+        else:
+            day_before = Transaction.posted_on - 1
+            day_after = Transaction.posted_on + 1
         transaction_identity = func.lower(
             func.trim(
                 func.coalesce(
@@ -396,7 +405,10 @@ def search_transactions(
             .where(
                 duplicate.user_id == Transaction.user_id,
                 duplicate.id != Transaction.id,
-                duplicate.posted_on == Transaction.posted_on,
+                # ±1 calendar day, matching the Recommendations
+                # repeated-charge window (_REPEATED_CHARGE_WINDOW_DAYS).
+                duplicate.posted_on >= day_before,
+                duplicate.posted_on <= day_after,
                 duplicate.amount_cents == Transaction.amount_cents,
                 duplicate_identity == transaction_identity,
             )

@@ -261,8 +261,8 @@ def test_duplicate_filter_returns_all_group_members_once_with_totals(
             ),
             Transaction(
                 user_id=user_id,
-                posted_on=date(2026, 8, 11),
-                description="Different date",
+                posted_on=date(2026, 8, 13),
+                description="Outside the 1-day window",
                 merchant_name="North Coffee",
                 amount_cents=-725,
                 category="Dining",
@@ -299,6 +299,61 @@ def test_duplicate_filter_returns_all_group_members_once_with_totals(
     )
     assert second_page.status_code == 200
     assert len(second_page.json()["items"]) == 1
+
+
+def test_duplicate_filter_matches_same_merchant_and_amount_one_day_apart(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+) -> None:
+    add_transactions(
+        [
+            Transaction(
+                user_id=user_id,
+                posted_on=date(2026, 7, 14),
+                description="REI purchase",
+                merchant_name="Rei",
+                amount_cents=-6430,
+                category="Shopping",
+                source="plaid",
+                pending=False,
+            ),
+            Transaction(
+                user_id=user_id,
+                posted_on=date(2026, 7, 15),
+                description="REI purchase",
+                merchant_name="Rei",
+                amount_cents=-6430,
+                category="Shopping",
+                source="plaid",
+                pending=False,
+            ),
+            Transaction(
+                user_id=user_id,
+                posted_on=date(2026, 7, 17),
+                description="REI purchase, outside window",
+                merchant_name="Rei",
+                amount_cents=-6430,
+                category="Shopping",
+                source="plaid",
+                pending=False,
+            ),
+        ]
+    )
+
+    response = client.get(
+        f"/users/{user_id}/transactions/search",
+        params={"duplicates_only": "true"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert {item["posted_on"] for item in body["items"]} == {
+        "2026-07-14",
+        "2026-07-15",
+    }
 
 
 def test_duplicate_filter_falls_back_to_description_for_blank_merchant(

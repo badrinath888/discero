@@ -22,9 +22,18 @@ const baseURL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 export const isLocalTarget =
   baseURL.includes("localhost") || baseURL.includes("127.0.0.1");
 
+// Opt-in, explicit, single-purpose: permit ONLY the read-only
+// authenticated smoke specs to run against a remote (production-like)
+// target. Never consulted by requireAuthenticatedEnv(), so mutating
+// specs stay local-only no matter what this is set to.
+export const isReadOnlyRemoteEnabled =
+  process.env.E2E_READ_ONLY_REMOTE === "1";
+
 /**
- * Gate an authenticated Phase 2 describe block. Skips (visibly, with a
- * reason) when credentials are absent or the target is not local.
+ * Gate an authenticated, potentially MUTATING Phase 2 describe block.
+ * Skips (visibly, with a reason) when credentials are absent or the
+ * target is not local. Behaviour is intentionally independent of
+ * E2E_READ_ONLY_REMOTE -- these specs must never run remotely.
  */
 export function requireAuthenticatedEnv(): void {
   test.skip(
@@ -34,6 +43,23 @@ export function requireAuthenticatedEnv(): void {
   test.skip(
     !isLocalTarget,
     `Authenticated Phase 2 specs mutate/simulate against user data; they run only against a local target (E2E_BASE_URL=${baseURL})`
+  );
+}
+
+/**
+ * Gate a READ-ONLY authenticated describe block: same credential
+ * requirement as requireAuthenticatedEnv(), but a remote target is
+ * allowed ONLY when E2E_READ_ONLY_REMOTE=1 is explicitly set. Specs
+ * using this guard must not create, edit, or delete any data.
+ */
+export function requireReadOnlyAuthenticatedEnv(): void {
+  test.skip(
+    !hasE2ECredentials,
+    "Set E2E_USER_EMAIL and E2E_USER_PASSWORD to run authenticated specs"
+  );
+  test.skip(
+    !isLocalTarget && !isReadOnlyRemoteEnabled,
+    `Read-only authenticated specs run against a remote target only when E2E_READ_ONLY_REMOTE=1 (E2E_BASE_URL=${baseURL})`
   );
 }
 

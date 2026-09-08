@@ -1,5 +1,5 @@
 import { expect, test } from "./helpers/fixtures";
-import { login, requireAuthenticatedEnv } from "./helpers/auth";
+import { login, requireReadOnlyAuthenticatedEnv } from "./helpers/auth";
 
 // Phase 3C -- Accounts (read-only).
 //
@@ -14,7 +14,7 @@ const REWARDS = "Demo Rewards Card";
 
 test.describe("accounts - seeded demo portfolio", () => {
   test.beforeEach(async ({ page }) => {
-    requireAuthenticatedEnv();
+    requireReadOnlyAuthenticatedEnv();
     await login(page);
   });
 

@@ -120,8 +120,18 @@ export default function BudgetsPage() {
         setCheckingSession(false);
       })
       .catch(() => {
-        session.clear();
-        router.replace("/");
+        // api.ts clears the local session on a genuine 401. If the
+        // token is still present this was a transient/aborted request
+        // (e.g. an in-flight /users/me cancelled by fast navigation) --
+        // keep the still-valid session; the userId-keyed loader below
+        // still populates the page.
+        if (!session.getToken()) {
+          router.replace("/");
+          return;
+        }
+
+        setUserId(id);
+        setCheckingSession(false);
       });
   }, [router]);
 

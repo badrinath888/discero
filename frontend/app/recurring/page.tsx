@@ -193,9 +193,23 @@ export default function RecurringPage() {
         setUserId(id);
         await loadData(id);
         void loadInsights(id);
-      } catch {
-        session.clear();
-        router.replace("/");
+      } catch (err) {
+        // api.ts clears the local session on a genuine 401. If the
+        // token is still present this was a transient/aborted request
+        // (e.g. an in-flight /users/me cancelled by fast navigation) --
+        // keep the still-valid session and fall back to the page's own
+        // error handling instead of destroying it.
+        if (!session.getToken()) {
+          router.replace("/");
+          return;
+        }
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load recurring payments"
+        );
+        setLoading(false);
       }
     }
 

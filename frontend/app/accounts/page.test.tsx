@@ -265,3 +265,44 @@ describe("Accounts Plaid lifecycle", () => {
     expect(await screen.findByText("Coffee Shop")).toBeInTheDocument();
   });
 });
+
+describe("auth initialization race", () => {
+  beforeEach(() => {
+    mocks.getUserId.mockReturnValue(1);
+    mocks.getToken.mockReturnValue("token");
+    mocks.getAccounts.mockResolvedValue([account]);
+    mocks.getTransactions.mockResolvedValue([]);
+  });
+
+  it("does not clear a still-valid session when the init getMe request is aborted", async () => {
+    // Fast Dashboard -> Accounts navigation can abort the in-flight
+    // /users/me. api.ts only clears the local session on a real 401, so
+    // the token is still present here.
+    mocks.getMe.mockRejectedValue(new Error("net::ERR_ABORTED"));
+
+    render(<AccountsPage />);
+
+    expect(await screen.findByText("net::ERR_ABORTED")).toBeInTheDocument();
+    expect(mocks.clearSession).not.toHaveBeenCalled();
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("still redirects when the failure was a genuine 401 (api.ts already cleared the session)", async () => {
+    mocks.getMe.mockRejectedValue(new Error("Unauthorized"));
+    // api.ts clears the session on a true 401 -> token is now gone.
+    mocks.getToken.mockReturnValue(null);
+
+    render(<AccountsPage />);
+
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/"));
+  });
+
+  it("still clears and redirects on an explicit user-id mismatch", async () => {
+    mocks.getMe.mockResolvedValue({ id: 999, email: "other@example.com" });
+
+    render(<AccountsPage />);
+
+    await waitFor(() => expect(mocks.clearSession).toHaveBeenCalled());
+    expect(mocks.replace).toHaveBeenCalledWith("/");
+  });
+});

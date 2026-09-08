@@ -165,9 +165,21 @@ export default function AccountsPage() {
 
         setUserId(id);
         await loadAccounts(id);
-      } catch {
-        session.clear();
-        router.replace("/");
+      } catch (err) {
+        // api.ts clears the local session on a genuine 401. If the
+        // token is still present this was a transient/aborted request
+        // (e.g. an in-flight /users/me cancelled by fast navigation) --
+        // keep the still-valid session and fall back to the page's own
+        // error handling instead of destroying it.
+        if (!session.getToken()) {
+          router.replace("/");
+          return;
+        }
+
+        setError(
+          err instanceof Error ? err.message : "Unable to load accounts"
+        );
+        setLoading(false);
       }
     }
 

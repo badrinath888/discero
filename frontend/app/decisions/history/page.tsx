@@ -1241,8 +1241,17 @@ export default function DecisionHistoryPage() {
           setReviewQueue(reviewQueueResult.value.items);
         }
       } catch {
-        session.clear();
-        router.replace("/");
+        // api.ts clears the local session on a genuine 401. If the
+        // token is still present this was a transient/aborted request
+        // (e.g. an in-flight /users/me cancelled by fast navigation) --
+        // keep the still-valid session instead of destroying it.
+        if (!session.getToken()) {
+          router.replace("/");
+          return;
+        }
+
+        setUserId(id);
+        setError("Couldn't load your saved decisions just now.");
       } finally {
         setInitializing(false);
       }

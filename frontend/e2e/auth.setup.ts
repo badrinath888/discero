@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   hasE2ECredentials,
   isLocalTarget,
+  isReadOnlyRemoteEnabled,
   login,
 } from "./helpers/auth";
 
@@ -27,8 +28,8 @@ setup("authenticate", async ({ page }) => {
     "Set E2E_USER_EMAIL and E2E_USER_PASSWORD to run authenticated specs"
   );
   setup.skip(
-    !isLocalTarget,
-    "Authenticated specs run only against a local target"
+    !isLocalTarget && !isReadOnlyRemoteEnabled,
+    "Remote authentication is allowed only when E2E_READ_ONLY_REMOTE=1 (read-only smoke)"
   );
 
   await login(page);

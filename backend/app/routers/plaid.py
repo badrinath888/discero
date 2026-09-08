@@ -275,22 +275,30 @@ def disconnect_plaid_item(
         access_token = decrypt_token(
             plaid_item.access_token_ciphertext
         )
-        remove_item(access_token)
-    except PlaidConfigurationError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=str(exc),
-        ) from exc
-    except TokenEncryptionError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=str(exc),
-        ) from exc
-    except PlaidServiceError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=str(exc),
-        ) from exc
+    except TokenEncryptionError:
+        # The stored ciphertext can no longer be decrypted, so the plaintext
+        # access token is unrecoverable and remote revocation is impossible.
+        # Fall through to the normal local cleanup rather than leaving the
+        # institution permanently stuck. Never log ciphertext or tokens.
+        logger.warning(
+            "Disconnecting Plaid item with undecryptable access token; "
+            "skipping remote revocation (user_id=%s item_id=%s)",
+            user_id,
+            plaid_item.id,
+        )
+    else:
+        try:
+            remove_item(access_token)
+        except PlaidConfigurationError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=str(exc),
+            ) from exc
+        except PlaidServiceError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=str(exc),
+            ) from exc
 
     try:
         account_ids = list(

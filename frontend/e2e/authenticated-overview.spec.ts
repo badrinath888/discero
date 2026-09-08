@@ -1,5 +1,5 @@
 import { expect, test } from "./helpers/fixtures";
-import { login, requireAuthenticatedEnv } from "./helpers/auth";
+import { login, requireReadOnlyAuthenticatedEnv } from "./helpers/auth";
 import { allMoney } from "./helpers/money";
 import { readOverviewSafeToSpend } from "./helpers/surfaces";
 
@@ -17,7 +17,7 @@ import { readOverviewSafeToSpend } from "./helpers/surfaces";
 
 test.describe("authenticated overview", () => {
   test.beforeEach(async ({ page }) => {
-    requireAuthenticatedEnv();
+    requireReadOnlyAuthenticatedEnv();
     await login(page);
   });
 

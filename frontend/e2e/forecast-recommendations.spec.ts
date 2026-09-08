@@ -1,5 +1,5 @@
 import { expect, test } from "./helpers/fixtures";
-import { login, requireAuthenticatedEnv } from "./helpers/auth";
+import { login, requireReadOnlyAuthenticatedEnv } from "./helpers/auth";
 import { allMoney } from "./helpers/money";
 import { readOverviewSafeToSpend } from "./helpers/surfaces";
 
@@ -18,7 +18,7 @@ const MONEY = /-?\$[\d,]+\.\d{2}/;
 
 test.describe("forecast + recommendations consistency", () => {
   test.beforeEach(async ({ page }) => {
-    requireAuthenticatedEnv();
+    requireReadOnlyAuthenticatedEnv();
     await login(page);
   });
 

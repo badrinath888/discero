@@ -88,8 +88,19 @@ export default function RecommendationsPage() {
           );
         }
       } catch {
-        session.clear();
-        router.replace("/");
+        // api.ts clears the local session on a genuine 401. If the
+        // token is still present this was a transient/aborted request
+        // (e.g. an in-flight /users/me cancelled by fast navigation) --
+        // keep the still-valid session and show the page's error state
+        // instead of destroying it.
+        if (!session.getToken()) {
+          router.replace("/");
+          return;
+        }
+
+        setError(
+          "Couldn't load your recommendations just now. Please try again."
+        );
       } finally {
         setInitializing(false);
       }

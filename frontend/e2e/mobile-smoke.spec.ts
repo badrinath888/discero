@@ -1,6 +1,6 @@
 import { devices } from "@playwright/test";
 import { expect, test } from "./helpers/fixtures";
-import { login, requireAuthenticatedEnv } from "./helpers/auth";
+import { login, requireReadOnlyAuthenticatedEnv } from "./helpers/auth";
 
 // Phase 5A -- mobile responsive smoke (read-only).
 //
@@ -23,7 +23,7 @@ const ROUTES: Array<{ nav: string; path: string; heading: string | null }> = [
 
 test.describe("mobile responsive smoke", () => {
   test.beforeEach(async ({ page }) => {
-    requireAuthenticatedEnv();
+    requireReadOnlyAuthenticatedEnv();
     await login(page);
   });
 

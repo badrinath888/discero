@@ -1477,3 +1477,134 @@ def test_disconnect_plaid_item_keeps_local_data_when_plaid_fails(
 
     with TestingSessionLocal() as db:
         assert db.get(PlaidItem, item_id) is not None
+
+
+def test_disconnect_plaid_item_when_token_cannot_be_decrypted(
+    client: TestClient,
+    user_id: int,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    # Regression test for a production bug: a stale Plaid connection whose
+    # stored ciphertext can no longer be decrypted could never be
+    # disconnected -- decrypt_token raised TokenEncryptionError and the
+    # route returned 503 before reaching any local cleanup, leaving the
+    # institution permanently stuck. When the plaintext token is
+    # unrecoverable, remote revocation is impossible, so the route must
+    # skip remove_item and run its normal local cleanup instead.
+    with TestingSessionLocal() as db:
+        stale_item = PlaidItem(
+            user_id=user_id,
+            provider_item_id="item-disconnect-undecryptable",
+            institution_name="Tartan Bank",
+            access_token_ciphertext="unreadable-old-ciphertext",
+            status="active",
+        )
+        other_item = PlaidItem(
+            user_id=user_id,
+            provider_item_id="item-disconnect-other",
+            institution_name="Bank B",
+            access_token_ciphertext="encrypted-token-b",
+            status="active",
+        )
+        db.add_all([stale_item, other_item])
+        db.flush()
+
+        stale_account = FinancialAccount(
+            plaid_item_id=stale_item.id,
+            provider_account_id="account-undecryptable",
+            name="Checking",
+            account_type="depository",
+            account_subtype="checking",
+            currency="USD",
+        )
+        other_account = FinancialAccount(
+            plaid_item_id=other_item.id,
+            provider_account_id="account-other",
+            name="Checking B",
+            account_type="depository",
+            account_subtype="checking",
+            currency="USD",
+        )
+        db.add_all([stale_account, other_account])
+        db.flush()
+
+        stale_plaid_txn = Transaction(
+            user_id=user_id,
+            financial_account_id=stale_account.id,
+            provider_transaction_id="txn-undecryptable-plaid",
+            posted_on=date(2026, 8, 1),
+            description="Plaid transaction on stale item",
+            amount_cents=-1200,
+            category="Food",
+            source="plaid",
+            pending=False,
+        )
+        csv_txn_on_stale_account = Transaction(
+            user_id=user_id,
+            financial_account_id=stale_account.id,
+            posted_on=date(2026, 8, 2),
+            description="Manual transaction on stale account",
+            amount_cents=-450,
+            category="Food",
+            source="csv",
+            pending=False,
+        )
+        other_plaid_txn = Transaction(
+            user_id=user_id,
+            financial_account_id=other_account.id,
+            provider_transaction_id="txn-other-plaid",
+            posted_on=date(2026, 8, 1),
+            description="Plaid transaction on other item",
+            amount_cents=-2000,
+            category="Food",
+            source="plaid",
+            pending=False,
+        )
+        db.add_all(
+            [stale_plaid_txn, csv_txn_on_stale_account, other_plaid_txn]
+        )
+        db.commit()
+
+        stale_item_id = stale_item.id
+        other_item_id = other_item.id
+        other_account_id = other_account.id
+        stale_plaid_txn_id = stale_plaid_txn.id
+        csv_txn_id = csv_txn_on_stale_account.id
+        other_plaid_txn_id = other_plaid_txn.id
+
+    def raise_token_error(ciphertext: str) -> str:
+        raise TokenEncryptionError("Encrypted token is invalid")
+
+    remove_item_calls: list[str] = []
+
+    monkeypatch.setattr(plaid_router, "decrypt_token", raise_token_error)
+    monkeypatch.setattr(
+        plaid_router,
+        "remove_item",
+        lambda access_token: remove_item_calls.append(access_token),
+    )
+
+    response = client.delete(
+        f"/users/{user_id}/plaid/items/{stale_item_id}",
+        headers=auth_headers,
+    )
+
+    # Normal successful-disconnect status, and no remote revocation attempt.
+    assert response.status_code == 204
+    assert remove_item_calls == []
+
+    with TestingSessionLocal() as db:
+        # Target item and its linked data follow the normal cleanup path.
+        assert db.get(PlaidItem, stale_item_id) is None
+        assert db.get(Transaction, stale_plaid_txn_id) is None
+
+        # Manual/CSV data is preserved (account link falls back to NULL).
+        csv_txn = db.get(Transaction, csv_txn_id)
+        assert csv_txn is not None
+        assert csv_txn.financial_account_id is None
+
+        # Other Plaid item and its data are untouched.
+        assert db.get(PlaidItem, other_item_id) is not None
+        assert db.get(FinancialAccount, other_account_id) is not None
+        assert db.get(Transaction, other_plaid_txn_id) is not None

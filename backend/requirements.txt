@@ -20,7 +20,7 @@ anthropic==0.40.0
 groq==1.6.0
 PyJWT==2.13.0
 pwdlib[argon2]==0.3.0
-plaid-python==40.0.0
+plaid-python==43.0.0
 resend==2.34.0
 redis==6.4.0
 

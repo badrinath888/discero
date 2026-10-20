@@ -25,5 +25,5 @@ resend==2.34.0
 redis==6.4.0
 
 # dev / test
-pytest==9.0.3
+pytest==9.1.1
 httpx==0.28.1
